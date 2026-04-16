@@ -11141,13 +11141,15 @@ export default function App() {
                         const isComing = card._state === "coming";
                         const isInvisible = card._state === "invisible";
                         const blocked = (isComing || isInvisible) && !isAdminView;
+                        const isActive = !isComing && !isInvisible;
                         return (
                           <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
-                            className={`w-full rounded-2xl p-4 text-left transition-all relative ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-900" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"} ${blocked ? "cursor-not-allowed" : ""}`}>
+                            className={`w-full rounded-2xl p-4 text-left transition-all relative ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-900" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"} ${blocked ? "cursor-not-allowed" : ""}`}
+                            style={isActive ? { boxShadow: "inset 0 0 0 2px #34d399" } : {}}>
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  {!isComing && !isInvisible && <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" aria-label="active" />}
+                                  {isActive && <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" aria-label="active" />}
                                   <div className={`text-base font-bold leading-tight ${isComing ? "text-gray-600" : "text-white"}`}>{card.label}</div>
                                 </div>
                                 <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-700" : "text-gray-400"}`}>{card.desc}</div>
@@ -11165,11 +11167,12 @@ export default function App() {
                         const isComing = card._state === "coming";
                         const isInvisible = card._state === "invisible";
                         const blocked = (isComing || isInvisible) && !isAdminView;
+                        const isActive = !isComing && !isInvisible;
                         return (
                           <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
-                            className={`rounded-2xl p-3.5 text-left transition-all border relative ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-gray-50 border-gray-100" : "bg-gray-50 border-gray-100 hover:bg-gray-100 active:scale-[0.98]"} ${blocked ? "cursor-not-allowed" : ""}`}>
+                            className={`rounded-2xl p-3.5 text-left transition-all border-2 relative ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-gray-50 border-gray-100" : "bg-gray-50 border-emerald-300 hover:bg-gray-100 active:scale-[0.98]"} ${blocked ? "cursor-not-allowed" : ""}`}>
                             <div className="flex items-center gap-1.5 mb-0.5">
-                              {!isComing && !isInvisible && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" aria-label="active" />}
+                              {isActive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" aria-label="active" />}
                               <div className={`text-sm font-bold leading-tight ${isComing ? "text-gray-400" : "text-gray-900"}`}>{card.label}</div>
                             </div>
                             <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-300" : "text-gray-400"}`}>{card.desc}</div>
@@ -16897,11 +16900,41 @@ function RegistrationsAdminSection() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState(null);
-  // Track when admin last viewed, so we can show "edited since last visit" banner
+  const [sortBy, setSortBy] = useState("name"); // "name" | "team" | "age" | "date"
+  const [showAvailability, setShowAvailability] = useState(false);
+
   const LAST_SEEN_KEY = "pcal_admin_reg_last_seen";
   const [lastSeenAt] = useState(() => {
     try { return window.localStorage.getItem(LAST_SEEN_KEY) || null; } catch { return null; }
   });
+
+  // Team pref name -> color mapping
+  const TEAM_COLORS_BY_NAME = {
+    "Sacramento": { bg: "#7c3aed", text: "#fff", border: "#7c3aed20" },
+    "San Jose": { bg: "#7f1d1d", text: "#fff", border: "#7f1d1d20" },
+    "Hayward": { bg: "#2563eb", text: "#fff", border: "#2563eb20" },
+    "Modesto": { bg: "#dc2626", text: "#fff", border: "#dc262620" },
+    "Pleasanton": { bg: "#facc15", text: "#000", border: "#facc1520" },
+    "Concord": { bg: "#065f46", text: "#fff", border: "#065f4620" },
+    "Monterey": { bg: "#0891b2", text: "#fff", border: "#0891b220" },
+    "Redwood City": { bg: "#ea580c", text: "#fff", border: "#ea580c20" },
+  };
+
+  const REG_DATES = ["June 7", "June 14", "June 28", "July 5", "July 12", "July 26", "Aug 2", "Aug 9", "Aug 16"];
+
+  const getAge = (dob) => {
+    if (!dob) return null;
+    // Try parsing MM/DD/YYYY
+    const parts = dob.split("/");
+    if (parts.length !== 3) return null;
+    const birthDate = new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+    if (isNaN(birthDate.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age;
+  };
 
   useEffect(() => {
     (async () => {
@@ -16919,9 +16952,29 @@ function RegistrationsAdminSection() {
     })();
   }, []);
 
+  const sortedRows = useMemo(() => {
+    const s = [...rows];
+    if (sortBy === "name") s.sort((a, b) => ((a.last_name || "") + (a.first_name || "")).localeCompare((b.last_name || "") + (b.first_name || "")));
+    else if (sortBy === "team") s.sort((a, b) => (a.team_pref || "ZZZ").localeCompare(b.team_pref || "ZZZ"));
+    else if (sortBy === "age") s.sort((a, b) => (getAge(a.dob) || 99) - (getAge(b.dob) || 99));
+    else if (sortBy === "date") s.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return s;
+  }, [rows, sortBy]);
+
+  // Availability grid: for each team pref, how many players are available each week
+  const availabilityGrid = useMemo(() => {
+    const teams = [...new Set(rows.map(r => r.team_pref).filter(Boolean))].sort();
+    return teams.map(team => {
+      const teamRows = rows.filter(r => r.team_pref === team);
+      const total = teamRows.length;
+      const byDate = REG_DATES.map(d => teamRows.filter(r => (r.dates || []).includes(d)).length);
+      return { team, total, byDate };
+    });
+  }, [rows]);
+
   const exportCSV = () => {
-    const headers = ["First Name", "Last Name", "Email", "Phone", "DOB", "Address", "City", "Zip", "Emergency Contact", "Emergency Phone", "Eligibility", "Team Pref", "Reg Basis", "Community Team", "Dates", "Roles", "Buyout", "Email Verified", "Admin Override", "Conflicts", "Created At", "Last Player Edit"];
-    const out = rows.map(r => [r.first_name, r.last_name, r.email, r.phone, r.dob, r.address, r.city, r.zip, r.emergency_contact, r.emergency_phone, r.eligibility, r.team_pref, r.reg_basis, r.community_team, (r.dates || []).join("; "), (r.roles || []).join("; "), r.buyout_volunteer ? "Yes" : "No", r.email_verified ? "Yes" : "No", r.admin_override ? "Yes" : "No", r.conflicts_note || "", r.created_at || "", r.last_edited_by_player_at || ""]);
+    const headers = ["First Name", "Last Name", "Email", "Phone", "DOB", "Age", "Address", "City", "Zip", "Emergency Contact", "Emergency Phone", "Eligibility", "Team Pref", "Reg Basis", "Community Team", "Dates", "Roles", "Buyout", "Email Verified", "Admin Override", "Conflicts", "Created At", "Last Player Edit"];
+    const out = rows.map(r => [r.first_name, r.last_name, r.email, r.phone, r.dob, getAge(r.dob) || "", r.address, r.city, r.zip, r.emergency_contact, r.emergency_phone, r.eligibility, r.team_pref, r.reg_basis, r.community_team, (r.dates || []).join("; "), (r.roles || []).join("; "), r.buyout_volunteer ? "Yes" : "No", r.email_verified ? "Yes" : "No", r.admin_override ? "Yes" : "No", r.conflicts_note || "", r.created_at || "", r.last_edited_by_player_at || ""]);
     const csv = [headers, ...out].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -16950,32 +17003,98 @@ function RegistrationsAdminSection() {
       )}
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-gray-900">{rows.length} registration{rows.length !== 1 ? "s" : ""}</p>
-        {rows.length > 0 && (
-          <button onClick={exportCSV} className="px-3 py-1.5 rounded-xl text-xs font-bold bg-gray-900 text-white">Export CSV</button>
-        )}
+        <div className="flex gap-1.5">
+          <button onClick={() => setShowAvailability(v => !v)}
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${showAvailability ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+            Availability
+          </button>
+          {rows.length > 0 && (
+            <button onClick={exportCSV} className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-gray-900 text-white">CSV</button>
+          )}
+        </div>
       </div>
+
+      {/* Sort bar */}
+      <div className="flex gap-1">
+        {[["name", "Name"], ["team", "Team"], ["age", "Age"], ["date", "Newest"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSortBy(k)}
+            className={`px-2 py-1 rounded-lg text-[10px] font-bold ${sortBy === k ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Availability grid */}
+      {showAvailability && availabilityGrid.length > 0 && (
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="text-left px-2 py-1.5 font-bold text-gray-500 sticky left-0 bg-gray-50">Team</th>
+                  <th className="px-1.5 py-1.5 font-bold text-gray-500 text-center">Total</th>
+                  {REG_DATES.map(d => (
+                    <th key={d} className="px-1 py-1.5 font-bold text-gray-400 text-center whitespace-nowrap">{d.replace("June", "Jun").replace("July", "Jul")}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {availabilityGrid.map(row => {
+                  const tc = TEAM_COLORS_BY_NAME[row.team];
+                  return (
+                    <tr key={row.team} className="border-t border-gray-100">
+                      <td className="px-2 py-1.5 font-bold sticky left-0 bg-white" style={tc ? { color: tc.bg } : {}}>{row.team}</td>
+                      <td className="px-1.5 py-1.5 text-center font-black text-gray-900">{row.total}</td>
+                      {row.byDate.map((count, i) => (
+                        <td key={i} className={`px-1 py-1.5 text-center font-bold ${count === row.total ? "text-emerald-600" : count === 0 ? "text-red-400" : "text-gray-700"}`}>
+                          {count}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <p className="text-[11px] text-gray-400 italic">No registrations yet. Submit one through the Register tab to see it here.</p>
       ) : (
         <div className="space-y-2">
-          {rows.map(r => {
+          {sortedRows.map(r => {
             const recentEdit = lastSeenAt && r.last_edited_by_player_at && new Date(r.last_edited_by_player_at) > new Date(lastSeenAt);
+            const tc = TEAM_COLORS_BY_NAME[r.team_pref];
+            const age = getAge(r.dob);
             return (
-              <div key={r.id} className={`rounded-xl border p-3 ${recentEdit ? "border-blue-300 bg-blue-50" : "border-gray-200"}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-bold text-gray-900">{r.first_name} {r.last_name}</p>
-                  <div className="flex gap-1 items-center">
+              <div key={r.id} className="rounded-xl border p-3 flex overflow-hidden"
+                style={recentEdit ? { borderColor: "#93c5fd", backgroundColor: "#eff6ff" } : tc ? { borderColor: tc.bg + "30", borderLeftWidth: 4, borderLeftColor: tc.bg } : { borderColor: "#e5e7eb" }}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-bold text-gray-900">{r.first_name} {r.last_name}</p>
+                    {age != null && (
+                      <span className="text-xs font-black text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{age}</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                    {r.team_pref && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                        style={tc ? { backgroundColor: tc.bg, color: tc.text } : { backgroundColor: "#f3f4f6", color: "#6b7280" }}>
+                        {r.team_pref}
+                      </span>
+                    )}
                     {recentEdit && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-200 text-blue-800">EDITED</span>}
-                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${r.email_verified ? "bg-emerald-100 text-emerald-700" : r.admin_override ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${r.email_verified ? "bg-emerald-100 text-emerald-700" : r.admin_override ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
                       {r.email_verified ? "Verified" : r.admin_override ? "Override" : "Unverified"}
                     </span>
                   </div>
-                </div>
-                <p className="text-[11px] text-gray-500">{r.email} · {r.phone || "—"}</p>
-                <p className="text-[11px] text-gray-500">Team: {r.team_pref || "—"} · Dates: {(r.dates || []).length} · Roles: {(r.roles || []).length}</p>
-                {r.conflicts_note && <p className="text-[11px] text-amber-700 mt-1">Conflict note: {r.conflicts_note}</p>}
-                <div className="flex gap-1.5 mt-2">
-                  <button onClick={() => handleDelete(r.id)} className="px-2 py-1 rounded-lg bg-red-50 text-red-600 text-[10px] font-bold">Delete</button>
+                  <p className="text-[11px] text-gray-500">{r.email} · {r.phone || "—"}</p>
+                  <p className="text-[11px] text-gray-500">Dates: {(r.dates || []).length}/{REG_DATES.length} · Roles: {(r.roles || []).join(", ") || "—"}</p>
+                  {r.conflicts_note && <p className="text-[11px] text-amber-700 mt-0.5">Conflict: {r.conflicts_note}</p>}
+                  <div className="flex gap-1.5 mt-1.5">
+                    <button onClick={() => handleDelete(r.id)} className="px-2 py-1 rounded-lg bg-red-50 text-red-600 text-[10px] font-bold">Delete</button>
+                  </div>
                 </div>
               </div>
             );
