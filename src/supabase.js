@@ -220,6 +220,27 @@ export async function uploadPhoto(file) {
 }
 
 // ============================================================================
+// REGISTRATION ANNOUNCEMENTS (public read)
+// ============================================================================
+
+export async function loadAnnouncedRegistrations() {
+  const { data, error } = await supabase.rpc("get_announced_registrations");
+  if (error) { console.error("loadAnnouncedRegistrations error:", error); return []; }
+  return data || [];
+}
+
+export async function adminToggleAnnouncement(id, announce, quote) {
+  const token = getAdminToken();
+  if (!token) return { error: "not admin" };
+  const { data, error } = await supabase.rpc("admin_update_registration", {
+    p_token: token, p_id: id,
+    p_payload: { announce_registration: announce, reg_quote: quote || null },
+  });
+  if (error) { console.error("adminToggleAnnouncement error:", error); return { error: error.message }; }
+  return data;
+}
+
+// ============================================================================
 // EMAIL (via Supabase Edge Function -> Resend)
 // ============================================================================
 
@@ -304,12 +325,19 @@ export async function sendRegistrationConfirmation(form, pin) {
     </tr>
   `).join("");
 
+  const headshotHtml = form.headshotUrl ? `
+    <div style="text-align: center; margin: 0 0 20px 0;">
+      <img src="${form.headshotUrl}" alt="Headshot" style="width: 120px; height: 120px; border-radius: 12px; object-fit: cover; border: 2px solid #e5e7eb;" />
+    </div>
+  ` : "";
+
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 560px; margin: 0 auto; padding: 20px;">
       <h2 style="color: #111827; margin: 0 0 8px 0;">Registration Received</h2>
       <p style="color: #4b5563; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
         Hi ${toName}, thanks for registering for the PCAL 2026 Summer Basketball League. Here's your submission.
       </p>
+      ${headshotHtml}
       <div style="background: #fef3c7; border: 2px dashed #fbbf24; border-radius: 12px; padding: 16px; text-align: center; margin: 0 0 20px 0;">
         <p style="color: #92400e; font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; margin: 0 0 4px 0;">Your PIN</p>
         <p style="font-size: 32px; font-weight: 900; letter-spacing: 0.3em; color: #78350f; margin: 0; font-family: monospace;">${pin}</p>
