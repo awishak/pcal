@@ -9135,6 +9135,21 @@ const getTeamLogo = (team, year) => {
   return null;
 };
 
+// Franchise mapping: some historical team codes are treated as the same
+// franchise as a current team for counting purposes. NOR -> CON (2005 code
+// for Sacramento/Concord area). SRA -> PLE (San Ramon became Pleasanton).
+// All other codes stay as-is.
+const FRANCHISE_MAP = { NOR: "CON", SRA: "PLE" };
+const toFranchise = (team) => FRANCHISE_MAP[team] || team;
+
+// Ordinal formatter: 1st, 2nd, 3rd, 4th, ..., 11th, 12th, 13th, ..., 21st, 22nd
+const ordinal = (n) => {
+  if (n == null) return "";
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
 // Back-compat: TEAM_LOGOS[team] returns current logo
 const TEAM_LOGOS = new Proxy({}, {
   get: (_, team) => getTeamLogo(team),
@@ -18531,8 +18546,11 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                       const gameKey = `2026-${week.num}-${gi}`;
                       const isExpanded = expandedGame === gameKey;
 
-                      // Build last 5 matchups from GAME_LOG
-                      const getLast5 = () => {
+                      // Build all historical matchups from GAME_LOG, applying franchise mapping.
+                      // Returns { all: [...], last5: [...], count: N }. Upcoming 2026 game not included.
+                      const getMatchups = () => {
+                        const T1 = toFranchise(g.t1);
+                        const T2 = toFranchise(g.t2);
                         const matchups = [];
                         const allYears = [...new Set(GAME_LOG.map(r => r[20]))].sort((a,b) => a - b);
                         allYears.forEach(year => {
@@ -18542,8 +18560,8 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                             const rw = played.filter(r => r[3] === w);
                             const types = [...new Set(rw.map(r => r[5]))];
                             types.forEach(type => {
-                              const t1g = rw.filter(r => r[1] === g.t1 && r[2] === g.t2 && r[5] === type);
-                              const t2g = rw.filter(r => r[1] === g.t2 && r[2] === g.t1 && r[5] === type);
+                              const t1g = rw.filter(r => toFranchise(r[1]) === T1 && toFranchise(r[2]) === T2 && r[5] === type);
+                              const t2g = rw.filter(r => toFranchise(r[1]) === T2 && toFranchise(r[2]) === T1 && r[5] === type);
                               if (t1g.length === 0 && t2g.length === 0) return;
                               const t1Pts = t1g.reduce((s,r) => s + r[7], 0);
                               const t2Pts = t2g.reduce((s,r) => s + r[7], 0);
@@ -18552,8 +18570,35 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                             });
                           });
                         });
-                        return matchups.slice(-5);
+                        return { all: matchups, last5: matchups.slice(-5), count: matchups.length };
                       };
+                      const matchupData = getMatchups();
+                      // The upcoming 2026 game counts as the next meeting
+                      const meetingNumber = matchupData.count + 1;
+
+                      // Playoff rematch detection (2025 only). "C" trumps "P".
+                      const last2025 = matchupData.all.filter(m => m.year === 2025);
+                      const hadChamp = last2025.some(m => m.type === "C");
+                      const hadSemi = last2025.some(m => m.type === "P");
+                      const playoffTag = hadChamp ? "Championship Rematch" : hadSemi ? "Semis Rematch" : null;
+
+                      // Streak detection: longest current winning streak by either team
+                      // going backwards from the most recent meeting. Applies when 5+.
+                      let streakTag = null;
+                      if (matchupData.all.length >= 5) {
+                        const reversed = [...matchupData.all].reverse();
+                        const mostRecent = reversed[0];
+                        const winnerIsT1 = mostRecent.t1Won;
+                        let streak = 0;
+                        for (const m of reversed) {
+                          if (m.t1Won === winnerIsT1) streak += 1;
+                          else break;
+                        }
+                        if (streak >= 5) {
+                          const winningTeam = winnerIsT1 ? g.t1 : g.t2;
+                          streakTag = `${winningTeam} on ${streak}-game streak`;
+                        }
+                      }
 
                       return (
                         <div key={gi}>
@@ -18573,8 +18618,14 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                                 <span className="text-sm font-black text-gray-900">{g.time}</span>
                                 <span className="text-[10px] text-gray-400">· {week.date} · {week.location}</span>
                               </div>
-                              <div className="flex items-center gap-1.5 flex-shrink-0">
-                                <span className="text-[10px] font-bold text-gray-400 uppercase">{g.meeting === "1st" || g.meeting === "1st meeting" ? "1st Meeting" : "Rematch"}</span>
+                              <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                                {playoffTag && (
+                                  <span className="text-[10px] font-bold text-amber-700 uppercase">{playoffTag}</span>
+                                )}
+                                {streakTag && (
+                                  <span className="text-[10px] font-bold uppercase" style={{ color: COLORS_2026[streakTag.split(" ")[0]]?.bg || "#6b7280" }}>{streakTag}</span>
+                                )}
+                                <span className="text-[10px] font-bold text-gray-400 uppercase">{ordinal(meetingNumber)} Meeting</span>
                                 <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                               </div>
                             </div>
@@ -18599,10 +18650,12 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                             </div>
                           </div>
                           {isExpanded && (() => {
-                            const last5 = getLast5();
-                            const t1Wins = last5.filter(m => m.t1Won).length;
-                            const t2Wins = last5.filter(m => !m.t1Won).length;
-                            if (last5.length === 0) return (
+                            const last5 = matchupData.last5;
+                            const allMatchups = matchupData.all;
+                            // All-time record (across every meeting, not just last 5)
+                            const t1AllWins = allMatchups.filter(m => m.t1Won).length;
+                            const t2AllWins = allMatchups.filter(m => !m.t1Won).length;
+                            if (allMatchups.length === 0) return (
                               <div className="px-4 pb-3 border-t border-gray-200 pt-2">
                                 <p className="text-xs text-gray-400 italic">No historical matchups found</p>
                               </div>
@@ -18610,11 +18663,11 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                             return (
                               <div className="px-4 pb-3 border-t border-gray-200 pt-2">
                                 <div className="flex items-center justify-between mb-2">
-                                  <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Last {last5.length} Matchups</p>
+                                  <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">All-Time · Last {last5.length}</p>
                                   <p className="text-xs font-bold">
-                                    <span style={{ color: TEAM_COLORS[g.t1] || "#888" }}>{TEAM_NAMES[g.t1] || g.t1} {t1Wins}</span>
+                                    <span style={{ color: TEAM_COLORS[g.t1] || "#888" }}>{TEAM_NAMES[g.t1] || g.t1} {t1AllWins}</span>
                                     <span className="text-gray-300 mx-1">-</span>
-                                    <span style={{ color: TEAM_COLORS[g.t2] || "#888" }}>{t2Wins} {TEAM_NAMES[g.t2] || g.t2}</span>
+                                    <span style={{ color: TEAM_COLORS[g.t2] || "#888" }}>{t2AllWins} {TEAM_NAMES[g.t2] || g.t2}</span>
                                   </p>
                                 </div>
                                 <div className="space-y-1">
