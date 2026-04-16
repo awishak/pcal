@@ -11858,21 +11858,21 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
 
       {/* Registration deadline card */}
       {isVisible("registration") && regOpen && (
-        <div className="rounded-2xl p-4 text-white" style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)" }}>
+        <div className="rounded-2xl p-4 text-white" style={{ background: "linear-gradient(135deg, #064e3b 0%, #059669 100%)" }}>
           <div className="flex items-start justify-between gap-3 mb-2">
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-blue-200 font-bold">Registration Open</p>
+              <p className="text-[10px] uppercase tracking-widest text-emerald-200 font-bold">Registration Open</p>
               <h3 className="text-lg font-black mt-1">PCAL 2026 Season</h3>
             </div>
             <div className="text-right">
               <p className="text-3xl font-black tabular-nums leading-none">{daysLeft}</p>
-              <p className="text-[10px] text-blue-200 font-bold uppercase tracking-wide">days left</p>
+              <p className="text-[10px] text-emerald-200 font-bold uppercase tracking-wide">days left</p>
             </div>
           </div>
-          <p className="text-xs text-blue-100 mb-3">Registration closes <strong className="text-white">Thursday, May 8 at 11:59 PM Pacific</strong> ({hoursLeft}h remaining today).</p>
+          <p className="text-xs text-emerald-100 mb-3">Registration closes <strong className="text-white">Thursday, May 8 at 11:59 PM Pacific</strong> ({hoursLeft}h remaining today).</p>
           <button onClick={() => switchSection("register")}
-            className="w-full py-2.5 rounded-xl bg-white text-gray-900 font-bold text-sm active:scale-95 transition">
-            Register Now →
+            className="w-full py-2.5 rounded-xl bg-white text-emerald-900 font-bold text-sm active:scale-95 transition">
+            Register Now
           </button>
         </div>
       )}
@@ -11938,7 +11938,7 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         <div className="space-y-2.5">
           {photoCards.map(photo => (
             <div key={photo.id} className="rounded-2xl overflow-hidden bg-white border border-gray-200">
-              <img src={photo.imageUrl} alt={photo.caption || ""} className="w-full aspect-video object-cover" onError={(e) => { e.target.style.display = "none"; }} />
+              <img src={photo.imageUrl} alt={photo.caption || ""} className="w-full rounded-t-2xl max-h-96 object-contain bg-gray-100" onError={(e) => { e.target.style.display = "none"; }} />
               {photo.caption && (
                 <div className="p-3">
                   <p className="text-xs text-gray-600">{photo.caption}</p>
@@ -12069,7 +12069,7 @@ function CommissionerMessageCard({ msg }) {
             {msg.title && <h4 className="text-base font-black text-gray-900 mb-1 leading-tight">{msg.title}</h4>}
             <div className="text-sm text-gray-700 leading-relaxed" style={{ whiteSpace: "pre-wrap" }} dangerouslySetInnerHTML={{ __html: renderRichText(msg.body || "") }} />
             {msg.imageUrl && (
-              <img src={msg.imageUrl} alt="" className="mt-2 rounded-xl w-full max-h-64 object-cover" onError={(e) => { e.target.style.display = "none"; }} />
+              <img src={msg.imageUrl} alt="" className="mt-2 rounded-xl w-full max-h-96 object-contain" onError={(e) => { e.target.style.display = "none"; }} />
             )}
           </div>
         </div>
