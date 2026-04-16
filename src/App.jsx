@@ -11143,13 +11143,16 @@ export default function App() {
                         const blocked = (isComing || isInvisible) && !isAdminView;
                         return (
                           <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
-                            className={`w-full rounded-2xl p-4 text-left transition-all ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-700" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"} ${blocked ? "cursor-not-allowed" : ""}`}>
+                            className={`w-full rounded-2xl p-4 text-left transition-all relative ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-100 border border-gray-200" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"} ${blocked ? "cursor-not-allowed" : ""}`}>
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex-1">
-                                <div className="text-base font-bold text-white leading-tight">{card.label}</div>
-                                <div className="text-[11px] text-gray-400 mt-0.5 leading-snug">{card.desc}</div>
+                                <div className="flex items-center gap-2">
+                                  {!isComing && !isInvisible && <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" aria-label="active" />}
+                                  <div className={`text-base font-bold leading-tight ${isComing ? "text-gray-500" : "text-white"}`}>{card.label}</div>
+                                </div>
+                                <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-400" : "text-gray-400"}`}>{card.desc}</div>
                               </div>
-                              {isComing && <span className="text-[10px] font-bold text-amber-300 bg-amber-900 px-2 py-1 rounded whitespace-nowrap">Coming {card._comingDate || "soon"}</span>}
+                              {isComing && <span className="text-[10px] font-bold text-amber-900 bg-amber-300 px-2 py-1 rounded whitespace-nowrap">COMING {(card._comingDate || "SOON").toUpperCase()}</span>}
                               {isInvisible && isAdminView && <span className="text-[10px] font-bold text-white bg-gray-600 px-2 py-1 rounded">Hidden</span>}
                             </div>
                           </button>
@@ -11164,10 +11167,13 @@ export default function App() {
                         const blocked = (isComing || isInvisible) && !isAdminView;
                         return (
                           <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
-                            className={`rounded-2xl p-3.5 text-left transition-all border ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100 hover:bg-gray-100 active:scale-[0.98]"} ${blocked ? "cursor-not-allowed" : ""}`}>
-                            <div className="text-sm font-bold text-gray-900 leading-tight">{card.label}</div>
-                            <div className="text-[11px] text-gray-400 mt-0.5 leading-snug">{card.desc}</div>
-                            {isComing && <div className="mt-1.5 text-[10px] font-bold text-amber-700">Coming {card._comingDate || "soon"}</div>}
+                            className={`rounded-2xl p-3.5 text-left transition-all border relative ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-gray-100 border-gray-200" : "bg-gray-50 border-gray-100 hover:bg-gray-100 active:scale-[0.98]"} ${blocked ? "cursor-not-allowed" : ""}`}>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              {!isComing && !isInvisible && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" aria-label="active" />}
+                              <div className={`text-sm font-bold leading-tight ${isComing ? "text-gray-500" : "text-gray-900"}`}>{card.label}</div>
+                            </div>
+                            <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-400" : "text-gray-400"}`}>{card.desc}</div>
+                            {isComing && <div className="mt-1.5 inline-block text-[10px] font-bold text-amber-900 bg-amber-300 px-2 py-0.5 rounded">COMING {(card._comingDate || "SOON").toUpperCase()}</div>}
                             {isInvisible && isAdminView && <div className="mt-1.5 text-[10px] font-bold text-gray-500">Hidden</div>}
                           </button>
                         );
@@ -11642,17 +11648,19 @@ export default function App() {
         />
       )}
 
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-100">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-[0_-4px_20px_-4px_rgba(0,0,0,0.08)]">
         <div className="max-w-lg mx-auto flex">
           {NAV_ITEMS.map(item => {
             const active = section === item.key;
             return (
               <button key={item.key} onClick={() => switchSection(item.key)}
-                className={`flex-1 flex flex-col items-center py-2 pt-2.5 transition-colors ${active ? "text-gray-900" : "text-gray-400"}`}>
-                <svg className="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 1.5}>
+                className={`flex-1 flex flex-col items-center pt-2 pb-1.5 transition-all relative ${active ? "text-gray-900" : "text-gray-400"}`}>
+                {/* Active indicator bar at the top */}
+                <div className={`absolute top-0 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all ${active ? "w-10 bg-gray-900" : "w-0 bg-transparent"}`} />
+                <svg className={`w-6 h-6 mb-0.5 transition-all ${active ? "stroke-[2.5]" : "stroke-[1.75]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
                 </svg>
-                <span className={`text-xs ${active ? "font-bold" : "font-medium"}`}>{item.label}</span>
+                <span className={`text-[11px] ${active ? "font-black text-gray-900" : "font-medium text-gray-400"}`}>{item.label}</span>
               </button>
             );
           })}
@@ -11869,15 +11877,29 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         </div>
       )}
 
-      {/* Commissioner messages */}
-      {isVisible("commissionerMessages") && activeMessages.length > 0 && (
-        <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-medium mb-2">From the Commissioner</p>
-          <div className="space-y-2.5">
-            {activeMessages.map(msg => <CommissionerMessageCard key={msg.id} msg={msg} />)}
+      {/* Commissioner messages, grouped by time bucket */}
+      {isVisible("commissionerMessages") && activeMessages.length > 0 && (() => {
+        const buckets = { today: [], week: [], earlier: [] };
+        activeMessages.forEach(m => {
+          buckets[messageTimeBucket(m.date)].push(m);
+        });
+        const labels = { today: "Today", week: "This Week", earlier: "Earlier" };
+        return (
+          <div className="space-y-4">
+            {["today", "week", "earlier"].map(bucket => {
+              if (buckets[bucket].length === 0) return null;
+              return (
+                <div key={bucket}>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-2">{labels[bucket]}</p>
+                  <div className="space-y-2.5">
+                    {buckets[bucket].map(msg => <CommissionerMessageCard key={msg.id} msg={msg} />)}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Week 1 Schedule */}
       {isVisible("weekOneSchedule") && (
@@ -12033,26 +12055,85 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
   );
 }
 
+// ========== COMMISSIONER MESSAGE TEMPLATES ==========
+// Each template has a type key (stored on the message), a label (shown in
+// admin dropdown), a color for the left accent bar, a pre-filled title
+// and body skeleton, and an icon.
+const MESSAGE_TEMPLATES = [
+  { type: "custom", label: "Custom (blank)", color: "#6b7280", title: "", body: "" },
+  { type: "location", label: "Location Secured", color: "#3b82f6",
+    title: "Location Secured",
+    body: "We've confirmed the gym for **Week X** at **[venue name]** in [city]. Doors open at [time]." },
+  { type: "schedule", label: "Schedule Updated", color: "#a855f7",
+    title: "Schedule Updated",
+    body: "The 2026 schedule has been updated. Check the Schedule tab for your games." },
+  { type: "reg_open", label: "Registration Opens", color: "#10b981",
+    title: "Registration is Open",
+    body: "Registration for the 2026 season is now open. Head to the Register tab to sign up." },
+  { type: "reg_close", label: "Registration Closes", color: "#ef4444",
+    title: "Registration Closes Soon",
+    body: "Last chance to register — registration closes **[date/time]**. Don't miss it." },
+  { type: "livestream", label: "Livestream Live", color: "#dc2626",
+    title: "We're Live!",
+    body: "Watch today's games live at [link]. First tip-off at [time]." },
+  { type: "results", label: "Game Results", color: "#f59e0b",
+    title: "Results: [Team A] vs [Team B]",
+    body: "**[Winner] beat [Loser] [score]**. Top performer: **[player]** with [stat line]." },
+  { type: "stats", label: "New in Stats & History", color: "#14b8a6",
+    title: "New in Stats & History",
+    body: "Check out **[feature name]** in the Stats & History tab. [brief description]" },
+  { type: "team", label: "Team Update", color: "#6b7280",
+    title: "Team Update: [Team Name]",
+    body: "[Roster released / jersey reveal / news from a team]" },
+];
+
+function getTemplateByType(type) {
+  return MESSAGE_TEMPLATES.find(t => t.type === type) || MESSAGE_TEMPLATES[0];
+}
+
+// Time bucket for a message based on its date string. Returns "today",
+// "week", or "earlier". If no date, returns "earlier".
+function messageTimeBucket(dateStr) {
+  if (!dateStr) return "earlier";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "earlier";
+  const now = new Date();
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysDiff = Math.floor((now.setHours(0,0,0,0) - new Date(d).setHours(0,0,0,0)) / msPerDay);
+  if (daysDiff <= 0) return "today";
+  if (daysDiff <= 7) return "week";
+  return "earlier";
+}
+
 function CommissionerMessageCard({ msg }) {
+  const tpl = getTemplateByType(msg.type || "custom");
+  const accent = msg.teamColor || tpl.color;
+  // For team-update type, caller can pass teamColor via msg.teamColor
   return (
-    <div className="rounded-2xl bg-white border border-gray-200 p-4">
-      <div className="flex items-start gap-3">
-        {/* Placeholder avatar: "little face in a circle" */}
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex-shrink-0 flex items-center justify-center">
-          <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between gap-2 mb-1">
-            <p className="text-[11px] font-bold text-gray-500">Commissioner</p>
-            {msg.date && <p className="text-[10px] text-gray-400">{msg.date}</p>}
+    <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden flex">
+      {/* Left accent bar colored by type */}
+      <div className="w-1 flex-shrink-0" style={{ backgroundColor: accent }} />
+      <div className="flex-1 p-4">
+        <div className="flex items-start gap-3">
+          {/* Placeholder avatar */}
+          <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: accent }}>
+            <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+            </svg>
           </div>
-          {msg.title && <h4 className="text-sm font-black text-gray-900 mb-1">{msg.title}</h4>}
-          <div className="text-xs text-gray-700 leading-relaxed" style={{ whiteSpace: "pre-wrap" }} dangerouslySetInnerHTML={{ __html: renderRichText(msg.body || "") }} />
-          {msg.imageUrl && (
-            <img src={msg.imageUrl} alt="" className="mt-2 rounded-xl w-full max-h-64 object-cover" onError={(e) => { e.target.style.display = "none"; }} />
-          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: accent }}>
+                {tpl.type === "custom" ? "Commissioner" : tpl.label}
+              </p>
+              {msg.date && <p className="text-xs font-bold text-gray-500">{msg.date}</p>}
+            </div>
+            {msg.title && <h4 className="text-base font-black text-gray-900 mb-1 leading-tight">{msg.title}</h4>}
+            <div className="text-sm text-gray-700 leading-relaxed" style={{ whiteSpace: "pre-wrap" }} dangerouslySetInnerHTML={{ __html: renderRichText(msg.body || "") }} />
+            {msg.imageUrl && (
+              <img src={msg.imageUrl} alt="" className="mt-2 rounded-xl w-full max-h-64 object-cover" onError={(e) => { e.target.style.display = "none"; }} />
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -17181,6 +17262,7 @@ function CommissionerMessagesAdmin({ messages, setMessages, genId }) {
   const newMessage = () => {
     setEditing({
       id: genId(),
+      type: "custom",
       title: "",
       body: "",
       imageUrl: "",
@@ -17188,6 +17270,11 @@ function CommissionerMessagesAdmin({ messages, setMessages, genId }) {
       status: "active",
       isNew: true,
     });
+  };
+
+  const applyTemplate = (type) => {
+    const tpl = getTemplateByType(type);
+    setEditing(ed => ({ ...ed, type, title: tpl.title || ed.title, body: tpl.body || ed.body }));
   };
 
   const saveMessage = async () => {
@@ -17232,6 +17319,16 @@ function CommissionerMessagesAdmin({ messages, setMessages, genId }) {
         <p className="text-[11px] text-gray-500 leading-relaxed">
           <strong>Formatting:</strong> <code>**bold**</code>, <code>*italic*</code>, <code>[link text](https://url.com)</code>, line breaks supported.
         </p>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Template</label>
+          <select value={editing.type || "custom"} onChange={e => applyTemplate(e.target.value)}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+            {MESSAGE_TEMPLATES.map(t => (
+              <option key={t.type} value={t.type}>{t.label}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-gray-400 mt-1">Picking a template fills in a starter title and body. You can still edit.</p>
+        </div>
         <div>
           <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Title (optional)</label>
           <input type="text" value={editing.title} onChange={e => setEditing(ed => ({ ...ed, title: e.target.value }))}
@@ -18582,24 +18679,6 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                       const hadSemi = last2025.some(m => m.type === "P");
                       const playoffTag = hadChamp ? "Championship Rematch" : hadSemi ? "Semis Rematch" : null;
 
-                      // Streak detection: longest current winning streak by either team
-                      // going backwards from the most recent meeting. Applies when 5+.
-                      let streakTag = null;
-                      if (matchupData.all.length >= 5) {
-                        const reversed = [...matchupData.all].reverse();
-                        const mostRecent = reversed[0];
-                        const winnerIsT1 = mostRecent.t1Won;
-                        let streak = 0;
-                        for (const m of reversed) {
-                          if (m.t1Won === winnerIsT1) streak += 1;
-                          else break;
-                        }
-                        if (streak >= 5) {
-                          const winningTeam = winnerIsT1 ? g.t1 : g.t2;
-                          streakTag = `${winningTeam} on ${streak}-game streak`;
-                        }
-                      }
-
                       return (
                         <div key={gi}>
                           {scheduleWarning.perGameEnabled && scheduleWarning.text && (
@@ -18621,9 +18700,6 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                               <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
                                 {playoffTag && (
                                   <span className="text-[10px] font-bold text-amber-700 uppercase">{playoffTag}</span>
-                                )}
-                                {streakTag && (
-                                  <span className="text-[10px] font-bold uppercase" style={{ color: COLORS_2026[streakTag.split(" ")[0]]?.bg || "#6b7280" }}>{streakTag}</span>
                                 )}
                                 <span className="text-[10px] font-bold text-gray-400 uppercase">{ordinal(meetingNumber)} Meeting</span>
                                 <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>

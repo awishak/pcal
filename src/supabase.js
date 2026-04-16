@@ -77,6 +77,7 @@ export async function loadHomeContent() {
   return {
     commissionerMessages: (msgs.data || []).map(m => ({
       id: m.id,
+      type: m.message_type || "custom",
       title: m.title || "",
       body: m.body || "",
       imageUrl: m.image_url || "",
@@ -106,6 +107,7 @@ function toDbRow(tableKey, item) {
       id: item.id, title: item.title || null, body: item.body || null,
       image_url: item.imageUrl || null, date_label: item.date || null,
       status: item.status || "active", sort_order: item.sort_order || 0,
+      message_type: item.type || "custom",
     };
   }
   if (tableKey === "sticky_links") {
