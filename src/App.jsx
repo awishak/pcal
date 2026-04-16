@@ -10131,6 +10131,11 @@ export default function App() {
     livestreams: "visible",
     photos: "visible",
   });
+  const [scheduleWarning, setScheduleWarning] = useState({
+    bannerEnabled: true,
+    perGameEnabled: true,
+    text: "This is one potential schedule. All 2026 games and dates are subject to change.",
+  });
 
   // Load admin config from Supabase on mount. Falls back to localStorage cache
   // for offline / slow-network scenarios so the app shows something immediately.
@@ -10156,6 +10161,7 @@ export default function App() {
         if (parsed.livestreamUrls) setLivestreamUrls(parsed.livestreamUrls);
         if (parsed.photoCards) setPhotoCards(parsed.photoCards);
         if (parsed.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...parsed.homeCardVisibility }));
+        if (parsed.scheduleWarning) setScheduleWarning(prev => ({ ...prev, ...parsed.scheduleWarning }));
         setConfigSource("cache");
       }
     } catch (e) {}
@@ -10176,6 +10182,7 @@ export default function App() {
         if (config.tileOrderInGroup) setTileOrderInGroup(config.tileOrderInGroup);
         if (config.announcement !== undefined) setAnnouncement(config.announcement);
         if (config.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...config.homeCardVisibility }));
+        if (config.scheduleWarning) setScheduleWarning(prev => ({ ...prev, ...config.scheduleWarning }));
         setCommissionerMessages(home.commissionerMessages);
         setStickyLinks(home.stickyLinks);
         setQuickLinks(home.quickLinks);
@@ -10208,7 +10215,7 @@ export default function App() {
   useEffect(() => {
     if (!configLoaded) return;
     const config = {
-      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, homeCardVisibility,
+      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning,
     };
     try {
       if (typeof window !== "undefined" && window.localStorage) {
@@ -10223,7 +10230,7 @@ export default function App() {
     if (adminUnlocked) {
       saveAdminConfig(config); // fire-and-forget
     }
-  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, homeCardVisibility, adminUnlocked, configLoaded,
+  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, adminUnlocked, configLoaded,
       commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards]);
 
   const addRegistration = (reg) => setRegistrations(rs => [...rs, { ...reg, submittedAt: new Date().toISOString() }]);
@@ -10285,16 +10292,16 @@ export default function App() {
   }, [selectedPlayer]);
 
   // goToPlayer respects the player-lookup tile state. If the "search" tile is
-  // "coming" or "invisible", this is a silent no-op (so clicks from career
-  // leaders, leaderboards, etc. don't route to a disabled view).
+  // "coming" or "invisible", this is a silent no-op for regular users. Admins
+  // with preview mode off can still click through.
   const isPlayerLookupDisabled = (tileStates.search === "coming" || tileStates.search === "invisible");
   const goToPlayer = useCallback((raw) => {
-    if (tileStates.search === "coming" || tileStates.search === "invisible") return;
+    if (isPlayerLookupDisabled && !isAdminView) return;
     setSelectedPlayer(raw);
     setSection("stats");
     setTab("search");
     setSearch(formatName(raw));
-  }, [tileStates.search]);
+  }, [isPlayerLookupDisabled, isAdminView]);
 
   const careerLeaders = useMemo(() => {
     const byPlayer = {};
@@ -11008,22 +11015,20 @@ export default function App() {
       { key: "allgames", label: "View All Games by Week", desc: "Browse the full season schedule" },
       { key: "matchups", label: "Matchup History", desc: "Head-to-head team records" },
     ]},
-    { title: "Statistical Analysis", cards: [
+    { title: "AI Analysis", cards: [
       { key: "stat_explainers", label: "Explaining AI Score and Game Score", desc: "How we measure player value" },
       { key: "awards", label: "Awards History", desc: "MVPs & All-PCAL teams" },
       { key: "potw_stats", label: "Player of the Week", desc: "All-time POTW wins & nominations" },
+      { key: "nbacomps", label: "NBA Comps", desc: "PCAL–NBA player comparisons" },
+      { key: "crossera", label: "Cross-Era Comps", desc: "Modern stars vs. classic era matches" },
+      { key: "bestage", label: "Best at Every Age", desc: "Top seasons from age 14 to 54" },
+      { key: "hof", label: "Hall of Fame", desc: "All-time greatness index" },
     ]},
     { title: "Player Tools", cards: [
       { key: "search", label: "Player Lookup", desc: "Search any player" },
       { key: "compare", label: "Compare Players", desc: "Head-to-head & age curves" },
       { key: "teammates", label: "Teammates", desc: "Most common duos & trios" },
       { key: "families", label: "Families", desc: "Brothers & fathers/sons" },
-    ]},
-    { title: "Analysis", cards: [
-      { key: "nbacomps", label: "NBA Comps", desc: "PCAL–NBA player comparisons" },
-      { key: "crossera", label: "Cross-Era Comps", desc: "Modern stars vs. classic era matches" },
-      { key: "bestage", label: "Best at Every Age", desc: "Top seasons from age 14 to 54" },
-      { key: "hof", label: "Hall of Fame", desc: "All-time greatness index" },
     ]},
     { title: "Awards & History", cards: [
       { key: "milestones", label: "Milestones", desc: "Scoring thresholds & double-doubles" },
@@ -11137,9 +11142,10 @@ export default function App() {
                       {group.cards.map(card => {
                         const isComing = card._state === "coming";
                         const isInvisible = card._state === "invisible";
+                        const blocked = (isComing || isInvisible) && !isAdminView;
                         return (
-                          <button key={card.key} onClick={() => { if (!isComing && !isInvisible) setTab(card.key); }} disabled={isComing || isInvisible}
-                            className={`w-full rounded-2xl p-4 text-left transition-all ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-700 cursor-not-allowed" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"}`}>
+                          <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
+                            className={`w-full rounded-2xl p-4 text-left transition-all ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-700" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"} ${blocked ? "cursor-not-allowed" : ""}`}>
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex-1">
                                 <div className="text-base font-bold text-white leading-tight">{card.label}</div>
@@ -11157,9 +11163,10 @@ export default function App() {
                       {group.cards.map(card => {
                         const isComing = card._state === "coming";
                         const isInvisible = card._state === "invisible";
+                        const blocked = (isComing || isInvisible) && !isAdminView;
                         return (
-                          <button key={card.key} onClick={() => { if (!isComing && !isInvisible) setTab(card.key); }} disabled={isComing || isInvisible}
-                            className={`rounded-2xl p-3.5 text-left transition-all border ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-amber-50 border-amber-200 cursor-not-allowed" : "bg-gray-50 border-gray-100 hover:bg-gray-100 active:scale-[0.98]"}`}>
+                          <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
+                            className={`rounded-2xl p-3.5 text-left transition-all border ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100 hover:bg-gray-100 active:scale-[0.98]"} ${blocked ? "cursor-not-allowed" : ""}`}>
                             <div className="text-sm font-bold text-gray-900 leading-tight">{card.label}</div>
                             <div className="text-[11px] text-gray-400 mt-0.5 leading-snug">{card.desc}</div>
                             {isComing && <div className="mt-1.5 text-[10px] font-bold text-amber-700">Coming {card._comingDate || "soon"}</div>}
@@ -11184,13 +11191,13 @@ export default function App() {
         {/* ===== HISTORY HOME ===== */}
         {/* ===== STANDALONE SECTIONS ===== */}
         {tab === "schedule" && (
-          <AllSchedulesView />
+          <AllSchedulesView scheduleWarning={scheduleWarning} />
         )}
         {tab === "allgames" && (
-          <AllSchedulesView initialMode="schedule" />
+          <AllSchedulesView initialMode="schedule" scheduleWarning={scheduleWarning} />
         )}
         {tab === "matchups" && (
-          <AllSchedulesView initialMode="matchup" />
+          <AllSchedulesView initialMode="matchup" scheduleWarning={scheduleWarning} />
         )}
         {tab === "potw" && (
           <PlayerOfWeekView />
@@ -11214,6 +11221,7 @@ export default function App() {
             livestreamUrls={livestreamUrls} setLivestreamUrls={setLivestreamUrls}
             photoCards={photoCards} setPhotoCards={setPhotoCards}
             homeCardVisibility={homeCardVisibility} setHomeCardVisibility={setHomeCardVisibility}
+            scheduleWarning={scheduleWarning} setScheduleWarning={setScheduleWarning}
             adminPreviewMode={adminPreviewMode} setAdminPreviewMode={setAdminPreviewMode}
             STATS_GROUPS={STATS_GROUPS}
             onLogout={() => { setAdminToken(null); setAdminUnlocked(false); setTab("home"); }}
@@ -11729,70 +11737,58 @@ const WEEK_1_2026 = {
 };
 
 // 2025 Playoff results (extracted from GAME_LOG)
-const PLAYOFF_2025 = [
-  {
-    id: "semi1", round: "Semifinal", date: "August 10, 2025",
-    winner: "SAC", loser: "PDF", winnerScore: 44, loserScore: 30,
-    boxScore: {
-      SAC: [
-        { player: "ABDELSHAID MOSES", pts: 13 },
-        { player: "KELADA ANTHONY", pts: 14 },
-        { player: "POULES ABANOB", pts: 8 },
-        { player: "YOSEF ELIJAH", pts: 6 },
-        { player: "AWAD MARK", pts: 3 },
-      ],
-      PDF: [
-        { player: "ISHAK ANDREW", pts: 14 },
-        { player: "SHEHATA JACOB", pts: 10 },
-        { player: "SHEHATA GEORGE", pts: 6 },
-      ],
-    },
-  },
-  {
-    id: "semi2", round: "Semifinal", date: "August 10, 2025",
-    winner: "PLE", loser: "SJO", winnerScore: 42, loserScore: 35,
-    boxScore: {
-      PLE: [
-        { player: "TAWDROS MARIOS", pts: 17 },
-        { player: "HANNA ANDRE", pts: 10 },
-        { player: "MIKHAIL YOUSEF", pts: 8 },
-        { player: "MIKHAIL FADY", pts: 5 },
-        { player: "NAGUIB MITCHELL", pts: 2 },
-      ],
-      SJO: [
-        { player: "ABDELMALAK SIMON", pts: 20 },
-        { player: "GEBRAEIL MATTHEW", pts: 8 },
-        { player: "ABDELMALAK ANDREW", pts: 5 },
-        { player: "DAOUD YOUSSEF", pts: 2 },
-      ],
-    },
-  },
-  {
-    id: "champ", round: "Championship", date: "August 10, 2025",
-    winner: "SAC", loser: "PLE", winnerScore: 60, loserScore: 52,
-    boxScore: {
-      SAC: [
-        { player: "KELADA ANTHONY", pts: 20 },
-        { player: "ABDELSHAID MOSES", pts: 14 },
-        { player: "POULES ABANOB", pts: 12 },
-        { player: "AWAD MARK", pts: 8 },
-        { player: "YOSEF ELIJAH", pts: 6 },
-      ],
-      PLE: [
-        { player: "TAWDROS MARIOS", pts: 22 },
-        { player: "HANNA ANDRE", pts: 12 },
-        { player: "MIKHAIL YOUSEF", pts: 10 },
-        { player: "MIKHAIL FADY", pts: 5 },
-        { player: "NAGUIB MITCHELL", pts: 3 },
-      ],
-    },
-  },
-];
+// Build 2025 playoff recap directly from GAME_LOG.
+// Returns a list of games with real player box scores computed from the data.
+function computePlayoffRecap(year) {
+  // GAME_LOG columns: [0]player [1]team [2]opp [3]week [4]date [5]type [6]g [7]pts ... [20]year
+  const rows = GAME_LOG.filter(r => r[20] === year && (r[5] === "P" || r[5] === "C") && r[6] === 1);
+  // Group by (date, type, week, sorted team pair) to get each unique game
+  const byGame = new Map();
+  rows.forEach(r => {
+    const [player, team, opp, week, date, type, , pts] = r;
+    const pair = [team, opp].sort().join("-");
+    const key = `${date}|${type}|${week}|${pair}`;
+    if (!byGame.has(key)) byGame.set(key, { date, type, week, teams: {} });
+    const g = byGame.get(key);
+    if (!g.teams[team]) g.teams[team] = { pts: 0, players: [] };
+    g.teams[team].pts += pts;
+    if (pts > 0) g.teams[team].players.push({ player, pts });
+  });
+  const out = [];
+  byGame.forEach((g, key) => {
+    const teams = Object.keys(g.teams);
+    if (teams.length !== 2) return;
+    const [a, b] = teams;
+    const winner = g.teams[a].pts >= g.teams[b].pts ? a : b;
+    const loser = winner === a ? b : a;
+    const sortPlayers = (arr) => [...arr].sort((x, y) => y.pts - x.pts);
+    out.push({
+      id: key,
+      round: g.type === "C" ? "Championship" : "Semifinal",
+      date: g.date,
+      type: g.type,
+      week: g.week,
+      winner, loser,
+      winnerScore: g.teams[winner].pts,
+      loserScore: g.teams[loser].pts,
+      boxScore: {
+        [winner]: sortPlayers(g.teams[winner].players),
+        [loser]: sortPlayers(g.teams[loser].players),
+      },
+    });
+  });
+  // Semifinals first, championship last
+  out.sort((a, b) => (a.type === "C" ? 1 : -1) - (b.type === "C" ? 1 : -1));
+  return out;
+}
 
 function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards,
                    homeCardVisibility, tileStates, DISPLAY_GROUPS, switchSection, isAdminView }) {
   const [nowMs, setNowMs] = useState(Date.now());
   const [expandedGame, setExpandedGame] = useState(null);
+
+  // Compute the 2025 playoff recap once from the real GAME_LOG data
+  const PLAYOFF_2025 = useMemo(() => computePlayoffRecap(2025), []);
 
   // Update countdown every minute
   useEffect(() => {
@@ -16595,7 +16591,7 @@ function RegistrationEditMode() {
   );
 }
 
-function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates, setTileStates, tileComingDates, setTileComingDates, groupOrder, setGroupOrder, groupTitles, setGroupTitles, tileOrderInGroup, setTileOrderInGroup, announcement, setAnnouncement, commissionerMessages, setCommissionerMessages, stickyLinks, setStickyLinks, quickLinks, setQuickLinks, livestreamUrls, setLivestreamUrls, photoCards, setPhotoCards, homeCardVisibility, setHomeCardVisibility, adminPreviewMode, setAdminPreviewMode, STATS_GROUPS, onLogout }) {
+function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates, setTileStates, tileComingDates, setTileComingDates, groupOrder, setGroupOrder, groupTitles, setGroupTitles, tileOrderInGroup, setTileOrderInGroup, announcement, setAnnouncement, commissionerMessages, setCommissionerMessages, stickyLinks, setStickyLinks, quickLinks, setQuickLinks, livestreamUrls, setLivestreamUrls, photoCards, setPhotoCards, homeCardVisibility, setHomeCardVisibility, scheduleWarning, setScheduleWarning, adminPreviewMode, setAdminPreviewMode, STATS_GROUPS, onLogout }) {
   const [section, setSection] = useState("toggles");
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
@@ -16708,6 +16704,41 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
               ))}
             </div>
             <p className="text-[10px] text-gray-400 mt-2">Home and Stats & History are always visible.</p>
+          </div>
+
+          <div>
+            <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Schedule Warning</p>
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase">Warning text</label>
+              <textarea value={scheduleWarning.text} onChange={e => setScheduleWarning(w => ({ ...w, text: e.target.value }))}
+                rows={2}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm resize-none"
+                placeholder="e.g. This is one potential schedule. All 2026 games and dates are subject to change." />
+
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                <span className="text-sm font-bold text-gray-900">Top banner on Schedule tab</span>
+                <div className="flex gap-1">
+                  {[true, false].map(val => (
+                    <button key={String(val)} onClick={() => setScheduleWarning(w => ({ ...w, bannerEnabled: val }))}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${scheduleWarning.bannerEnabled === val ? "bg-gray-900 text-white" : "bg-white text-gray-500 border border-gray-200"}`}>
+                      {val ? "on" : "off"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                <span className="text-sm font-bold text-gray-900">Label above each game</span>
+                <div className="flex gap-1">
+                  {[true, false].map(val => (
+                    <button key={String(val)} onClick={() => setScheduleWarning(w => ({ ...w, perGameEnabled: val }))}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${scheduleWarning.perGameEnabled === val ? "bg-gray-900 text-white" : "bg-white text-gray-500 border border-gray-200"}`}>
+                      {val ? "on" : "off"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -17636,7 +17667,7 @@ function PlayerOfWeekView() {
 }
 
 
-function AllSchedulesView({ initialMode }) {
+function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: false, perGameEnabled: false, text: "" } }) {
   const [selectedYear, setSelectedYear] = useState(2026);
   const [filterTeam, setFilterTeam] = useState("all");
   const [expandedGame, setExpandedGame] = useState(null);
@@ -18379,6 +18410,15 @@ function AllSchedulesView({ initialMode }) {
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">2026 Season</p>
 
+            {/* Schedule warning banner */}
+            {scheduleWarning.bannerEnabled && scheduleWarning.text && (
+              <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
+                <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p className="text-xs text-amber-800 font-medium leading-relaxed">{scheduleWarning.text}</p>
+              </div>
+            )}
 
             {/* Team filter */}
             <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
@@ -18435,19 +18475,29 @@ function AllSchedulesView({ initialMode }) {
                         const sc2 = COLORS_2026[g.t2];
                         const ftColor = COLORS_2026[filterTeam] || { bg: "#888", text: "#fff" };
                         return (
-                          <div key={`s-${gi}`} className="rounded-xl border-2 px-4 py-3" style={{ borderColor: ftColor.bg + "40", backgroundColor: ftColor.bg + "08" }}>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <span className="text-base font-black text-gray-900">{g.time}</span>
-                              <span className="text-xs font-bold px-2 py-0.5 rounded-lg" style={{ backgroundColor: ftColor.bg, color: ftColor.text }}>Scorekeeper</span>
+                          <div key={`s-${gi}`}>
+                            {scheduleWarning.perGameEnabled && scheduleWarning.text && (
+                              <div className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 mb-1.5 flex items-center gap-1.5">
+                                <svg className="w-3 h-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <p className="text-[10px] text-amber-800 font-medium leading-snug">{scheduleWarning.text}</p>
+                              </div>
+                            )}
+                            <div className="rounded-xl border-2 px-4 py-3" style={{ borderColor: ftColor.bg + "40", backgroundColor: ftColor.bg + "08" }}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-base font-black text-gray-900">{g.time}</span>
+                                <span className="text-xs font-bold px-2 py-0.5 rounded-lg" style={{ backgroundColor: ftColor.bg, color: ftColor.text }}>Scorekeeper</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm">
+                                <TeamLogo team={g.t1} size={48} />
+                                <span className="font-bold text-gray-700">{TEAM_NAMES[g.t1] || g.t1}</span>
+                                <span className="text-gray-400 mx-1">vs</span>
+                                <TeamLogo team={g.t2} size={48} />
+                                <span className="font-bold text-gray-700">{TEAM_NAMES[g.t2] || g.t2}</span>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1.5">Coordinator: <span className="font-bold">{SCORE_COORDINATORS[filterTeam] || ""}</span></p>
                             </div>
-                            <div className="flex items-center gap-2 text-sm">
-                              <TeamLogo team={g.t1} size={48} />
-                              <span className="font-bold text-gray-700">{TEAM_NAMES[g.t1] || g.t1}</span>
-                              <span className="text-gray-400 mx-1">vs</span>
-                              <TeamLogo team={g.t2} size={48} />
-                              <span className="font-bold text-gray-700">{TEAM_NAMES[g.t2] || g.t2}</span>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-1.5">Coordinator: <span className="font-bold">{SCORE_COORDINATORS[filterTeam] || ""}</span></p>
                           </div>
                         );
                       }
@@ -18483,7 +18533,16 @@ function AllSchedulesView({ initialMode }) {
                       };
 
                       return (
-                        <div key={gi} className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
+                        <div key={gi}>
+                          {scheduleWarning.perGameEnabled && scheduleWarning.text && (
+                            <div className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 mb-1.5 flex items-center gap-1.5">
+                              <svg className="w-3 h-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                              </svg>
+                              <p className="text-[10px] text-amber-800 font-medium leading-snug">{scheduleWarning.text}</p>
+                            </div>
+                          )}
+                          <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
                           <div className="cursor-pointer active:bg-gray-50" onClick={() => setExpandedGame(isExpanded ? null : gameKey)}>
                             {/* Time bar */}
                             <div className="px-4 pt-3 pb-1 flex items-center justify-between">
@@ -18554,6 +18613,7 @@ function AllSchedulesView({ initialMode }) {
                               </div>
                             );
                           })()}
+                        </div>
                         </div>
                       );
                     })}
