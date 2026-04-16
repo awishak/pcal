@@ -11808,6 +11808,36 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
     loadAnnouncedRegistrations().then(setAnnouncements);
   }, []);
 
+  // Build a lookup: LASTNAME FIRSTNAME -> { lastTeam, lastYear } from GAME_LOG
+  // so registration announcements can say "He played for X last season"
+  const playerHistoryMap = useMemo(() => {
+    const map = {};
+    GAME_LOG.forEach(r => {
+      if (r[6] !== 1) return;
+      const name = r[0];
+      const team = r[1];
+      const year = r[20];
+      if (!map[name]) map[name] = { lastTeam: team, lastYear: year };
+      if (year > map[name].lastYear) {
+        map[name].lastTeam = team;
+        map[name].lastYear = year;
+      }
+    });
+    return map;
+  }, []);
+
+  const findPlayerHistory = useCallback((firstName, lastName) => {
+    const key = (lastName + " " + firstName).toUpperCase();
+    if (playerHistoryMap[key]) return playerHistoryMap[key];
+    const lastUpper = (lastName || "").toUpperCase();
+    const firstUpper = (firstName || "").toUpperCase();
+    for (const [k, v] of Object.entries(playerHistoryMap)) {
+      const parts = k.split(" ");
+      if (parts[0] === lastUpper && parts.slice(1).join(" ").startsWith(firstUpper)) return v;
+    }
+    return null;
+  }, [playerHistoryMap]);
+
   return (
     <div className="space-y-3 pb-6">
       {/* Sticky links bar (top) */}
@@ -11893,18 +11923,25 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
 
         announcements.forEach(a => {
           const pronoun = a.gender === "Female" ? "She" : "He";
-          // Try to find their previous team from linked_player or just use team_pref
-          const teamNote = a.team_pref ? ` ${pronoun} is playing for ${a.team_pref}.` : "";
+          const history = findPlayerHistory(a.first_name, a.last_name);
+          let historyNote = " This is their first season in PCAL.";
+          if (history) {
+            const teamDisplay = TEAM_NAMES[history.lastTeam] || history.lastTeam;
+            if (history.lastYear === 2025) {
+              historyNote = ` ${pronoun} played for ${teamDisplay} last season.`;
+            } else {
+              historyNote = ` ${pronoun} last played for ${teamDisplay} in ${history.lastYear}.`;
+            }
+          }
           const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
           items.push({
             _kind: "reg",
             _date: dateStr,
             _ts: a.created_at ? new Date(a.created_at).getTime() : 0,
             reg: a,
-            pronoun,
-            teamNote,
+            historyNote,
             dateStr,
-            tc: TEAM_C[a.team_pref] || "#6b7280",
+            tc: TEAM_C[a.team_pref] || (history ? (TEAM_COLORS[history.lastTeam] || "#6b7280") : "#6b7280"),
           });
         });
 
@@ -11950,7 +11987,7 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
                                   {item.dateStr && <p className="text-xs font-bold text-gray-500">{item.dateStr}</p>}
                                 </div>
                                 <p className="text-sm text-gray-900 leading-relaxed">
-                                  <strong>{a.first_name} {a.last_name}</strong> has registered.{item.teamNote}
+                                  <strong>{a.first_name} {a.last_name}</strong> has registered.{item.historyNote}
                                 </p>
                                 {a.reg_quote && <p className="text-[11px] text-gray-500 italic mt-1">"{a.reg_quote}"</p>}
                               </div>
@@ -17083,6 +17120,9 @@ function RegistrationsAdminSection() {
   const [banner, setBanner] = useState(null);
   const [sortBy, setSortBy] = useState("name"); // "name" | "team" | "age" | "date"
   const [showAvailability, setShowAvailability] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const LAST_SEEN_KEY = "pcal_admin_reg_last_seen";
   const [lastSeenAt] = useState(() => {
@@ -17278,6 +17318,13 @@ function RegistrationsAdminSection() {
                   {r.conflicts_note && <p className="text-[11px] text-amber-700 mt-0.5">Conflict: {r.conflicts_note}</p>}
                   {r.announce_registration && r.reg_quote && <p className="text-[11px] text-gray-500 mt-0.5 italic">Quote: "{r.reg_quote}"</p>}
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    <button onClick={() => {
+                      setEditingId(editingId === r.id ? null : r.id);
+                      setEditForm(editingId === r.id ? null : { ...r });
+                    }}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold ${editingId === r.id ? "bg-gray-900 text-white" : "bg-blue-50 text-blue-700"}`}>
+                      {editingId === r.id ? "Close" : "Edit"}
+                    </button>
                     <button onClick={async () => {
                       const newVal = !r.announce_registration;
                       const res = await adminToggleAnnouncement(r.id, newVal, r.reg_quote);
@@ -17294,9 +17341,138 @@ function RegistrationsAdminSection() {
                         if (res?.error) { alert(res.error); return; }
                         setRows(rs => rs.map(x => x.id === r.id ? { ...x, reg_quote: q } : x));
                       });
-                    }} className="px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-[10px] font-bold">Edit quote</button>
+                    }} className="px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-[10px] font-bold">Quote</button>
                     <button onClick={() => handleDelete(r.id)} className="px-2 py-1 rounded-lg bg-red-50 text-red-600 text-[10px] font-bold">Delete</button>
                   </div>
+
+                  {/* Inline edit form */}
+                  {editingId === r.id && editForm && (() => {
+                    const ef = editForm;
+                    const setEf = (fn) => setEditForm(prev => typeof fn === "function" ? fn(prev) : fn);
+                    const AdminEditTile = ({ selected, onClick, children }) => (
+                      <button onClick={onClick}
+                        className={`w-full rounded-xl px-3 py-2 text-left font-semibold text-sm transition-all border-2 ${
+                          selected ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white border-gray-200 text-gray-800"
+                        }`}>
+                        <div className="flex items-center justify-between">
+                          <span>{children}</span>
+                          {selected && <svg className="w-3.5 h-3.5 text-white flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                        </div>
+                      </button>
+                    );
+                    const saveEdit = async () => {
+                      setSaving(true);
+                      const payload = {
+                        first_name: ef.first_name, last_name: ef.last_name,
+                        phone: ef.phone || "", address: ef.address || "", city: ef.city || "", zip: ef.zip || "",
+                        emergency_contact: ef.emergency_contact || "", emergency_phone: ef.emergency_phone || "",
+                        team_pref: ef.team_pref || "", eligibility: ef.eligibility || "",
+                        reg_basis: ef.reg_basis || "", community_team: ef.community_team || "",
+                        dates: ef.dates || [], roles: ef.roles || [],
+                        buyout_volunteer: !!ef.buyout_volunteer,
+                        conflicts_note: ef.conflicts_note || "",
+                        email_verified: !!ef.email_verified, admin_override: !!ef.admin_override,
+                        announce_registration: !!ef.announce_registration,
+                        reg_quote: ef.reg_quote || null,
+                        gender: ef.gender || null,
+                      };
+                      const res = await adminUpdateRegistration(ef.id, payload);
+                      setSaving(false);
+                      if (res?.error) { alert("Save failed: " + res.error); return; }
+                      setRows(rs => rs.map(x => x.id === ef.id ? { ...x, ...payload } : x));
+                      setEditingId(null);
+                      setEditForm(null);
+                    };
+                    return (
+                      <div className="mt-2 pt-2 border-t border-gray-200 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            ["first_name", "First Name"], ["last_name", "Last Name"],
+                            ["email", "Email"], ["phone", "Phone"],
+                            ["dob", "DOB"], ["gender", "Gender"],
+                            ["address", "Address"], ["city", "City"],
+                            ["zip", "Zip"],
+                            ["emergency_contact", "Emergency Name"], ["emergency_phone", "Emergency Phone"],
+                          ].map(([k, label]) => (
+                            <div key={k} className={k === "address" ? "col-span-2" : ""}>
+                              <label className="block text-[9px] font-bold text-gray-400 uppercase">{label}</label>
+                              {k === "gender" ? (
+                                <div className="flex gap-1">
+                                  {["Male", "Female"].map(g => (
+                                    <button key={g} onClick={() => setEf(f => ({ ...f, gender: g }))}
+                                      className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border ${ef.gender === g ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white border-gray-200 text-gray-700"}`}>{g}</button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <input type="text" value={ef[k] || ""} onChange={e => setEf(f => ({ ...f, [k]: e.target.value }))}
+                                  className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div>
+                          <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Team Preference</label>
+                          <div className="flex flex-col gap-1">
+                            {REG_TEAMS.map(t => (
+                              <AdminEditTile key={t} selected={ef.team_pref === t} onClick={() => setEf(f => ({ ...f, team_pref: t }))}>{t}</AdminEditTile>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Available Dates</label>
+                          <div className="grid grid-cols-3 gap-1">
+                            {REG_DATES.map(d => (
+                              <AdminEditTile key={d} selected={(ef.dates || []).includes(d)}
+                                onClick={() => setEf(f => ({ ...f, dates: (f.dates || []).includes(d) ? (f.dates || []).filter(x => x !== d) : [...(f.dates || []), d] }))}>{d}</AdminEditTile>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Volunteer Roles</label>
+                          <div className="flex flex-col gap-1">
+                            {REG_ROLES.map(r2 => (
+                              <AdminEditTile key={r2.key} selected={(ef.roles || []).includes(r2.key)}
+                                onClick={() => setEf(f => ({ ...f, roles: (f.roles || []).includes(r2.key) ? (f.roles || []).filter(x => x !== r2.key) : [...(f.roles || []), r2.key] }))}>{r2.label}</AdminEditTile>
+                            ))}
+                          </div>
+                        </div>
+
+                        <label className="flex items-center gap-2 text-xs text-gray-700">
+                          <input type="checkbox" checked={!!ef.buyout_volunteer} onChange={e => setEf(f => ({ ...f, buyout_volunteer: e.target.checked }))} />
+                          Volunteer buyout ($100)
+                        </label>
+
+                        <div>
+                          <label className="block text-[9px] font-bold text-gray-400 uppercase">Conflicts</label>
+                          <input type="text" value={ef.conflicts_note || ""} onChange={e => setEf(f => ({ ...f, conflicts_note: e.target.value }))}
+                            className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" />
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1.5 text-xs text-gray-700">
+                            <input type="checkbox" checked={!!ef.email_verified} onChange={e => setEf(f => ({ ...f, email_verified: e.target.checked }))} />
+                            Email verified
+                          </label>
+                          <label className="flex items-center gap-1.5 text-xs text-gray-700">
+                            <input type="checkbox" checked={!!ef.admin_override} onChange={e => setEf(f => ({ ...f, admin_override: e.target.checked }))} />
+                            Admin override
+                          </label>
+                        </div>
+
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={saveEdit} disabled={saving}
+                            className="flex-1 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-white disabled:opacity-50">
+                            {saving ? "Saving..." : "Save"}
+                          </button>
+                          <button onClick={() => { setEditingId(null); setEditForm(null); }}
+                            className="flex-1 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-600">Cancel</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );
