@@ -10068,8 +10068,8 @@ function CompareView({ onSelect }) {
 // ========== MAIN APP ==========
 
 export default function App() {
-  const [section, setSection] = useState("stats");
-  const [tab, setTab] = useState("stats_home");
+  const [section, setSection] = useState("home");
+  const [tab, setTab] = useState("home");
   const [search, setSearch] = useState("");
   const [yearFilter, setYearFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
@@ -10098,6 +10098,31 @@ export default function App() {
   const [tileOrderInGroup, setTileOrderInGroup] = useState({});
   const [announcement, setAnnouncement] = useState("");
 
+  // ===== HOME TAB STATE =====
+  const [commissionerMessages, setCommissionerMessages] = useState([]);
+  // each: { id, title, body, date, status: "active"|"archived", imageUrl?: string }
+  const [stickyLinks, setStickyLinks] = useState([
+    { id: "ig", label: "Instagram", url: "https://instagram.com/pcaleague", icon: "ig" },
+  ]);
+  // each: { id, label, url, icon: "ig"|"church"|"link" }
+  const [quickLinks, setQuickLinks] = useState([]);
+  // each: { id, label, url }
+  const [livestreamUrls, setLivestreamUrls] = useState([]);
+  // each: { id, label, url }
+  const [photoCards, setPhotoCards] = useState([]);
+  // each: { id, caption, imageUrl, date }
+  const [homeCardVisibility, setHomeCardVisibility] = useState({
+    registration: "visible",
+    stickyLinks: "visible",
+    quickLinks: "visible",
+    commissionerMessages: "visible",
+    weekOneSchedule: "visible",
+    whatsLive: "visible",
+    playoffRecap2025: "visible",
+    livestreams: "visible",
+    photos: "visible",
+  });
+
   // Load persisted admin config on mount
   const [configLoaded, setConfigLoaded] = useState(false);
   useEffect(() => {
@@ -10112,6 +10137,12 @@ export default function App() {
         if (parsed.groupTitles) setGroupTitles(parsed.groupTitles);
         if (parsed.tileOrderInGroup) setTileOrderInGroup(parsed.tileOrderInGroup);
         if (parsed.announcement !== undefined) setAnnouncement(parsed.announcement);
+        if (parsed.commissionerMessages) setCommissionerMessages(parsed.commissionerMessages);
+        if (parsed.stickyLinks) setStickyLinks(parsed.stickyLinks);
+        if (parsed.quickLinks) setQuickLinks(parsed.quickLinks);
+        if (parsed.livestreamUrls) setLivestreamUrls(parsed.livestreamUrls);
+        if (parsed.photoCards) setPhotoCards(parsed.photoCards);
+        if (parsed.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...parsed.homeCardVisibility }));
       }
     } catch (e) {}
     setConfigLoaded(true);
@@ -10121,30 +10152,35 @@ export default function App() {
   useEffect(() => {
     if (!configLoaded) return;
     try {
-      const config = { tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement };
+      const config = {
+        tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement,
+        commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards, homeCardVisibility,
+      };
       if (typeof window !== "undefined" && window.localStorage) {
         window.localStorage.setItem("pcal_admin_config", JSON.stringify(config));
       }
     } catch (e) {}
-  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, configLoaded]);
+  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement,
+      commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards, homeCardVisibility, configLoaded]);
 
   const addRegistration = (reg) => setRegistrations(rs => [...rs, { ...reg, submittedAt: new Date().toISOString() }]);
   const isAdminView = adminUnlocked && !adminPreviewMode;
 
   const ALL_NAV_ITEMS = [
+    { key: "home", label: "Home", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
     { key: "stats", label: "Stats & History", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
     { key: "schedule", label: "Schedule", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
-    { key: "potw", label: "POTW", icon: "M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" },
     { key: "register", label: "Register", icon: "M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" },
   ];
   const NAV_ITEMS = ALL_NAV_ITEMS.filter(item => {
-    if (item.key === "stats") return true;
+    if (item.key === "stats" || item.key === "home") return true;
     return tabVisibility[item.key] !== "invisible";
   });
 
   const switchSection = (key) => {
     setSection(key);
     if (key === "stats") setTab("stats_home");
+    else if (key === "home") setTab("home");
     else setTab(key);
   };
 
@@ -10185,12 +10221,17 @@ export default function App() {
     return DATA.filter(r => r.player.toUpperCase() === selectedPlayer.toUpperCase());
   }, [selectedPlayer]);
 
+  // goToPlayer respects the player-lookup tile state. If the "search" tile is
+  // "coming" or "invisible", this is a silent no-op (so clicks from career
+  // leaders, leaderboards, etc. don't route to a disabled view).
+  const isPlayerLookupDisabled = (tileStates.search === "coming" || tileStates.search === "invisible");
   const goToPlayer = useCallback((raw) => {
+    if (tileStates.search === "coming" || tileStates.search === "invisible") return;
     setSelectedPlayer(raw);
     setSection("stats");
     setTab("search");
     setSearch(formatName(raw));
-  }, []);
+  }, [tileStates.search]);
 
   const careerLeaders = useMemo(() => {
     const byPlayer = {};
@@ -11004,6 +11045,22 @@ export default function App() {
           </div>
         )}
 
+        {/* ===== HOME ===== */}
+        {tab === "home" && (
+          <HomeView
+            commissionerMessages={commissionerMessages}
+            stickyLinks={stickyLinks}
+            quickLinks={quickLinks}
+            livestreamUrls={livestreamUrls}
+            photoCards={photoCards}
+            homeCardVisibility={homeCardVisibility}
+            tileStates={tileStates}
+            DISPLAY_GROUPS={DISPLAY_GROUPS}
+            switchSection={switchSection}
+            isAdminView={isAdminView}
+          />
+        )}
+
         {/* ===== STATS HOME ===== */}
         {tab === "stats_home" && (
           <div>
@@ -11088,9 +11145,15 @@ export default function App() {
             groupTitles={groupTitles} setGroupTitles={setGroupTitles}
             tileOrderInGroup={tileOrderInGroup} setTileOrderInGroup={setTileOrderInGroup}
             announcement={announcement} setAnnouncement={setAnnouncement}
+            commissionerMessages={commissionerMessages} setCommissionerMessages={setCommissionerMessages}
+            stickyLinks={stickyLinks} setStickyLinks={setStickyLinks}
+            quickLinks={quickLinks} setQuickLinks={setQuickLinks}
+            livestreamUrls={livestreamUrls} setLivestreamUrls={setLivestreamUrls}
+            photoCards={photoCards} setPhotoCards={setPhotoCards}
+            homeCardVisibility={homeCardVisibility} setHomeCardVisibility={setHomeCardVisibility}
             adminPreviewMode={adminPreviewMode} setAdminPreviewMode={setAdminPreviewMode}
             STATS_GROUPS={STATS_GROUPS}
-            onLogout={() => { setAdminUnlocked(false); setTab("stats_home"); }}
+            onLogout={() => { setAdminUnlocked(false); setTab("home"); }}
           />
         )}
 
@@ -11538,6 +11601,386 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+// ========== HOME TAB ==========
+
+// Constants for home tab
+const REG_DEADLINE_MS = new Date("2026-05-08T23:59:00-07:00").getTime(); // Thursday May 8 2026, 11:59 PM Pacific
+const TEAM_BADGE_COLORS = {
+  SAC: { bg: "#7c3aed", text: "#ffffff", name: "Sacramento" },
+  PDF: { bg: "#0d9488", text: "#ffffff", name: "Pleasanton/Dublin/Fremont" },
+  MOD: { bg: "#dc2626", text: "#ffffff", name: "Modesto" },
+  SJO: { bg: "#7f1d1d", text: "#ffffff", name: "San Jose" },
+  HAY: { bg: "#2563eb", text: "#ffffff", name: "Hayward" },
+  PLE: { bg: "#facc15", text: "#000000", name: "Pleasanton" },
+};
+
+const WEEK_1_2026 = {
+  num: 1, date: "June 7, 2026", location: "San Jose", bye: "SAC",
+  games: [
+    { time: "3:00 PM", t1: "PDF", t2: "MOD" },
+    { time: "4:00 PM", t1: "HAY", t2: "SJO" },
+    { time: "5:00 PM", t1: "PDF", t2: "PLE" },
+    { time: "6:00 PM", t1: "MOD", t2: "HAY" },
+    { time: "7:00 PM", t1: "SJO", t2: "PLE" },
+  ],
+};
+
+// 2025 Playoff results (extracted from GAME_LOG)
+const PLAYOFF_2025 = [
+  {
+    id: "semi1", round: "Semifinal", date: "August 10, 2025",
+    winner: "SAC", loser: "PDF", winnerScore: 44, loserScore: 30,
+    boxScore: {
+      SAC: [
+        { player: "ABDELSHAID MOSES", pts: 13 },
+        { player: "KELADA ANTHONY", pts: 14 },
+        { player: "POULES ABANOB", pts: 8 },
+        { player: "YOSEF ELIJAH", pts: 6 },
+        { player: "AWAD MARK", pts: 3 },
+      ],
+      PDF: [
+        { player: "ISHAK ANDREW", pts: 14 },
+        { player: "SHEHATA JACOB", pts: 10 },
+        { player: "SHEHATA GEORGE", pts: 6 },
+      ],
+    },
+  },
+  {
+    id: "semi2", round: "Semifinal", date: "August 10, 2025",
+    winner: "PLE", loser: "SJO", winnerScore: 42, loserScore: 35,
+    boxScore: {
+      PLE: [
+        { player: "TAWDROS MARIOS", pts: 17 },
+        { player: "HANNA ANDRE", pts: 10 },
+        { player: "MIKHAIL YOUSEF", pts: 8 },
+        { player: "MIKHAIL FADY", pts: 5 },
+        { player: "NAGUIB MITCHELL", pts: 2 },
+      ],
+      SJO: [
+        { player: "ABDELMALAK SIMON", pts: 20 },
+        { player: "GEBRAEIL MATTHEW", pts: 8 },
+        { player: "ABDELMALAK ANDREW", pts: 5 },
+        { player: "DAOUD YOUSSEF", pts: 2 },
+      ],
+    },
+  },
+  {
+    id: "champ", round: "Championship", date: "August 10, 2025",
+    winner: "SAC", loser: "PLE", winnerScore: 60, loserScore: 52,
+    boxScore: {
+      SAC: [
+        { player: "KELADA ANTHONY", pts: 20 },
+        { player: "ABDELSHAID MOSES", pts: 14 },
+        { player: "POULES ABANOB", pts: 12 },
+        { player: "AWAD MARK", pts: 8 },
+        { player: "YOSEF ELIJAH", pts: 6 },
+      ],
+      PLE: [
+        { player: "TAWDROS MARIOS", pts: 22 },
+        { player: "HANNA ANDRE", pts: 12 },
+        { player: "MIKHAIL YOUSEF", pts: 10 },
+        { player: "MIKHAIL FADY", pts: 5 },
+        { player: "NAGUIB MITCHELL", pts: 3 },
+      ],
+    },
+  },
+];
+
+function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards,
+                   homeCardVisibility, tileStates, DISPLAY_GROUPS, switchSection, isAdminView }) {
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [expandedGame, setExpandedGame] = useState(null);
+
+  // Update countdown every minute
+  useEffect(() => {
+    const iv = setInterval(() => setNowMs(Date.now()), 60000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const isVisible = (key) => isAdminView || (homeCardVisibility[key] !== "invisible" && homeCardVisibility[key] !== "hidden");
+  const activeMessages = commissionerMessages.filter(m => m.status !== "archived");
+  const msRemaining = REG_DEADLINE_MS - nowMs;
+  const regOpen = msRemaining > 0;
+  const daysLeft = Math.max(0, Math.floor(msRemaining / (1000 * 60 * 60 * 24)));
+  const hoursLeft = Math.max(0, Math.floor((msRemaining / (1000 * 60 * 60)) % 24));
+
+  // Auto-generated list of what's live on the app
+  const liveTiles = DISPLAY_GROUPS.flatMap(g => g.cards.filter(c => c._state !== "invisible" && c._state !== "coming"));
+
+  return (
+    <div className="space-y-3 pb-6">
+      {/* Sticky links bar (top) */}
+      {isVisible("stickyLinks") && stickyLinks.length > 0 && (
+        <div className="-mx-4 px-4 py-2 bg-white border-b border-gray-100 flex gap-2 overflow-x-auto sticky top-0 z-10">
+          {stickyLinks.map(link => (
+            <a key={link.id} href={link.url} target="_blank" rel="noopener noreferrer"
+              className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 active:scale-95 transition text-xs font-bold text-gray-700">
+              {link.icon === "ig" && (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/>
+                </svg>
+              )}
+              {link.icon === "church" && (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2v4m-2 0h4M5 22V10l7-4 7 4v12M5 22h14M9 22v-6a3 3 0 016 0v6"/>
+                </svg>
+              )}
+              {(!link.icon || link.icon === "link") && (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                </svg>
+              )}
+              <span>{link.label}</span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {/* Quick links row */}
+      {isVisible("quickLinks") && quickLinks.length > 0 && (
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-medium mb-2">Quick Links</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {quickLinks.map(link => (
+              <a key={link.id} href={link.url} target="_blank" rel="noopener noreferrer"
+                className="flex-shrink-0 px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold active:scale-95 transition">
+                {link.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Registration deadline card */}
+      {isVisible("registration") && regOpen && (
+        <div className="rounded-2xl p-4 text-white" style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)" }}>
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-blue-200 font-bold">Registration Open</p>
+              <h3 className="text-lg font-black mt-1">PCAL 2026 Season</h3>
+            </div>
+            <div className="text-right">
+              <p className="text-3xl font-black tabular-nums leading-none">{daysLeft}</p>
+              <p className="text-[10px] text-blue-200 font-bold uppercase tracking-wide">days left</p>
+            </div>
+          </div>
+          <p className="text-xs text-blue-100 mb-3">Registration closes <strong className="text-white">Thursday, May 8 at 11:59 PM Pacific</strong> ({hoursLeft}h remaining today).</p>
+          <button onClick={() => switchSection("register")}
+            className="w-full py-2.5 rounded-xl bg-white text-gray-900 font-bold text-sm active:scale-95 transition">
+            Register Now →
+          </button>
+        </div>
+      )}
+
+      {/* Commissioner messages */}
+      {isVisible("commissionerMessages") && activeMessages.length > 0 && (
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-medium mb-2">From the Commissioner</p>
+          <div className="space-y-2.5">
+            {activeMessages.map(msg => <CommissionerMessageCard key={msg.id} msg={msg} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Week 1 Schedule */}
+      {isVisible("weekOneSchedule") && (
+        <div className="rounded-2xl bg-white border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Opening Day</p>
+              <h3 className="text-base font-black text-gray-900 mt-0.5">Week 1 Schedule</h3>
+            </div>
+            <span className="text-[9px] font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">TENTATIVE</span>
+          </div>
+          <div className="text-xs text-gray-600 mb-3">
+            <span className="font-bold">{WEEK_1_2026.date}</span> · {WEEK_1_2026.location} · Bye: <span className="font-bold">{WEEK_1_2026.bye}</span>
+          </div>
+          <div className="space-y-1.5">
+            {WEEK_1_2026.games.map((g, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className="text-gray-400 tabular-nums w-14 font-medium">{g.time}</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-black"
+                  style={{ backgroundColor: TEAM_BADGE_COLORS[g.t1].bg, color: TEAM_BADGE_COLORS[g.t1].text }}>{g.t1}</span>
+                <span className="text-gray-400 text-[10px]">vs</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-black"
+                  style={{ backgroundColor: TEAM_BADGE_COLORS[g.t2].bg, color: TEAM_BADGE_COLORS[g.t2].text }}>{g.t2}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => switchSection("schedule")}
+            className="mt-3 text-xs font-bold text-blue-600 hover:text-blue-700">
+            Full season schedule →
+          </button>
+        </div>
+      )}
+
+      {/* 2025 Playoff Recap */}
+      {isVisible("playoffRecap2025") && (
+        <div className="rounded-2xl bg-white border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Last Season</p>
+              <h3 className="text-base font-black text-gray-900 mt-0.5">2025 Playoff Recap</h3>
+            </div>
+            <span className="text-[9px] font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded">🏆 SAC CHAMPS</span>
+          </div>
+          <div className="space-y-2">
+            {PLAYOFF_2025.map(game => {
+              const isExpanded = expandedGame === game.id;
+              return (
+                <div key={game.id} className="rounded-xl border border-gray-100 overflow-hidden">
+                  <button onClick={() => setExpandedGame(isExpanded ? null : game.id)}
+                    className="w-full px-3 py-2.5 flex items-center gap-2 hover:bg-gray-50 active:bg-gray-100 transition text-left">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                      game.round === "Championship" ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-600"
+                    }`}>{game.round === "Championship" ? "🏆 FINAL" : "SEMI"}</span>
+                    <div className="flex-1 flex items-center gap-1.5 text-xs">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-black"
+                        style={{ backgroundColor: TEAM_BADGE_COLORS[game.winner].bg, color: TEAM_BADGE_COLORS[game.winner].text }}>{game.winner}</span>
+                      <span className="font-black text-gray-900 tabular-nums">{game.winnerScore}</span>
+                      <span className="text-gray-400 text-[10px]">def</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-black"
+                        style={{ backgroundColor: TEAM_BADGE_COLORS[game.loser].bg, color: TEAM_BADGE_COLORS[game.loser].text }}>{game.loser}</span>
+                      <span className="font-black text-gray-500 tabular-nums">{game.loserScore}</span>
+                    </div>
+                    <svg className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                  </button>
+                  {isExpanded && (
+                    <div className="px-3 pb-3 pt-2 bg-gray-50 border-t border-gray-100 text-xs">
+                      <p className="text-[10px] text-gray-400 mb-2">{game.date} · Box Score</p>
+                      {[game.winner, game.loser].map(team => (
+                        <div key={team} className="mb-2 last:mb-0">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black"
+                              style={{ backgroundColor: TEAM_BADGE_COLORS[team].bg, color: TEAM_BADGE_COLORS[team].text }}>{team}</span>
+                            <span className="font-black text-gray-900 tabular-nums">{team === game.winner ? game.winnerScore : game.loserScore}</span>
+                          </div>
+                          <div className="ml-1">
+                            {game.boxScore[team].map((p, i) => (
+                              <div key={i} className="flex items-center justify-between py-0.5">
+                                <span className="text-gray-700">{formatName(p.player)}</span>
+                                <span className="font-bold text-gray-900 tabular-nums">{p.pts} pts</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Photo cards */}
+      {isVisible("photos") && photoCards.length > 0 && (
+        <div className="space-y-2.5">
+          {photoCards.map(photo => (
+            <div key={photo.id} className="rounded-2xl overflow-hidden bg-white border border-gray-200">
+              <img src={photo.imageUrl} alt={photo.caption || ""} className="w-full aspect-video object-cover" onError={(e) => { e.target.style.display = "none"; }} />
+              {photo.caption && (
+                <div className="p-3">
+                  <p className="text-xs text-gray-600">{photo.caption}</p>
+                  {photo.date && <p className="text-[10px] text-gray-400 mt-1">{photo.date}</p>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Livestream card */}
+      {isVisible("livestreams") && (
+        <div className="rounded-2xl bg-white border border-gray-200 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-red-500"></div>
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Livestreams</p>
+          </div>
+          {livestreamUrls.length > 0 ? (
+            <div className="space-y-1.5">
+              {livestreamUrls.map(ls => (
+                <a key={ls.id} href={ls.url} target="_blank" rel="noopener noreferrer"
+                  className="block px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100 text-sm font-bold text-gray-900 transition">
+                  ▶ {ls.label}
+                </a>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">Livestream links coming soon — check back during game days.</p>
+          )}
+        </div>
+      )}
+
+      {/* What's live on the app */}
+      {isVisible("whatsLive") && (
+        <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-2">What's Live on the App</p>
+          <div className="flex flex-wrap gap-1.5">
+            {liveTiles.slice(0, 20).map(tile => (
+              <span key={tile.key} className="text-[11px] px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-700 font-medium">
+                {tile.label}
+              </span>
+            ))}
+          </div>
+          <button onClick={() => switchSection("stats")}
+            className="mt-3 text-xs font-bold text-blue-600 hover:text-blue-700">
+            Explore Stats & History →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommissionerMessageCard({ msg }) {
+  return (
+    <div className="rounded-2xl bg-white border border-gray-200 p-4">
+      <div className="flex items-start gap-3">
+        {/* Placeholder avatar: "little face in a circle" */}
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex-shrink-0 flex items-center justify-center">
+          <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            <p className="text-[11px] font-bold text-gray-500">Commissioner</p>
+            {msg.date && <p className="text-[10px] text-gray-400">{msg.date}</p>}
+          </div>
+          {msg.title && <h4 className="text-sm font-black text-gray-900 mb-1">{msg.title}</h4>}
+          <div className="text-xs text-gray-700 leading-relaxed" style={{ whiteSpace: "pre-wrap" }} dangerouslySetInnerHTML={{ __html: renderRichText(msg.body || "") }} />
+          {msg.imageUrl && (
+            <img src={msg.imageUrl} alt="" className="mt-2 rounded-xl w-full max-h-64 object-cover" onError={(e) => { e.target.style.display = "none"; }} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Simple rich-text renderer: supports **bold**, *italic*, line breaks, [text](url) links
+function renderRichText(text) {
+  if (!text) return "";
+  // Escape HTML
+  let escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  // Links [text](url)
+  escaped = escaped.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline">$1</a>');
+  // Bold **text**
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic *text*
+  escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  // Line breaks
+  escaped = escaped.replace(/\n/g, "<br/>");
+  return escaped;
 }
 
 function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
@@ -15808,7 +16251,7 @@ function RegistrationView({ onSubmitRegistration }) {
   );
 }
 
-function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates, setTileStates, tileComingDates, setTileComingDates, groupOrder, setGroupOrder, groupTitles, setGroupTitles, tileOrderInGroup, setTileOrderInGroup, announcement, setAnnouncement, adminPreviewMode, setAdminPreviewMode, STATS_GROUPS, onLogout }) {
+function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates, setTileStates, tileComingDates, setTileComingDates, groupOrder, setGroupOrder, groupTitles, setGroupTitles, tileOrderInGroup, setTileOrderInGroup, announcement, setAnnouncement, commissionerMessages, setCommissionerMessages, stickyLinks, setStickyLinks, quickLinks, setQuickLinks, livestreamUrls, setLivestreamUrls, photoCards, setPhotoCards, homeCardVisibility, setHomeCardVisibility, adminPreviewMode, setAdminPreviewMode, STATS_GROUPS, onLogout }) {
   const [section, setSection] = useState("toggles");
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
@@ -15864,7 +16307,7 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
 
   const resetAll = () => {
     if (!confirm("Reset all admin settings to defaults?")) return;
-    setTabVisibility({ register: "visible", schedule: "visible", potw: "visible" });
+    setTabVisibility({ register: "visible", schedule: "visible" });
     setTileStates({});
     setTileComingDates({});
     setGroupOrder(null);
@@ -15896,6 +16339,7 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
 
   const SECTIONS = [
     { key: "toggles", label: "Feature Toggles" },
+    { key: "home", label: "Home Tab" },
     { key: "tiles", label: "Tile Management" },
     { key: "registrations", label: "Registrations" },
     { key: "announcement", label: "Announcement" },
@@ -15926,7 +16370,7 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
           <div>
             <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Top Nav Tabs</p>
             <div className="space-y-2">
-              {["register", "schedule", "potw"].map(key => (
+              {["register", "schedule"].map(key => (
                 <div key={key} className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
                   <span className="text-sm font-bold text-gray-900 capitalize">{key}</span>
                   <div className="flex gap-1">
@@ -15940,8 +16384,20 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
                 </div>
               ))}
             </div>
+            <p className="text-[10px] text-gray-400 mt-2">Home and Stats & History are always visible.</p>
           </div>
         </div>
+      )}
+
+      {section === "home" && (
+        <HomeAdminPanel
+          commissionerMessages={commissionerMessages} setCommissionerMessages={setCommissionerMessages}
+          stickyLinks={stickyLinks} setStickyLinks={setStickyLinks}
+          quickLinks={quickLinks} setQuickLinks={setQuickLinks}
+          livestreamUrls={livestreamUrls} setLivestreamUrls={setLivestreamUrls}
+          photoCards={photoCards} setPhotoCards={setPhotoCards}
+          homeCardVisibility={homeCardVisibility} setHomeCardVisibility={setHomeCardVisibility}
+        />
       )}
 
       {section === "tiles" && (
@@ -16096,6 +16552,414 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ========== HOME ADMIN PANEL ==========
+function HomeAdminPanel({ commissionerMessages, setCommissionerMessages, stickyLinks, setStickyLinks, quickLinks, setQuickLinks, livestreamUrls, setLivestreamUrls, photoCards, setPhotoCards, homeCardVisibility, setHomeCardVisibility }) {
+  const [subSection, setSubSection] = useState("visibility");
+
+  const SUB_SECTIONS = [
+    { key: "visibility", label: "Card Visibility" },
+    { key: "messages", label: "Commissioner Messages" },
+    { key: "sticky", label: "Sticky Links" },
+    { key: "quick", label: "Quick Links" },
+    { key: "livestreams", label: "Livestreams" },
+    { key: "photos", label: "Photos" },
+  ];
+
+  const genId = () => "id_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1.5">
+        {SUB_SECTIONS.map(s => (
+          <button key={s.key} onClick={() => setSubSection(s.key)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${subSection === s.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {subSection === "visibility" && (
+        <div className="space-y-2">
+          <p className="text-[11px] text-gray-500 leading-relaxed">Toggle visibility for each home tab card. Invisible cards are hidden from users but visible to you in admin preview mode.</p>
+          {[
+            { key: "registration", label: "Registration Deadline Card" },
+            { key: "stickyLinks", label: "Sticky Links Bar (top)" },
+            { key: "quickLinks", label: "Quick Links Row" },
+            { key: "commissionerMessages", label: "Commissioner Messages" },
+            { key: "weekOneSchedule", label: "Week 1 Schedule" },
+            { key: "playoffRecap2025", label: "2025 Playoff Recap" },
+            { key: "photos", label: "Photo Cards" },
+            { key: "livestreams", label: "Livestreams" },
+            { key: "whatsLive", label: "What's Live on the App" },
+          ].map(card => {
+            const state = homeCardVisibility[card.key] || "visible";
+            return (
+              <div key={card.key} className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                <span className="text-sm font-bold text-gray-900">{card.label}</span>
+                <div className="flex gap-1">
+                  {["visible", "invisible"].map(s => (
+                    <button key={s} onClick={() => setHomeCardVisibility(v => ({ ...v, [card.key]: s }))}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${state === s ? "bg-gray-900 text-white" : "bg-white text-gray-500 border border-gray-200"}`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {subSection === "messages" && (
+        <CommissionerMessagesAdmin
+          messages={commissionerMessages}
+          setMessages={setCommissionerMessages}
+          genId={genId}
+        />
+      )}
+
+      {subSection === "sticky" && (
+        <LinksAdmin
+          items={stickyLinks}
+          setItems={setStickyLinks}
+          title="Sticky Links"
+          description="Links shown in a bar at the top of the home page. Pick an icon to help users recognize what kind of link it is."
+          withIcon={true}
+          genId={genId}
+        />
+      )}
+
+      {subSection === "quick" && (
+        <LinksAdmin
+          items={quickLinks}
+          setItems={setQuickLinks}
+          title="Quick Links"
+          description="Small button links shown in a row near the top of the home page."
+          withIcon={false}
+          genId={genId}
+        />
+      )}
+
+      {subSection === "livestreams" && (
+        <LinksAdmin
+          items={livestreamUrls}
+          setItems={setLivestreamUrls}
+          title="Livestream Links"
+          description="Add URLs for game-day livestreams. Clear all to show the 'coming soon' placeholder."
+          withIcon={false}
+          genId={genId}
+        />
+      )}
+
+      {subSection === "photos" && (
+        <PhotosAdmin
+          photos={photoCards}
+          setPhotos={setPhotoCards}
+          genId={genId}
+        />
+      )}
+    </div>
+  );
+}
+
+function CommissionerMessagesAdmin({ messages, setMessages, genId }) {
+  const [editing, setEditing] = useState(null);
+  // editing: null or { id, title, body, imageUrl, date, status }
+
+  const newMessage = () => {
+    setEditing({
+      id: genId(),
+      title: "",
+      body: "",
+      imageUrl: "",
+      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      status: "active",
+      isNew: true,
+    });
+  };
+
+  const saveMessage = () => {
+    if (!editing) return;
+    const msg = { ...editing };
+    delete msg.isNew;
+    setMessages(ms => {
+      const existing = ms.find(m => m.id === msg.id);
+      if (existing) return ms.map(m => m.id === msg.id ? msg : m);
+      return [msg, ...ms];
+    });
+    setEditing(null);
+  };
+
+  const deleteMessage = (id) => {
+    if (!confirm("Delete this message permanently?")) return;
+    setMessages(ms => ms.filter(m => m.id !== id));
+  };
+
+  const toggleArchive = (id) => {
+    setMessages(ms => ms.map(m => m.id === id ? { ...m, status: m.status === "archived" ? "active" : "archived" } : m));
+  };
+
+  if (editing) {
+    return (
+      <div className="space-y-3">
+        <p className="text-[11px] text-gray-500 leading-relaxed">
+          <strong>Formatting:</strong> <code>**bold**</code>, <code>*italic*</code>, <code>[link text](https://url.com)</code>, line breaks supported.
+        </p>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Title (optional)</label>
+          <input type="text" value={editing.title} onChange={e => setEditing(ed => ({ ...ed, title: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="e.g. Registration Update" />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Date</label>
+          <input type="text" value={editing.date} onChange={e => setEditing(ed => ({ ...ed, date: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="Jan 15, 2026" />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Message body</label>
+          <textarea value={editing.body} onChange={e => setEditing(ed => ({ ...ed, body: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" rows={6}
+            placeholder="Type your message here. Use **bold** and *italic* for emphasis." />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Image URL (optional)</label>
+          <input type="text" value={editing.imageUrl} onChange={e => setEditing(ed => ({ ...ed, imageUrl: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="https://example.com/photo.jpg" />
+          <p className="text-[10px] text-gray-400 mt-1">Paste a direct image URL. For now, host images on Imgur, Google Photos, or a similar service.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={saveMessage}
+            className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm">Save</button>
+          <button onClick={() => setEditing(null)}
+            className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] text-gray-500 leading-relaxed flex-1 pr-2">Messages appear on the home tab with your avatar. Archived messages are hidden from users.</p>
+        <button onClick={newMessage}
+          className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-bold">+ New</button>
+      </div>
+      {messages.length === 0 && (
+        <div className="text-center py-6 text-sm text-gray-400">No messages yet. Click "+ New" to create one.</div>
+      )}
+      <div className="space-y-2">
+        {messages.map(msg => (
+          <div key={msg.id} className={`rounded-xl border p-3 ${msg.status === "archived" ? "border-gray-200 bg-gray-50 opacity-60" : "border-gray-200 bg-white"}`}>
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase">{msg.date}</p>
+              {msg.status === "archived" && <span className="text-[9px] font-bold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">ARCHIVED</span>}
+            </div>
+            {msg.title && <p className="text-sm font-bold text-gray-900 mb-1">{msg.title}</p>}
+            <p className="text-xs text-gray-600 mb-2" style={{ whiteSpace: "pre-wrap", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{msg.body}</p>
+            <div className="flex gap-1.5">
+              <button onClick={() => setEditing({ ...msg })}
+                className="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-[11px] font-bold">Edit</button>
+              <button onClick={() => toggleArchive(msg.id)}
+                className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-[11px] font-bold">
+                {msg.status === "archived" ? "Unarchive" : "Archive"}
+              </button>
+              <button onClick={() => deleteMessage(msg.id)}
+                className="px-2.5 py-1 rounded-lg bg-red-50 text-red-600 text-[11px] font-bold">Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LinksAdmin({ items, setItems, title, description, withIcon, genId }) {
+  const [editing, setEditing] = useState(null);
+
+  const newItem = () => {
+    setEditing({ id: genId(), label: "", url: "", icon: withIcon ? "link" : undefined, isNew: true });
+  };
+
+  const saveItem = () => {
+    if (!editing || !editing.label.trim() || !editing.url.trim()) {
+      alert("Label and URL are required.");
+      return;
+    }
+    const item = { ...editing };
+    delete item.isNew;
+    setItems(items => {
+      const existing = items.find(i => i.id === item.id);
+      if (existing) return items.map(i => i.id === item.id ? item : i);
+      return [...items, item];
+    });
+    setEditing(null);
+  };
+
+  const deleteItem = (id) => {
+    if (!confirm("Delete this link?")) return;
+    setItems(items => items.filter(i => i.id !== id));
+  };
+
+  const moveItem = (idx, dir) => {
+    const newOrder = [...items];
+    const swap = idx + dir;
+    if (swap < 0 || swap >= newOrder.length) return;
+    [newOrder[idx], newOrder[swap]] = [newOrder[swap], newOrder[idx]];
+    setItems(newOrder);
+  };
+
+  if (editing) {
+    return (
+      <div className="space-y-3">
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Label</label>
+          <input type="text" value={editing.label} onChange={e => setEditing(ed => ({ ...ed, label: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="e.g. Instagram" />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">URL</label>
+          <input type="text" value={editing.url} onChange={e => setEditing(ed => ({ ...ed, url: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="https://..." />
+        </div>
+        {withIcon && (
+          <div>
+            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Icon</label>
+            <div className="flex gap-2">
+              {["ig", "church", "link"].map(icn => (
+                <button key={icn} onClick={() => setEditing(ed => ({ ...ed, icon: icn }))}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold border ${editing.icon === icn ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}>
+                  {icn === "ig" ? "Instagram" : icn === "church" ? "Church" : "Link"}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button onClick={saveItem} className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm">Save</button>
+          <button onClick={() => setEditing(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] text-gray-500 leading-relaxed flex-1 pr-2">{description}</p>
+        <button onClick={newItem} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-bold">+ New</button>
+      </div>
+      {items.length === 0 && (
+        <div className="text-center py-6 text-sm text-gray-400">No {title.toLowerCase()} yet.</div>
+      )}
+      <div className="space-y-2">
+        {items.map((item, idx) => (
+          <div key={item.id} className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl p-2.5">
+            <div className="flex flex-col">
+              <button onClick={() => moveItem(idx, -1)} className="text-gray-400 hover:text-gray-700 text-xs font-bold leading-none">▲</button>
+              <button onClick={() => moveItem(idx, 1)} className="text-gray-400 hover:text-gray-700 text-xs font-bold leading-none">▼</button>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-900 truncate">{item.label}</p>
+              <p className="text-[10px] text-gray-400 truncate">{item.url}</p>
+            </div>
+            <button onClick={() => setEditing({ ...item })} className="px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-[11px] font-bold">Edit</button>
+            <button onClick={() => deleteItem(item.id)} className="px-2 py-1 rounded-lg bg-red-50 text-red-600 text-[11px] font-bold">×</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PhotosAdmin({ photos, setPhotos, genId }) {
+  const [editing, setEditing] = useState(null);
+
+  const newPhoto = () => {
+    setEditing({
+      id: genId(),
+      imageUrl: "",
+      caption: "",
+      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      isNew: true,
+    });
+  };
+
+  const savePhoto = () => {
+    if (!editing || !editing.imageUrl.trim()) {
+      alert("Image URL is required.");
+      return;
+    }
+    const photo = { ...editing };
+    delete photo.isNew;
+    setPhotos(photos => {
+      const existing = photos.find(p => p.id === photo.id);
+      if (existing) return photos.map(p => p.id === photo.id ? photo : p);
+      return [photo, ...photos];
+    });
+    setEditing(null);
+  };
+
+  const deletePhoto = (id) => {
+    if (!confirm("Delete this photo?")) return;
+    setPhotos(photos => photos.filter(p => p.id !== id));
+  };
+
+  if (editing) {
+    return (
+      <div className="space-y-3">
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Image URL</label>
+          <input type="text" value={editing.imageUrl} onChange={e => setEditing(ed => ({ ...ed, imageUrl: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="https://..." />
+          <p className="text-[10px] text-gray-400 mt-1">Paste a direct image URL.</p>
+        </div>
+        {editing.imageUrl && (
+          <img src={editing.imageUrl} alt="" className="w-full rounded-xl max-h-60 object-cover" onError={(e) => { e.target.style.display = "none"; }} />
+        )}
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Caption (optional)</label>
+          <input type="text" value={editing.caption} onChange={e => setEditing(ed => ({ ...ed, caption: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="e.g. 2025 Championship game" />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Date</label>
+          <input type="text" value={editing.date} onChange={e => setEditing(ed => ({ ...ed, date: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" placeholder="Aug 10, 2025" />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={savePhoto} className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm">Save</button>
+          <button onClick={() => setEditing(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] text-gray-500 leading-relaxed flex-1 pr-2">Photo cards appear in the home feed. Newest photos appear first.</p>
+        <button onClick={newPhoto} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-bold">+ New</button>
+      </div>
+      {photos.length === 0 && (
+        <div className="text-center py-6 text-sm text-gray-400">No photos yet.</div>
+      )}
+      <div className="space-y-2">
+        {photos.map(photo => (
+          <div key={photo.id} className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl p-2.5">
+            <img src={photo.imageUrl} alt="" className="w-16 h-16 rounded-lg object-cover flex-shrink-0 bg-gray-100" onError={(e) => { e.target.style.opacity = 0.2; }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-900 truncate">{photo.caption || "(no caption)"}</p>
+              <p className="text-[10px] text-gray-400">{photo.date}</p>
+            </div>
+            <button onClick={() => setEditing({ ...photo })} className="px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-[11px] font-bold">Edit</button>
+            <button onClick={() => deletePhoto(photo.id)} className="px-2 py-1 rounded-lg bg-red-50 text-red-600 text-[11px] font-bold">×</button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
