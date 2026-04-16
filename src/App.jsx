@@ -11211,7 +11211,7 @@ export default function App() {
           <PlayerOfWeekView />
         )}
         {tab === "register" && (
-          <RegistrationView onSubmitRegistration={addRegistration} />
+          <RegistrationView onSubmitRegistration={addRegistration} switchSection={switchSection} />
         )}
         {tab === "admin" && adminUnlocked && (
           <AdminPanel
@@ -15879,7 +15879,7 @@ function computePOTWNominees(year) {
   return result;
 }
 
-function RegistrationView({ onSubmitRegistration }) {
+function RegistrationView({ onSubmitRegistration, switchSection }) {
   const [step, setStep] = useState(0);
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -16363,7 +16363,7 @@ function RegistrationView({ onSubmitRegistration }) {
       {step === 4 && (
         <div className="space-y-4">
           <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-2">Your Information</p>
-          <p className="text-sm text-gray-600 leading-relaxed">All questions are required. Players are not allowed to advance without completing all fields.</p>
+          <p className="text-sm text-gray-600 leading-relaxed">All questions are required unless marked optional.</p>
           {form.existingPlayer && form.firstName && (
             <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 mb-2">
               <p className="text-sm font-bold text-emerald-700 mb-1">We found your info! Is everything below accurate?</p>
@@ -16376,6 +16376,28 @@ function RegistrationView({ onSubmitRegistration }) {
             ["email", "Email Address", "email"],
             ["phone", "Phone Number", "tel"],
             ["dob", "Date of Birth (MM/DD/YYYY)", "text"],
+          ].map(([key, label, type]) => (
+            <div key={key}>
+              <label className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1 block">{label}</label>
+              <input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white" />
+            </div>
+          ))}
+
+          {/* Gender (optional) */}
+          <div>
+            <label className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1 block">Gender <span className="text-gray-400 normal-case">(optional)</span></label>
+            <div className="flex gap-2">
+              {["Male", "Female"].map(g => (
+                <button key={g} onClick={() => setForm(f => ({ ...f, gender: f.gender === g ? "" : g }))}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${form.gender === g ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white border-gray-200 text-gray-800"}`}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {[
             ["address", "Address", "text"],
             ["city", "City", "text"],
             ["zip", "Zip Code", "text"],
@@ -16388,19 +16410,6 @@ function RegistrationView({ onSubmitRegistration }) {
                 className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white" />
             </div>
           ))}
-
-          {/* Gender */}
-          <div>
-            <label className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1 block">Gender</label>
-            <div className="flex gap-2">
-              {["Male", "Female"].map(g => (
-                <button key={g} onClick={() => setForm(f => ({ ...f, gender: g }))}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${form.gender === g ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white border-gray-200 text-gray-800"}`}>
-                  {g}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Headshot upload (optional) */}
           <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 space-y-3">
@@ -16600,19 +16609,40 @@ function RegistrationView({ onSubmitRegistration }) {
           </button>
         )}
       </div>
-      {/* PIN confirmation modal (shown after successful Supabase submission) */}
+      {/* Thank-you page (shown after successful submission) */}
       {pinToShow && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => { setPinToShow(null); resetForm(); }}>
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full" onClick={e => e.stopPropagation()}>
-            <p className="text-sm font-bold text-emerald-600 mb-1">Registration Received!</p>
-            <p className="text-xs text-gray-600 mb-3">We've emailed you a confirmation with all your info. Save this PIN too — you'll need it to edit your registration later.</p>
-            <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl p-4 text-center">
-              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Your PIN</p>
-              <p className="text-3xl font-black tabular-nums tracking-widest text-gray-900">{pinToShow}</p>
+        <div className="fixed inset-0 z-50 bg-white flex items-start justify-center p-4 pt-12 overflow-y-auto">
+          <div className="max-w-sm w-full space-y-5">
+            {/* Success icon */}
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 mx-auto flex items-center justify-center mb-3">
+                <svg className="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-black text-gray-900 mb-1">Thanks for registering!</h2>
+              <p className="text-sm text-gray-600 leading-relaxed">Your registration has been received. A league official will confirm your registration shortly after registration closes.</p>
             </div>
-            <p className="text-[10px] text-gray-400 mt-2 leading-relaxed">Screenshot this screen or check your email. We cannot recover this PIN for you if you lose it.</p>
-            <button onClick={() => { setPinToShow(null); resetForm(); }}
-              className="w-full mt-3 py-2.5 rounded-xl text-sm font-bold bg-gray-900 text-white">Got it</button>
+
+            {/* PIN and email note */}
+            <div className="rounded-2xl bg-gray-50 border border-gray-200 p-4 space-y-2">
+              <p className="text-xs text-gray-500 leading-relaxed">We've emailed a confirmation to you with all your info and a PIN you can use to edit your registration before the deadline.</p>
+              <p className="text-[11px] text-gray-400">Check your inbox (and spam folder) for an email from noreply@pcaleague.com.</p>
+            </div>
+
+            {/* Links */}
+            <div className="space-y-2">
+              <button onClick={() => { setPinToShow(null); resetForm(); if (switchSection) switchSection("home"); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-gray-900 text-white active:scale-[0.98] transition-all">
+                Go to Home
+              </button>
+              <button onClick={() => { setPinToShow(null); resetForm(); if (switchSection) switchSection("stats"); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 active:scale-[0.98] transition-all">
+                Check out Stats & History
+              </button>
+            </div>
+
+            <p className="text-[10px] text-gray-400 text-center">Questions? Email andrewishak@gmail.com</p>
           </div>
         </div>
       )}
