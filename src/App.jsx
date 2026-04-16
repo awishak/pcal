@@ -11143,16 +11143,16 @@ export default function App() {
                         const blocked = (isComing || isInvisible) && !isAdminView;
                         return (
                           <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
-                            className={`w-full rounded-2xl p-4 text-left transition-all relative ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-100 border border-gray-200" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"} ${blocked ? "cursor-not-allowed" : ""}`}>
+                            className={`w-full rounded-2xl p-4 text-left transition-all relative ${isInvisible ? "bg-gray-200 opacity-40" : isComing ? "bg-gray-900" : "bg-gray-900 hover:bg-gray-800 active:scale-[0.99]"} ${blocked ? "cursor-not-allowed" : ""}`}>
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
                                   {!isComing && !isInvisible && <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" aria-label="active" />}
-                                  <div className={`text-base font-bold leading-tight ${isComing ? "text-gray-500" : "text-white"}`}>{card.label}</div>
+                                  <div className={`text-base font-bold leading-tight ${isComing ? "text-gray-600" : "text-white"}`}>{card.label}</div>
                                 </div>
-                                <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-400" : "text-gray-400"}`}>{card.desc}</div>
+                                <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-700" : "text-gray-400"}`}>{card.desc}</div>
                               </div>
-                              {isComing && <span className="text-[10px] font-bold text-amber-900 bg-amber-300 px-2 py-1 rounded whitespace-nowrap">COMING {(card._comingDate || "SOON").toUpperCase()}</span>}
+                              {isComing && <span className="text-[9px] font-bold text-gray-500 px-1.5 py-0.5 rounded border border-gray-600 whitespace-nowrap">COMING {(card._comingDate || "SOON").toUpperCase()}</span>}
                               {isInvisible && isAdminView && <span className="text-[10px] font-bold text-white bg-gray-600 px-2 py-1 rounded">Hidden</span>}
                             </div>
                           </button>
@@ -11167,13 +11167,13 @@ export default function App() {
                         const blocked = (isComing || isInvisible) && !isAdminView;
                         return (
                           <button key={card.key} onClick={() => { if (!blocked) setTab(card.key); }} disabled={blocked}
-                            className={`rounded-2xl p-3.5 text-left transition-all border relative ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-gray-100 border-gray-200" : "bg-gray-50 border-gray-100 hover:bg-gray-100 active:scale-[0.98]"} ${blocked ? "cursor-not-allowed" : ""}`}>
+                            className={`rounded-2xl p-3.5 text-left transition-all border relative ${isInvisible ? "bg-gray-100 border-gray-200 opacity-40" : isComing ? "bg-gray-50 border-gray-100" : "bg-gray-50 border-gray-100 hover:bg-gray-100 active:scale-[0.98]"} ${blocked ? "cursor-not-allowed" : ""}`}>
                             <div className="flex items-center gap-1.5 mb-0.5">
                               {!isComing && !isInvisible && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" aria-label="active" />}
-                              <div className={`text-sm font-bold leading-tight ${isComing ? "text-gray-500" : "text-gray-900"}`}>{card.label}</div>
+                              <div className={`text-sm font-bold leading-tight ${isComing ? "text-gray-400" : "text-gray-900"}`}>{card.label}</div>
                             </div>
-                            <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-400" : "text-gray-400"}`}>{card.desc}</div>
-                            {isComing && <div className="mt-1.5 inline-block text-[10px] font-bold text-amber-900 bg-amber-300 px-2 py-0.5 rounded">COMING {(card._comingDate || "SOON").toUpperCase()}</div>}
+                            <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-300" : "text-gray-400"}`}>{card.desc}</div>
+                            {isComing && <div className="mt-1.5 inline-block text-[9px] font-bold text-gray-400 px-1.5 py-0.5 rounded border border-gray-300">COMING {(card._comingDate || "SOON").toUpperCase()}</div>}
                             {isInvisible && isAdminView && <div className="mt-1.5 text-[10px] font-bold text-gray-500">Hidden</div>}
                           </button>
                         );
@@ -11930,68 +11930,6 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
             className="mt-3 text-xs font-bold text-blue-600 hover:text-blue-700">
             Full season schedule →
           </button>
-        </div>
-      )}
-
-      {/* 2025 Playoff Recap */}
-      {isVisible("playoffRecap2025") && (
-        <div className="rounded-2xl bg-white border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Last Season</p>
-              <h3 className="text-base font-black text-gray-900 mt-0.5">2025 Playoff Recap</h3>
-            </div>
-            <span className="text-[9px] font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded">🏆 SAC CHAMPS</span>
-          </div>
-          <div className="space-y-2">
-            {PLAYOFF_2025.map(game => {
-              const isExpanded = expandedGame === game.id;
-              return (
-                <div key={game.id} className="rounded-xl border border-gray-100 overflow-hidden">
-                  <button onClick={() => setExpandedGame(isExpanded ? null : game.id)}
-                    className="w-full px-3 py-2.5 flex items-center gap-2 hover:bg-gray-50 active:bg-gray-100 transition text-left">
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
-                      game.round === "Championship" ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-600"
-                    }`}>{game.round === "Championship" ? "🏆 FINAL" : "SEMI"}</span>
-                    <div className="flex-1 flex items-center gap-1.5 text-xs">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-black"
-                        style={{ backgroundColor: TEAM_BADGE_COLORS[game.winner].bg, color: TEAM_BADGE_COLORS[game.winner].text }}>{game.winner}</span>
-                      <span className="font-black text-gray-900 tabular-nums">{game.winnerScore}</span>
-                      <span className="text-gray-400 text-[10px]">def</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-black"
-                        style={{ backgroundColor: TEAM_BADGE_COLORS[game.loser].bg, color: TEAM_BADGE_COLORS[game.loser].text }}>{game.loser}</span>
-                      <span className="font-black text-gray-500 tabular-nums">{game.loserScore}</span>
-                    </div>
-                    <svg className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                  </button>
-                  {isExpanded && (
-                    <div className="px-3 pb-3 pt-2 bg-gray-50 border-t border-gray-100 text-xs">
-                      <p className="text-[10px] text-gray-400 mb-2">{game.date} · Box Score</p>
-                      {[game.winner, game.loser].map(team => (
-                        <div key={team} className="mb-2 last:mb-0">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black"
-                              style={{ backgroundColor: TEAM_BADGE_COLORS[team].bg, color: TEAM_BADGE_COLORS[team].text }}>{team}</span>
-                            <span className="font-black text-gray-900 tabular-nums">{team === game.winner ? game.winnerScore : game.loserScore}</span>
-                          </div>
-                          <div className="ml-1">
-                            {game.boxScore[team].map((p, i) => (
-                              <div key={i} className="flex items-center justify-between py-0.5">
-                                <span className="text-gray-700">{formatName(p.player)}</span>
-                                <span className="font-bold text-gray-900 tabular-nums">{p.pts} pts</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
         </div>
       )}
 
@@ -15075,52 +15013,34 @@ function GameLeadersView({ goToPlayer }) {
     <div>
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Best Single-Game Performances</p>
 
-      {/* Category selector */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
+      {/* Category selector - compact single row */}
+      <div className="flex flex-wrap gap-1 mb-3">
         {CATS.map(c => (
           <button key={c.key} onClick={() => setCat(c.key)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex-shrink-0 ${cat === c.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all flex-shrink-0 ${cat === c.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
             {c.label}
           </button>
         ))}
       </div>
 
-      {/* Game type filter */}
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {[["all", "All Games", "bg-gray-700 text-white", "bg-gray-50 text-gray-500"], ["playoff", "Playoffs", "bg-gray-400 text-white", "bg-gray-50 text-gray-400"], ["champ", "Champ", "bg-yellow-500 text-white", "bg-yellow-50 text-yellow-600"]].map(([k, l, activeC, inactiveC]) => (
-          <button key={k} onClick={() => setGameFilter(k)}
-            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${gameFilter === k ? activeC : inactiveC}`}>
-            {l}
-          </button>
-        ))}
-      </div>
-
-      {/* Team filter */}
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        <button onClick={() => setTeamFilter("all")}
-          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${teamFilter === "all" ? "bg-gray-700 text-white" : "bg-gray-50 text-gray-500"}`}>
-          All Teams
-        </button>
-        {GAME_TEAMS.map(t => (
-          <button key={t} onClick={() => setTeamFilter(t)}
-            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${teamFilter === t ? "bg-gray-700 text-white" : "bg-gray-50 text-gray-500"}`}>
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* Year filter */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        <button onClick={() => setYearFilter("all")}
-          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${yearFilter === "all" ? "bg-gray-700 text-white" : "bg-gray-50 text-gray-500"}`}>
-          All Years
-        </button>
-        {GAME_YEARS.map(y => (
-          <button key={y} onClick={() => setYearFilter(String(y))}
-            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${yearFilter === String(y) ? "bg-gray-700 text-white" : "bg-gray-50 text-gray-500"}`}>
-            {y}
-          </button>
-        ))}
+      {/* Filters row - dropdowns */}
+      <div className="flex gap-2 mb-3">
+        <select value={gameFilter} onChange={e => setGameFilter(e.target.value)}
+          className="px-2 py-1.5 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 bg-white flex-1">
+          <option value="all">All Games</option>
+          <option value="playoff">Playoffs</option>
+          <option value="champ">Championship</option>
+        </select>
+        <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
+          className="px-2 py-1.5 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 bg-white flex-1">
+          <option value="all">All Teams</option>
+          {GAME_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={yearFilter} onChange={e => setYearFilter(e.target.value)}
+          className="px-2 py-1.5 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 bg-white flex-1">
+          <option value="all">All Years</option>
+          {GAME_YEARS.map(y => <option key={y} value={String(y)}>{y}</option>)}
+        </select>
       </div>
 
 
@@ -16159,7 +16079,7 @@ function RegistrationView({ onSubmitRegistration }) {
             <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-2">Agreement</p>
             <p className="text-[12px] text-gray-600 leading-relaxed">I agree to engage in all PCAL activities, both on and off the court, in a manner that positively represents myself, my team, my church, and the Coptic Orthodox Church as a whole. I will play in a manner guided by the teachings of Jesus Christ, and I accept that I will be held to a higher standard than when I play sports in other settings. I accept that PCAL and its representatives have the authority to limit my participation at any time, including but not limited to suspensions and bans for play or behavior that is deemed detrimental to myself, others, a team, or the league as a whole.</p>
           </div>
-          <Tile selected={agreed} onClick={() => setAgreed(!agreed)}>I agree to the above statement</Tile>
+          <Tile selected={agreed} onClick={() => setAgreed(!agreed)}>I agree to the above statement (click here)</Tile>
         </div>
       )}
 
