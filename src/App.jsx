@@ -18440,10 +18440,10 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
               </div>
             )}
 
-            {/* Team filter */}
-            <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
+            {/* Team filter - compact: logo + 3-letter code */}
+            <div className="flex gap-1 mb-4 pb-1 flex-wrap">
               <button onClick={() => setFilterTeam("all")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex-shrink-0 ${filterTeam === "all" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex-shrink-0 ${filterTeam === "all" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
                 All
               </button>
               {TEAMS_2026.map(t => {
@@ -18451,10 +18451,10 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                 const active = filterTeam === t;
                 return (
                   <button key={t} onClick={() => setFilterTeam(t)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold flex-shrink-0 flex items-center gap-1.5"
+                    className="px-2 py-1 rounded-lg text-xs font-bold flex-shrink-0 flex items-center gap-1"
                     style={active ? { backgroundColor: c.bg, color: c.text } : { backgroundColor: "#f3f4f6", color: "#4b5563" }}>
-                    <TeamLogo team={t} size={20} />
-                    {TEAM_NAMES[t] || t}
+                    <TeamLogo team={t} size={18} />
+                    {t}
                   </button>
                 );
               })}
@@ -18506,7 +18506,10 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                             )}
                             <div className="rounded-xl border px-3 py-2" style={{ borderColor: ftColor.bg + "40", backgroundColor: ftColor.bg + "08" }}>
                               <div className="flex items-center justify-between mb-1">
-                                <span className="text-sm font-black text-gray-900">{g.time}</span>
+                                <div className="flex items-baseline gap-1.5 flex-wrap">
+                                  <span className="text-sm font-black text-gray-900">{g.time}</span>
+                                  <span className="text-[10px] text-gray-400">· {week.date} · {week.location}</span>
+                                </div>
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: ftColor.bg, color: ftColor.text }}>Scorekeeper</span>
                               </div>
                               <div className="flex items-center gap-1.5 text-xs">
@@ -18564,10 +18567,13 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                           )}
                           <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
                           <div className="cursor-pointer active:bg-gray-50" onClick={() => setExpandedGame(isExpanded ? null : gameKey)}>
-                            {/* Time + meeting + chevron all in one row */}
+                            {/* Time + date/loc + meeting + chevron all in one row */}
                             <div className="px-3 pt-2 pb-1 flex items-center justify-between">
-                              <span className="text-sm font-black text-gray-900">{g.time}</span>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-baseline gap-1.5 flex-wrap">
+                                <span className="text-sm font-black text-gray-900">{g.time}</span>
+                                <span className="text-[10px] text-gray-400">· {week.date} · {week.location}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
                                 <span className="text-[10px] font-bold text-gray-400 uppercase">{g.meeting === "1st" || g.meeting === "1st meeting" ? "1st Meeting" : "Rematch"}</span>
                                 <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                               </div>
