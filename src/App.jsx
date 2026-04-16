@@ -9124,31 +9124,13 @@ const LOGO_CON_HIST = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAY
 
 // Get logo for team at a given year (year optional, defaults to current)
 const getTeamLogo = (team, year) => {
+  // Year parameter is kept for backward compatibility with existing callers
+  // but is ignored — every team now uses a single canonical logo regardless
+  // of year.
   if (!team) return null;
-  // 2005: COPTS for everyone (except teams that never existed in 2005)
-  if (year === 2005) return LOGO_COPTS_2005;
-  // NOR always uses COPTS
-  if (team === "NOR") return LOGO_COPTS_2005;
-  // SRA uses historical logo always
+  if (team === "NOR") return LOGO_CON_HIST; // NOR redirects to CON's logo
   if (team === "SRA") return LOGO_SRA_HIST;
-  // CON uses historical logo always
   if (team === "CON") return LOGO_CON_HIST;
-  // SJO historical 2006-2012, current otherwise
-  if (team === "SJO") {
-    if (year && year >= 2006 && year <= 2012) return LOGO_SJO_HIST;
-    return TEAM_LOGOS_CURRENT.SJO;
-  }
-  // SAC historical 2006-2013, current otherwise
-  if (team === "SAC") {
-    if (year && year >= 2006 && year <= 2013) return LOGO_SAC_HIST;
-    return TEAM_LOGOS_CURRENT.SAC;
-  }
-  // HAY historical 2006-2013, current otherwise
-  if (team === "HAY") {
-    if (year && year >= 2006 && year <= 2013) return LOGO_HAY_HIST;
-    return TEAM_LOGOS_CURRENT.HAY;
-  }
-  // MOD, PDF, PLE: current always
   if (TEAM_LOGOS_CURRENT[team]) return TEAM_LOGOS_CURRENT[team];
   return null;
 };
@@ -18479,34 +18461,34 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
             </div>
 
             {/* Weeks */}
-            <div className="space-y-8">
+            <div className="space-y-5">
               {filteredWeeks_2026.map(week => (
                 <div key={week.num}>
-                  {/* Week header - date and location prominent */}
-                  <div className="mb-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center text-white font-black text-sm flex-shrink-0">
+                  {/* Week header - compact */}
+                  <div className="mb-2">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <div className="w-6 h-6 rounded-md bg-gray-900 flex items-center justify-center text-white font-black text-xs flex-shrink-0">
                         {week.num}
                       </div>
                       <div className="flex-1">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-lg font-black text-gray-900">{week.date}</span>
-                          <span className="text-lg font-bold text-gray-500">{week.location}, CA</span>
+                        <div className="flex items-baseline gap-1.5 flex-wrap">
+                          <span className="text-base font-black text-gray-900">{week.date}</span>
+                          <span className="text-sm font-bold text-gray-500">{week.location}, CA</span>
                         </div>
                       </div>
                     </div>
-                    <div className="ml-10 text-xs text-gray-400">
-                      Bye: <TeamLogo team={week.bye} size={28} className="inline-block mx-0.5" /> <span className="font-bold" style={{ color: COLORS_2026[week.bye]?.bg || "#888" }}>{TEAM_NAMES[week.bye] || week.bye}</span>
+                    <div className="ml-8 text-[11px] text-gray-400">
+                      Bye: <TeamLogo team={week.bye} size={20} className="inline-block mx-0.5" /> <span className="font-bold" style={{ color: COLORS_2026[week.bye]?.bg || "#888" }}>{TEAM_NAMES[week.bye] || week.bye}</span>
                     </div>
                   </div>
 
                   {week.isBye && (
-                    <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <div className="mb-2 rounded-xl border border-gray-200 bg-gray-50 p-3">
                       <p className="text-sm font-bold text-gray-500">{TEAM_NAMES[filterTeam] || filterTeam} BYE WEEK</p>
                     </div>
                   )}
 
-                  <div className="space-y-2.5">
+                  <div className="space-y-1.5">
                     {(week.allItems || week.games.map(g => ({ ...g, _type: "playing" }))).map((g, gi) => {
                       if (g._type === "scoring") {
                         const sc1 = COLORS_2026[g.t1];
@@ -18515,26 +18497,26 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                         return (
                           <div key={`s-${gi}`}>
                             {scheduleWarning.perGameEnabled && scheduleWarning.text && (
-                              <div className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 mb-1.5 flex items-center gap-1.5">
-                                <svg className="w-3 h-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <div className="rounded-lg bg-amber-50 border border-amber-200 px-2 py-0.5 mb-1 flex items-center gap-1">
+                                <svg className="w-2.5 h-2.5 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                 </svg>
-                                <p className="text-[10px] text-amber-800 font-medium leading-snug">{scheduleWarning.text}</p>
+                                <p className="text-[9px] text-amber-800 font-medium leading-snug">{scheduleWarning.text}</p>
                               </div>
                             )}
-                            <div className="rounded-xl border-2 px-4 py-3" style={{ borderColor: ftColor.bg + "40", backgroundColor: ftColor.bg + "08" }}>
-                              <div className="flex items-center justify-between mb-1.5">
-                                <span className="text-base font-black text-gray-900">{g.time}</span>
-                                <span className="text-xs font-bold px-2 py-0.5 rounded-lg" style={{ backgroundColor: ftColor.bg, color: ftColor.text }}>Scorekeeper</span>
+                            <div className="rounded-xl border px-3 py-2" style={{ borderColor: ftColor.bg + "40", backgroundColor: ftColor.bg + "08" }}>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-sm font-black text-gray-900">{g.time}</span>
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: ftColor.bg, color: ftColor.text }}>Scorekeeper</span>
                               </div>
-                              <div className="flex items-center gap-2 text-sm">
-                                <TeamLogo team={g.t1} size={48} />
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <TeamLogo team={g.t1} size={28} />
                                 <span className="font-bold text-gray-700">{TEAM_NAMES[g.t1] || g.t1}</span>
-                                <span className="text-gray-400 mx-1">vs</span>
-                                <TeamLogo team={g.t2} size={48} />
+                                <span className="text-gray-400 mx-0.5">vs</span>
+                                <TeamLogo team={g.t2} size={28} />
                                 <span className="font-bold text-gray-700">{TEAM_NAMES[g.t2] || g.t2}</span>
                               </div>
-                              <p className="text-xs text-gray-500 mt-1.5">Coordinator: <span className="font-bold">{SCORE_COORDINATORS[filterTeam] || ""}</span></p>
+                              <p className="text-[10px] text-gray-500 mt-1">Coordinator: <span className="font-bold">{SCORE_COORDINATORS[filterTeam] || ""}</span></p>
                             </div>
                           </div>
                         );
@@ -18573,43 +18555,40 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
                       return (
                         <div key={gi}>
                           {scheduleWarning.perGameEnabled && scheduleWarning.text && (
-                            <div className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 mb-1.5 flex items-center gap-1.5">
-                              <svg className="w-3 h-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <div className="rounded-lg bg-amber-50 border border-amber-200 px-2 py-0.5 mb-1 flex items-center gap-1">
+                              <svg className="w-2.5 h-2.5 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                               </svg>
-                              <p className="text-[10px] text-amber-800 font-medium leading-snug">{scheduleWarning.text}</p>
+                              <p className="text-[9px] text-amber-800 font-medium leading-snug">{scheduleWarning.text}</p>
                             </div>
                           )}
-                          <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
+                          <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
                           <div className="cursor-pointer active:bg-gray-50" onClick={() => setExpandedGame(isExpanded ? null : gameKey)}>
-                            {/* Time bar */}
-                            <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-                              <span className="text-base font-black text-gray-900">{g.time}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-gray-400 uppercase">{g.meeting === "1st" || g.meeting === "1st meeting" ? "1st Meeting" : "Rematch"}</span>
-                                <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                            {/* Time + meeting + chevron all in one row */}
+                            <div className="px-3 pt-2 pb-1 flex items-center justify-between">
+                              <span className="text-sm font-black text-gray-900">{g.time}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase">{g.meeting === "1st" || g.meeting === "1st meeting" ? "1st Meeting" : "Rematch"}</span>
+                                <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                               </div>
                             </div>
-                            {/* Teams */}
-                            <div className="px-4 pb-2">
-                              <div className="flex items-center gap-3 py-2">
-                                <TeamLogo team={g.t1} size={48} />
-                                <span className="text-base font-bold text-gray-800 flex-1">{TEAM_NAMES[g.t1] || g.t1}</span>
+                            {/* Teams, no divider, tighter */}
+                            <div className="px-3 pb-1.5">
+                              <div className="flex items-center gap-2 py-1">
+                                <TeamLogo team={g.t1} size={32} />
+                                <span className="text-sm font-bold text-gray-800 flex-1">{TEAM_NAMES[g.t1] || g.t1}</span>
                               </div>
-                              <div className="border-t border-gray-100" />
-                              <div className="flex items-center gap-3 py-2">
-                                <TeamLogo team={g.t2} size={48} />
-                                <span className="text-base font-bold text-gray-800 flex-1">{TEAM_NAMES[g.t2] || g.t2}</span>
+                              <div className="flex items-center gap-2 py-1">
+                                <TeamLogo team={g.t2} size={32} />
+                                <span className="text-sm font-bold text-gray-800 flex-1">{TEAM_NAMES[g.t2] || g.t2}</span>
                               </div>
                             </div>
-                            {/* Scored by - color coded */}
-                            <div className="px-4 pb-3 pt-1 border-t border-gray-100">
-                              <div className="flex items-center gap-2">
-                                <TeamLogo team={g.scoredBy} size={28} />
-                                <div>
-                                  <span className="text-xs font-bold" style={{ color: scoredByColor.bg }}>Scored by {TEAM_NAMES[g.scoredBy] || g.scoredBy}</span>
-                                  {coordinator && <span className="text-[11px] text-gray-400 ml-1.5">({coordinator})</span>}
-                                </div>
+                            {/* Scored by - color coded, compact */}
+                            <div className="px-3 pb-2 pt-1 border-t border-gray-100">
+                              <div className="flex items-center gap-1.5">
+                                <TeamLogo team={g.scoredBy} size={20} />
+                                <span className="text-[11px] font-bold" style={{ color: scoredByColor.bg }}>Scored by {TEAM_NAMES[g.scoredBy] || g.scoredBy}</span>
+                                {coordinator && <span className="text-[10px] text-gray-400">({coordinator})</span>}
                               </div>
                             </div>
                           </div>
