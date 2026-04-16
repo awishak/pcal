@@ -11873,48 +11873,53 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         </div>
       )}
 
-      {/* Registration announcements */}
-      {announcements.length > 0 && (
-        <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-2">Players Registered</p>
-          <div className="space-y-1.5">
-            {announcements.map(a => {
-              const TEAM_C = {
-                "Sacramento": "#7c3aed", "San Jose": "#7f1d1d", "Hayward": "#2563eb",
-                "Modesto": "#dc2626", "Pleasanton": "#facc15", "Concord": "#065f46",
-                "Monterey": "#0891b2", "Redwood City": "#ea580c",
-              };
-              const tc = TEAM_C[a.team_pref] || "#6b7280";
-              return (
-                <div key={a.id} className="rounded-xl bg-white border border-gray-200 px-3 py-2.5 flex items-center gap-3">
-                  {a.headshot_url ? (
-                    <img src={a.headshot_url} alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-gray-200" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white font-black text-sm" style={{ backgroundColor: tc }}>
-                      {(a.first_name || "?")[0]}
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-bold text-gray-900">{a.first_name} {a.last_name}</span>
-                      {a.team_pref && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: tc }}>{a.team_pref}</span>}
-                    </div>
-                    {a.reg_quote && <p className="text-[11px] text-gray-500 italic mt-0.5 truncate">"{a.reg_quote}"</p>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Commissioner messages + registration announcements, grouped by time bucket */}
+      {(() => {
+        // Merge commissioner messages and registration announcements into one feed
+        const TEAM_C = {
+          "Sacramento": "#7c3aed", "San Jose": "#7f1d1d", "Hayward": "#2563eb",
+          "Modesto": "#dc2626", "Pleasanton": "#facc15", "Concord": "#065f46",
+          "Monterey": "#0891b2", "Redwood City": "#ea580c",
+        };
 
-      {/* Commissioner messages, grouped by time bucket */}
-      {isVisible("commissionerMessages") && activeMessages.length > 0 && (() => {
+        // Build combined items: messages + announcements
+        const items = [];
+
+        if (isVisible("commissionerMessages")) {
+          activeMessages.forEach(m => {
+            items.push({ _kind: "msg", _date: m.date, _ts: new Date(m.date).getTime() || 0, msg: m });
+          });
+        }
+
+        announcements.forEach(a => {
+          const pronoun = a.gender === "Female" ? "She" : "He";
+          // Try to find their previous team from linked_player or just use team_pref
+          const teamNote = a.team_pref ? ` ${pronoun} is playing for ${a.team_pref}.` : "";
+          const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+          items.push({
+            _kind: "reg",
+            _date: dateStr,
+            _ts: a.created_at ? new Date(a.created_at).getTime() : 0,
+            reg: a,
+            pronoun,
+            teamNote,
+            dateStr,
+            tc: TEAM_C[a.team_pref] || "#6b7280",
+          });
+        });
+
+        // Sort by timestamp descending
+        items.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+
+        if (items.length === 0) return null;
+
+        // Bucket
         const buckets = { today: [], week: [], earlier: [] };
-        activeMessages.forEach(m => {
-          buckets[messageTimeBucket(m.date)].push(m);
+        items.forEach(item => {
+          buckets[messageTimeBucket(item._date)].push(item);
         });
         const labels = { today: "Today", week: "This Week", earlier: "Earlier" };
+
         return (
           <div className="space-y-4">
             {["today", "week", "earlier"].map(bucket => {
@@ -11923,7 +11928,37 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
                 <div key={bucket}>
                   <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-2">{labels[bucket]}</p>
                   <div className="space-y-2.5">
-                    {buckets[bucket].map(msg => <CommissionerMessageCard key={msg.id} msg={msg} />)}
+                    {buckets[bucket].map((item, idx) => {
+                      if (item._kind === "msg") return <CommissionerMessageCard key={item.msg.id} msg={item.msg} />;
+                      // Registration announcement card
+                      const a = item.reg;
+                      return (
+                        <div key={a.id} className="rounded-2xl bg-white border border-gray-200 overflow-hidden flex">
+                          <div className="w-1 flex-shrink-0" style={{ backgroundColor: "#10b981" }} />
+                          <div className="flex-1 p-3">
+                            <div className="flex items-start gap-3">
+                              {a.headshot_url ? (
+                                <img src={a.headshot_url} alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-gray-200" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white font-black text-sm" style={{ backgroundColor: item.tc }}>
+                                  {(a.first_name || "?")[0]}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">New Registration</p>
+                                  {item.dateStr && <p className="text-xs font-bold text-gray-500">{item.dateStr}</p>}
+                                </div>
+                                <p className="text-sm text-gray-900 leading-relaxed">
+                                  <strong>{a.first_name} {a.last_name}</strong> has registered.{item.teamNote}
+                                </p>
+                                {a.reg_quote && <p className="text-[11px] text-gray-500 italic mt-1">"{a.reg_quote}"</p>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -15833,6 +15868,7 @@ function RegistrationView({ onSubmitRegistration }) {
     headshotUrl: "",
     announceRegistration: true,
     regQuote: "",
+    gender: "",
   });
 
   const resetForm = () => {
@@ -15843,7 +15879,7 @@ function RegistrationView({ onSubmitRegistration }) {
       dates: [], roles: [], buyoutVolunteer: false, existingPlayer: "",
       confirmed: false, emailVerified: false, verificationPin: "", pinSent: false,
       adminOverride: false, wrongEmail: false, conflictsNote: "", headshotUrl: "",
-      announceRegistration: true, regQuote: "",
+      announceRegistration: true, regQuote: "", gender: "",
     });
     setAgreed(false);
   };
@@ -15878,6 +15914,7 @@ function RegistrationView({ onSubmitRegistration }) {
       headshot_url: form.headshotUrl || null,
       announce_registration: !!form.announceRegistration,
       reg_quote: form.regQuote || null,
+      gender: form.gender || null,
     };
     const res = await submitRegistration(payload, pin);
     setSubmitting(false);
@@ -16314,6 +16351,19 @@ function RegistrationView({ onSubmitRegistration }) {
                 className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white" />
             </div>
           ))}
+
+          {/* Gender */}
+          <div>
+            <label className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1 block">Gender</label>
+            <div className="flex gap-2">
+              {["Male", "Female"].map(g => (
+                <button key={g} onClick={() => setForm(f => ({ ...f, gender: g }))}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${form.gender === g ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white border-gray-200 text-gray-800"}`}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Headshot upload (optional) */}
           <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 space-y-3">
