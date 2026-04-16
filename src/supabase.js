@@ -216,3 +216,123 @@ export async function uploadPhoto(file) {
   const { data: urlData } = supabase.storage.from("photos").getPublicUrl(data.path);
   return { url: urlData.publicUrl };
 }
+
+// ============================================================================
+// EMAIL (via Supabase Edge Function -> Resend)
+// ============================================================================
+
+// Sends an email by calling the `send-email` edge function.
+// Returns { ok: true, id } on success or { error } on failure.
+export async function sendEmail({ to, subject, html, bcc, replyTo }) {
+  try {
+    const { data, error } = await supabase.functions.invoke("send-email", {
+      body: { to, subject, html, bcc, replyTo },
+    });
+    if (error) { console.error("sendEmail error:", error); return { error: error.message }; }
+    return data;
+  } catch (e) {
+    console.error("sendEmail error:", e);
+    return { error: String(e) };
+  }
+}
+
+// Requests a 6-digit verification code for an email, stores it in Supabase,
+// then triggers the edge function to email it. Returns { ok: true } on success.
+export async function requestEmailVerification(email) {
+  // 1. Generate & store the code via RPC
+  const { data: code, error } = await supabase.rpc("generate_email_verification", { p_email: email });
+  if (error) { console.error("generate_email_verification error:", error); return { error: error.message }; }
+  if (!code) return { error: "Failed to generate code" };
+  // 2. Email the code
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #111827; margin: 0 0 12px 0;">PCAL League Email Verification</h2>
+      <p style="color: #4b5563; font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
+        Enter this 6-digit code in the registration form to verify your email:
+      </p>
+      <div style="background: #f3f4f6; border: 2px dashed #d1d5db; border-radius: 12px; padding: 20px; text-align: center; margin: 20px 0;">
+        <p style="font-size: 36px; font-weight: 900; letter-spacing: 0.3em; color: #111827; margin: 0; font-family: monospace;">${code}</p>
+      </div>
+      <p style="color: #6b7280; font-size: 13px; margin: 16px 0 0 0;">This code expires in 15 minutes.</p>
+      <p style="color: #9ca3af; font-size: 12px; margin: 24px 0 0 0;">If you didn't request this, you can ignore this email.</p>
+    </div>
+  `;
+  const emailRes = await sendEmail({
+    to: email,
+    subject: "Your PCAL registration verification code",
+    html,
+  });
+  if (emailRes?.error) return { error: "Email failed: " + emailRes.error };
+  return { ok: true };
+}
+
+// Verifies a code against the email. Returns true/false.
+export async function verifyEmailCode(email, code) {
+  const { data, error } = await supabase.rpc("check_email_verification", {
+    p_email: email, p_code: code,
+  });
+  if (error) { console.error("check_email_verification error:", error); return false; }
+  return !!data;
+}
+
+// Sends the confirmation email after a successful registration with all form
+// info, the PIN, and a link to pcaleague.com. BCCs the commissioner.
+export async function sendRegistrationConfirmation(form, pin) {
+  const pretty = (k) => k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const toName = `${form.firstName || ""} ${form.lastName || ""}`.trim() || "Player";
+  const rows = [
+    ["Name", `${form.firstName} ${form.lastName}`],
+    ["Email", form.email],
+    ["Phone", form.phone || "—"],
+    ["Date of Birth", form.dob || "—"],
+    ["Address", [form.address, form.city, form.zip].filter(Boolean).join(", ") || "—"],
+    ["Emergency Contact", [form.emergencyContact, form.emergencyPhone].filter(Boolean).join(" — ") || "—"],
+    ["Eligibility", form.eligibility || "—"],
+    ["Team Preference", form.teamPref || "—"],
+    ["Community Team Preference", form.communityTeam || "—"],
+    ["Available Dates", (form.dates || []).length ? form.dates.join(", ") : "—"],
+    ["Volunteer Roles", (form.roles || []).length ? form.roles.join(", ") : "—"],
+    ["Volunteer Buyout", form.buyoutVolunteer ? "Yes ($100)" : "No"],
+    ["Conflict Note", form.conflictsNote || "—"],
+  ];
+  const rowsHtml = rows.map(([k, v]) => `
+    <tr>
+      <td style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; color: #6b7280; font-size: 13px; width: 40%;">${k}</td>
+      <td style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; color: #111827; font-size: 13px; font-weight: 600;">${v}</td>
+    </tr>
+  `).join("");
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 560px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #111827; margin: 0 0 8px 0;">Registration Received</h2>
+      <p style="color: #4b5563; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+        Hi ${toName}, thanks for registering for the PCAL 2026 Summer Basketball League. Here's your submission.
+      </p>
+      <div style="background: #fef3c7; border: 2px dashed #fbbf24; border-radius: 12px; padding: 16px; text-align: center; margin: 0 0 20px 0;">
+        <p style="color: #92400e; font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; margin: 0 0 4px 0;">Your PIN</p>
+        <p style="font-size: 32px; font-weight: 900; letter-spacing: 0.3em; color: #78350f; margin: 0; font-family: monospace;">${pin}</p>
+        <p style="color: #92400e; font-size: 12px; margin: 8px 0 0 0;">Save this PIN. You'll need it to edit your registration.</p>
+      </div>
+      <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin: 0 0 20px 0;">
+        ${rowsHtml}
+      </table>
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="https://pcaleague.com"
+           style="display: inline-block; background: #111827; color: white; text-decoration: none; padding: 12px 24px; border-radius: 12px; font-weight: 700; font-size: 14px;">
+          Visit pcaleague.com
+        </a>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin: 24px 0 0 0;">
+        Questions? Reply to this email. Registration closes Thursday, May 8 at 11:59 PM Pacific.
+      </p>
+    </div>
+  `;
+
+  return sendEmail({
+    to: form.email,
+    subject: "PCAL Registration Confirmation",
+    html,
+    bcc: "andrewishak@gmail.com",
+    replyTo: "andrewishak@gmail.com",
+  });
+}
