@@ -10257,6 +10257,9 @@ export default function App() {
   const [leaderCat, setLeaderCat] = useState("ppg");
   const [qualified, setQualified] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [searchPreset, setSearchPreset] = useState(null); // "2025awards" | "2025byTeam" | "topGames" | "firstTeam" | "random10"
+  const [searchPresetTeam, setSearchPresetTeam] = useState(null); // team code for "2025byTeam"
+  const [searchRandomSeed, setSearchRandomSeed] = useState(0);
   const [fontSize, setFontSize] = useState(14);
   const [showFontControl, setShowFontControl] = useState(false);
 
@@ -11773,41 +11776,73 @@ export default function App() {
 
         {/* ===== PLAYER SEARCH ===== */}
         {tab === "search" && (() => {
-          // Build suggestion groups
           const latestYear = YEARS[YEARS.length - 1];
-          const currentPlayers = DATA.filter(r => r.year === latestYear);
-          const awardWinners = DATA.filter(r => r.year === latestYear && (r.award === "MVP" || r.award === "All-PCAL" || r.award === "Second Team"));
-          const allTimePts = [...careerLeaders].sort((a,b) => b.pts - a.pts).slice(0, 3);
-          
-          // Random current (3 random from latest year)
-          const shuffled = [...new Set(currentPlayers.map(r => r.player))].sort(() => Math.random() - 0.5);
-          const randomCurrent = shuffled.slice(0, 3);
-          
-          // Random all-time (3 random from all players)
-          const allPlayers = [...new Set(DATA.map(r => r.player))].sort(() => Math.random() - 0.5);
-          const randomAll = allPlayers.slice(0, 3);
 
-          const groups = [
-            { title: `${latestYear} Award Winners`, players: awardWinners.map(r => ({ name: r.player, sub: r.award })) },
-            { title: "All-Time Points Leaders", players: allTimePts.map(p => ({ name: p.player, sub: `${p.pts} pts` })) },
-            { title: `Random ${latestYear} Players`, players: randomCurrent.map(n => ({ name: n, sub: TEAM_NAMES[currentPlayers.find(r => r.player === n)?.team] || "" })) },
-            { title: "Random All-Time", players: randomAll.map(n => ({ name: n, sub: `${DATA.filter(r => r.player === n).length} seasons` })) },
+          // Build the filtered player list based on which preset is active
+          const buildPresetList = () => {
+            if (searchPreset === "2025awards") {
+              const winners = DATA.filter(r => r.year === latestYear && (r.award === "MVP" || r.award === "All-PCAL" || r.award === "Second Team"));
+              const grouped = {};
+              winners.forEach(r => { if (!grouped[r.player]) grouped[r.player] = []; grouped[r.player].push(r); });
+              return Object.entries(grouped);
+            }
+            if (searchPreset === "2025byTeam" && searchPresetTeam) {
+              const teamPlayers = DATA.filter(r => r.year === latestYear && r.team === searchPresetTeam);
+              const grouped = {};
+              teamPlayers.forEach(r => { if (!grouped[r.player]) grouped[r.player] = []; grouped[r.player].push(r); });
+              // sort by games played desc
+              return Object.entries(grouped).sort((a, b) => b[1][0].g - a[1][0].g);
+            }
+            if (searchPreset === "topGames") {
+              const top = [...careerLeaders].sort((a, b) => b.g - a.g).slice(0, 25);
+              return top.map(p => [p.player, DATA.filter(r => r.player === p.player)]);
+            }
+            if (searchPreset === "firstTeam") {
+              const firstTeamPlayers = new Set();
+              DATA.forEach(r => { if (r.award === "MVP" || r.award === "All-PCAL") firstTeamPlayers.add(r.player); });
+              return [...firstTeamPlayers].sort().map(name => [name, DATA.filter(r => r.player === name)]);
+            }
+            if (searchPreset === "random10") {
+              // 5+ games to avoid one-game bench players
+              const eligible = careerLeaders.filter(p => p.g >= 5);
+              // Deterministic shuffle using searchRandomSeed
+              const shuffled = [...eligible];
+              for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+              }
+              return shuffled.slice(0, 10).map(p => [p.player, DATA.filter(r => r.player === p.player)]);
+            }
+            return [];
+          };
+
+          const presetList = buildPresetList();
+
+          // Get all teams with 2025 rosters
+          const teams2025 = [...new Set(DATA.filter(r => r.year === latestYear).map(r => r.team))].sort();
+
+          const presetButtons = [
+            { key: "2025awards", label: `${latestYear} Award Winners` },
+            { key: "2025byTeam", label: `${latestYear} by Team` },
+            { key: "topGames", label: "Top 25 Games Played" },
+            { key: "firstTeam", label: "All First Team Players" },
+            { key: "random10", label: "10 Random Players" },
           ];
 
           return (
           <div>
-            <input type="text" value={search} onChange={e => { setSearch(e.target.value); setSelectedPlayer(null); }}
+            <input type="text" value={search} onChange={e => { setSearch(e.target.value); setSelectedPlayer(null); setSearchPreset(null); setSearchPresetTeam(null); }}
               placeholder="Search by name..." autoFocus
               className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-base mb-4 bg-gray-50 focus:ring-2 focus:ring-gray-300 focus:bg-white outline-none transition-all" />
             {selectedPlayer && (
               <button
-                onClick={() => { setSelectedPlayer(null); setSearch(""); }}
+                onClick={() => { setSelectedPlayer(null); setSearch(""); setSearchPreset(null); setSearchPresetTeam(null); }}
                 className="mb-3 px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
                 ← Back to search
               </button>
             )}
             {selectedPlayer && playerRecords.length > 0 && (
-              <PlayerCard name={selectedPlayer} records={playerRecords} careerLeaders={careerLeaders} onClose={() => { setSelectedPlayer(null); setSearch(""); }} />
+              <PlayerCard name={selectedPlayer} records={playerRecords} careerLeaders={careerLeaders} onClose={() => { setSelectedPlayer(null); setSearch(""); setSearchPreset(null); setSearchPresetTeam(null); }} />
             )}
             {!selectedPlayer && searchResults.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -11834,30 +11869,103 @@ export default function App() {
               <div className="text-center py-12 text-gray-400">No players found</div>
             )}
             {search.length < 2 && !selectedPlayer && (
-              <div className="space-y-3">
-                {groups.map((grp, gi) => (
-                  <div key={gi}>
-                    <div className="text-xs text-gray-700 uppercase tracking-wider font-bold mb-1.5">{grp.title}</div>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {grp.players.map((p, pi) => {
-                        const team = DATA.find(r => r.player === p.name)?.team || "";
-                        const ac = TEAM_COLORS[team] || "#999";
-                        return (
-                        <div key={pi} onClick={() => { setSelectedPlayer(p.name); setSearch(formatName(p.name)); }}
-                          className="flex flex-col items-center bg-white rounded-xl border border-gray-100 px-2 py-2.5 cursor-pointer active:bg-gray-50 text-center">
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mb-1" style={{ backgroundColor: ac }}>
-                            <span className="text-[10px] font-bold text-white">
-                              {p.name.split(" ").filter(Boolean).length >= 2 ? p.name.split(" ").filter(Boolean).pop().charAt(0) + p.name.split(" ").filter(Boolean)[0].charAt(0) : "?"}
-                            </span>
-                          </div>
-                          <div className="text-[11px] font-bold text-gray-900 leading-tight">{formatName(p.name).split(" ")[0]}</div>
-                          <div className="text-[10px] font-bold text-gray-900 leading-tight">{formatName(p.name).split(" ").slice(1).join(" ")}</div>
-                          <div className="text-[9px] text-gray-400 mt-0.5">{p.sub}</div>
-                        </div>
-                      );})}
-                    </div>
+              <div>
+                {/* Preset filter buttons */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {presetButtons.map(b => (
+                    <button
+                      key={b.key}
+                      onClick={() => {
+                        if (searchPreset === b.key) {
+                          setSearchPreset(null);
+                          setSearchPresetTeam(null);
+                        } else {
+                          setSearchPreset(b.key);
+                          setSearchPresetTeam(null);
+                          if (b.key === "random10") setSearchRandomSeed(s => s + 1);
+                        }
+                      }}
+                      className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${searchPreset === b.key ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"}`}
+                    >
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 2025 by Team team picker */}
+                {searchPreset === "2025byTeam" && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {teams2025.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setSearchPresetTeam(searchPresetTeam === t ? null : t)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${searchPresetTeam === t ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-700"}`}
+                      >
+                        {TEAM_NAMES[t] || t}
+                      </button>
+                    ))}
                   </div>
-                ))}
+                )}
+
+                {/* Random re-roll button */}
+                {searchPreset === "random10" && (
+                  <button
+                    onClick={() => setSearchRandomSeed(s => s + 1)}
+                    className="mb-3 px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    ↻ Re-roll
+                  </button>
+                )}
+
+                {/* Preset results list */}
+                {presetList.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                    {presetList.map(([name, records]) => {
+                      const totalPts = records.reduce((s, r) => s + r.pts, 0);
+                      const totalG = records.reduce((s, r) => s + r.g, 0);
+                      const teams = [...new Set(records.map(r => r.team))];
+                      const latestRec = records.find(r => r.year === latestYear);
+                      // Subtitle varies by preset
+                      let subtitle;
+                      if (searchPreset === "2025awards") {
+                        subtitle = `${TEAM_NAMES[latestRec?.team] || latestRec?.team} • ${latestRec?.award}`;
+                      } else if (searchPreset === "2025byTeam") {
+                        subtitle = `${latestRec?.g || 0}G, ${latestRec?.ppg?.toFixed(1) || 0} PPG in ${latestYear}`;
+                      } else if (searchPreset === "topGames") {
+                        subtitle = `${totalG} career games`;
+                      } else if (searchPreset === "firstTeam") {
+                        const mvps = records.filter(r => r.award === "MVP").length;
+                        const allPcal = records.filter(r => r.award === "All-PCAL").length + mvps;
+                        subtitle = `${allPcal}x All-PCAL${mvps > 0 ? ` (${mvps}x MVP)` : ""}`;
+                      } else {
+                        subtitle = `${teams.map(t => TEAM_NAMES[t] || t).join(", ")} • ${records.length} season${records.length > 1 ? "s" : ""}`;
+                      }
+                      return (
+                        <div key={name} onClick={() => setSelectedPlayer(name)}
+                          className="flex items-center justify-between px-4 py-3 border-b border-gray-50 active:bg-gray-50 cursor-pointer transition-colors">
+                          <div>
+                            <div className="font-medium text-gray-900">{formatName(name)}</div>
+                            <div className="text-xs text-gray-400">{subtitle}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold text-gray-900">{totalPts} pts</div>
+                            <div className="text-xs text-gray-400">career</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Prompt when 2025byTeam is picked but no team selected yet */}
+                {searchPreset === "2025byTeam" && !searchPresetTeam && (
+                  <div className="text-center py-6 text-gray-400 text-xs">Pick a team above to see their {latestYear} roster</div>
+                )}
+
+                {/* Default state when no preset selected */}
+                {!searchPreset && (
+                  <div className="text-center py-8 text-gray-400 text-xs">Search by name or pick a filter above</div>
+                )}
               </div>
             )}
           </div>
