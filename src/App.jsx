@@ -10376,12 +10376,12 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        const { data, error } = await supabase.from("player_photos").select("player_name, image_url");
+        const { data, error } = await supabase.from("player_photos").select("id, image_url");
         if (cancelled || error) return;
         if (data && data.length) {
           data.forEach(row => {
-            if (row.player_name && row.image_url) {
-              PLAYER_PHOTOS[row.player_name] = row.image_url;
+            if (row.id && row.image_url) {
+              PLAYER_PHOTOS[row.id] = row.image_url;
             }
           });
           setPhotoVersion(v => v + 1);
@@ -18406,7 +18406,7 @@ function PlayerPhotoAdminSection() {
       setSaving(true);
       setStatus("Saving link...");
       const saveRes = await adminUpsertRow("player_photos", {
-        player_name: editingPlayer,
+        id: editingPlayer,
         image_url: uploadRes.url,
         updated_at: new Date().toISOString(),
       });
