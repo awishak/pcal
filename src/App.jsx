@@ -17636,12 +17636,46 @@ function QuickStatsAdminSection() {
 }
 
 // ========== GAME LOG ADMIN ==========
+const GLFieldInput = ({ label, value, onChange, w }) => (
+  <div className={w || ""}>
+    <label className="block text-[8px] font-bold text-gray-400 uppercase">{label}</label>
+    <input type="text" value={value || ""} onChange={e => onChange(e.target.value)}
+      className="w-full px-1.5 py-1 rounded-lg border border-gray-200 text-xs" />
+  </div>
+);
+
+const GL_STAT_FIELDS = ["pts","reb","stl","ast","blk","fgm","fga","ftm","fta","tpm","tpa","foul","gmsc"];
+
+function GLEditRow({ row, onSave, onCancel, saving }) {
+  const [form, setForm] = useState({ ...row });
+  return (
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-3 gap-1">
+        <GLFieldInput label="Player" value={form.player} onChange={v => setForm(f => ({ ...f, player: v }))} />
+        <GLFieldInput label="Team" value={form.team} onChange={v => setForm(f => ({ ...f, team: v }))} />
+        <GLFieldInput label="Opp" value={form.opp} onChange={v => setForm(f => ({ ...f, opp: v }))} />
+        <GLFieldInput label="Year" value={form.year} onChange={v => setForm(f => ({ ...f, year: v }))} />
+        <GLFieldInput label="Week" value={form.week} onChange={v => setForm(f => ({ ...f, week: v }))} />
+        <GLFieldInput label="Date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} />
+        <GLFieldInput label="Type" value={form.game_type} onChange={v => setForm(f => ({ ...f, game_type: v }))} />
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {GL_STAT_FIELDS.map(k => (
+          <GLFieldInput key={k} label={k.toUpperCase()} value={form[k]} onChange={v => setForm(f => ({ ...f, [k]: v }))} />
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <button onClick={() => onSave(form)} disabled={saving} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-500 text-white disabled:opacity-50">Save</button>
+        <button onClick={onCancel} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-600">Cancel</button>
+      </div>
+    </div>
+  );
+}
 function GameLogAdminSection() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState({ player: "", team: "", opp: "", year: "", week: "" });
   const [editingId, setEditingId] = useState(null);
-  const [editRow, setEditRow] = useState(null);
   const [saving, setSaving] = useState(false);
   const [addMode, setAddMode] = useState(false);
   const [newRow, setNewRow] = useState({ player: "", team: "", opp: "", week: "", date: "", game_type: "R", g: "1", pts: "0", reb: "0", stl: "0", ast: "0", blk: "0", fgm: "0", fga: "0", ftm: "0", fta: "0", tpm: "0", tpa: "0", foul: "0", gmsc: "0", year: "" });
@@ -17666,19 +17700,18 @@ function GameLogAdminSection() {
     setSelectedIds(new Set());
   };
 
-  const saveEdit = async () => {
+  const saveEdit = async (editRow) => {
     if (!editRow) return;
     setSaving(true);
     const d = { ...editRow };
     delete d.id; delete d.created_at; delete d.updated_at;
-    // Convert numeric strings
     ["week","g","pts","reb","stl","ast","blk","fgm","fga","ftm","fta","tpm","tpa","foul","year"].forEach(k => { if (d[k] !== undefined) d[k] = String(d[k]); });
     if (d.gmsc !== undefined) d.gmsc = String(d.gmsc);
     const res = await adminUpdateGameLog(editRow.id, d);
     setSaving(false);
     if (res?.error) { alert(res.error); return; }
     setResults(rs => rs.map(r => r.id === editRow.id ? { ...r, ...editRow } : r));
-    setEditingId(null); setEditRow(null);
+    setEditingId(null);
   };
 
   const addRow = async () => {
@@ -17723,15 +17756,6 @@ function GameLogAdminSection() {
     setBatchDate(""); setBatchWeek("");
   };
 
-  const STAT_FIELDS = ["pts","reb","stl","ast","blk","fgm","fga","ftm","fta","tpm","tpa","foul","gmsc"];
-
-  const FieldInput = ({ label, value, onChange, w }) => (
-    <div className={w || ""}>
-      <label className="block text-[8px] font-bold text-gray-400 uppercase">{label}</label>
-      <input type="text" value={value || ""} onChange={e => onChange(e.target.value)}
-        className="w-full px-1.5 py-1 rounded-lg border border-gray-200 text-xs" />
-    </div>
-  );
 
   return (
     <div className="space-y-3">
@@ -17739,11 +17763,11 @@ function GameLogAdminSection() {
 
       {/* Search */}
       <div className="grid grid-cols-3 gap-1.5">
-        <FieldInput label="Player" value={query.player} onChange={v => setQuery(q => ({ ...q, player: v }))} />
-        <FieldInput label="Team" value={query.team} onChange={v => setQuery(q => ({ ...q, team: v }))} />
-        <FieldInput label="Opponent" value={query.opp} onChange={v => setQuery(q => ({ ...q, opp: v }))} />
-        <FieldInput label="Year" value={query.year} onChange={v => setQuery(q => ({ ...q, year: v }))} />
-        <FieldInput label="Week" value={query.week} onChange={v => setQuery(q => ({ ...q, week: v }))} />
+        <GLFieldInput label="Player" value={query.player} onChange={v => setQuery(q => ({ ...q, player: v }))} />
+        <GLFieldInput label="Team" value={query.team} onChange={v => setQuery(q => ({ ...q, team: v }))} />
+        <GLFieldInput label="Opponent" value={query.opp} onChange={v => setQuery(q => ({ ...q, opp: v }))} />
+        <GLFieldInput label="Year" value={query.year} onChange={v => setQuery(q => ({ ...q, year: v }))} />
+        <GLFieldInput label="Week" value={query.week} onChange={v => setQuery(q => ({ ...q, week: v }))} />
         <div className="flex items-end">
           <button onClick={search} disabled={loading} className="w-full py-1.5 rounded-lg text-xs font-bold bg-gray-900 text-white disabled:opacity-50">
             {loading ? "..." : "Search"}
@@ -17766,8 +17790,8 @@ function GameLogAdminSection() {
         <div className="rounded-xl bg-blue-50 border border-blue-200 p-2 space-y-1.5">
           <p className="text-[10px] font-bold text-blue-800">{selectedIds.size} selected. Batch update:</p>
           <div className="flex gap-1.5 items-end">
-            <FieldInput label="Set date" value={batchDate} onChange={setBatchDate} />
-            <FieldInput label="Set week" value={batchWeek} onChange={setBatchWeek} />
+            <GLFieldInput label="Set date" value={batchDate} onChange={setBatchDate} />
+            <GLFieldInput label="Set week" value={batchWeek} onChange={setBatchWeek} />
             <button onClick={batchUpdate} disabled={saving} className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-blue-600 text-white disabled:opacity-50">Apply</button>
           </div>
         </div>
@@ -17778,17 +17802,17 @@ function GameLogAdminSection() {
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-2 space-y-1.5">
           <p className="text-[10px] font-bold text-emerald-800">Add new game log entry</p>
           <div className="grid grid-cols-3 gap-1">
-            <FieldInput label="Player (LAST FIRST)" value={newRow.player} onChange={v => setNewRow(r => ({ ...r, player: v }))} />
-            <FieldInput label="Team" value={newRow.team} onChange={v => setNewRow(r => ({ ...r, team: v }))} />
-            <FieldInput label="Opp" value={newRow.opp} onChange={v => setNewRow(r => ({ ...r, opp: v }))} />
-            <FieldInput label="Year" value={newRow.year} onChange={v => setNewRow(r => ({ ...r, year: v }))} />
-            <FieldInput label="Week" value={newRow.week} onChange={v => setNewRow(r => ({ ...r, week: v }))} />
-            <FieldInput label="Date" value={newRow.date} onChange={v => setNewRow(r => ({ ...r, date: v }))} />
-            <FieldInput label="Type" value={newRow.game_type} onChange={v => setNewRow(r => ({ ...r, game_type: v }))} />
+            <GLFieldInput label="Player (LAST FIRST)" value={newRow.player} onChange={v => setNewRow(r => ({ ...r, player: v }))} />
+            <GLFieldInput label="Team" value={newRow.team} onChange={v => setNewRow(r => ({ ...r, team: v }))} />
+            <GLFieldInput label="Opp" value={newRow.opp} onChange={v => setNewRow(r => ({ ...r, opp: v }))} />
+            <GLFieldInput label="Year" value={newRow.year} onChange={v => setNewRow(r => ({ ...r, year: v }))} />
+            <GLFieldInput label="Week" value={newRow.week} onChange={v => setNewRow(r => ({ ...r, week: v }))} />
+            <GLFieldInput label="Date" value={newRow.date} onChange={v => setNewRow(r => ({ ...r, date: v }))} />
+            <GLFieldInput label="Type" value={newRow.game_type} onChange={v => setNewRow(r => ({ ...r, game_type: v }))} />
           </div>
           <div className="grid grid-cols-7 gap-1">
-            {STAT_FIELDS.map(k => (
-              <FieldInput key={k} label={k.toUpperCase()} value={newRow[k]} onChange={v => setNewRow(r => ({ ...r, [k]: v }))} />
+            {GL_STAT_FIELDS.map(k => (
+              <GLFieldInput key={k} label={k.toUpperCase()} value={newRow[k]} onChange={v => setNewRow(r => ({ ...r, [k]: v }))} />
             ))}
           </div>
           <div className="flex gap-1.5">
@@ -17822,32 +17846,13 @@ function GameLogAdminSection() {
                         </div>
                       </div>
                       <div className="flex gap-1 flex-shrink-0">
-                        <button onClick={() => { setEditingId(r.id); setEditRow({ ...r }); }} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-100 text-gray-700">Edit</button>
+                        <button onClick={() => { setEditingId(r.id); }} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-100 text-gray-700">Edit</button>
                         <button onClick={() => deleteRow(r.id)} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-50 text-red-600">Del</button>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-3 gap-1">
-                      <FieldInput label="Player" value={editRow.player} onChange={v => setEditRow(r => ({ ...r, player: v }))} />
-                      <FieldInput label="Team" value={editRow.team} onChange={v => setEditRow(r => ({ ...r, team: v }))} />
-                      <FieldInput label="Opp" value={editRow.opp} onChange={v => setEditRow(r => ({ ...r, opp: v }))} />
-                      <FieldInput label="Year" value={editRow.year} onChange={v => setEditRow(r => ({ ...r, year: v }))} />
-                      <FieldInput label="Week" value={editRow.week} onChange={v => setEditRow(r => ({ ...r, week: v }))} />
-                      <FieldInput label="Date" value={editRow.date} onChange={v => setEditRow(r => ({ ...r, date: v }))} />
-                      <FieldInput label="Type" value={editRow.game_type} onChange={v => setEditRow(r => ({ ...r, game_type: v }))} />
-                    </div>
-                    <div className="grid grid-cols-7 gap-1">
-                      {STAT_FIELDS.map(k => (
-                        <FieldInput key={k} label={k.toUpperCase()} value={editRow[k]} onChange={v => setEditRow(r => ({ ...r, [k]: v }))} />
-                      ))}
-                    </div>
-                    <div className="flex gap-1.5">
-                      <button onClick={saveEdit} disabled={saving} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-500 text-white disabled:opacity-50">Save</button>
-                      <button onClick={() => { setEditingId(null); setEditRow(null); }} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-600">Cancel</button>
-                    </div>
-                  </div>
+                  <GLEditRow row={r} onSave={saveEdit} onCancel={() => setEditingId(null)} saving={saving} />
                 )}
               </div>
             );
