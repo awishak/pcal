@@ -9567,9 +9567,16 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
   // Avatar initials
   const nameParts = name.split(" ").filter(Boolean);
   const initials = nameParts.length >= 2 ? nameParts[nameParts.length - 1].charAt(0) + nameParts[0].charAt(0) : "?";
-  // Current team: 2025 team if exists, else most-games team
+  // Active = has a 2025 record. Primary team = 2025 team if active, else team with most games (ties broken by most points).
   const team2025 = records.find(r => r.year === 2025)?.team;
-  const primaryTeam = team2025 || [...records].sort((a,b) => b.g - a.g)[0]?.team || "";
+  const isActive = !!team2025;
+  const teamTotals = {};
+  records.forEach(r => {
+    if (!teamTotals[r.team]) teamTotals[r.team] = { g: 0, pts: 0 };
+    teamTotals[r.team].g += r.g;
+    teamTotals[r.team].pts += r.pts;
+  });
+  const primaryTeam = team2025 || Object.keys(teamTotals).sort((a, b) => teamTotals[b].g - teamTotals[a].g || teamTotals[b].pts - teamTotals[a].pts)[0] || "";
   const teamColor = TEAM_COLORS[primaryTeam] || "#334155";
   const teamLogo = getTeamLogo(primaryTeam);
   const avatarColor = teamColor;
@@ -9578,23 +9585,24 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
   return (
     <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4" style={{ paddingTop: 60 }}>
       <div className="relative bg-white">
-        {/* All teams played for, chronological order */}
+        {/* Primary team logo top-right, secondary logos (by games played) nested beneath */}
         {(() => {
-          const teamFirstYear = {};
-          [...records].forEach(r => {
-            if (teamFirstYear[r.team] === undefined || r.year < teamFirstYear[r.team]) {
-              teamFirstYear[r.team] = r.year;
-            }
-          });
-          const teamsChrono = Object.keys(teamFirstYear).sort((a, b) => teamFirstYear[a] - teamFirstYear[b]);
-          const logoSize = teamsChrono.length >= 3 ? 36 : 52;
+          const otherTeams = Object.keys(teamTotals)
+            .filter(t => t !== primaryTeam)
+            .sort((a, b) => teamTotals[b].g - teamTotals[a].g || teamTotals[b].pts - teamTotals[a].pts);
+          const primaryLogo = getTeamLogo(primaryTeam);
           return (
-            <div className="absolute flex items-center gap-2 pointer-events-none z-0" style={{ right: 12, top: "50%", transform: "translateY(-50%)" }}>
-              {teamsChrono.map(t => {
-                const lg = getTeamLogo(t);
-                if (!lg) return null;
-                return <img key={t} src={lg} alt={t} style={{ height: logoSize, width: "auto", display: "block" }} />;
-              })}
+            <div className="absolute flex flex-col items-end gap-1 pointer-events-none z-0" style={{ right: 12, top: 8 }}>
+              {primaryLogo && <img src={primaryLogo} alt={primaryTeam} style={{ height: 64, width: "auto", display: "block" }} />}
+              {otherTeams.length > 0 && (
+                <div className="flex items-center gap-1">
+                  {otherTeams.map(t => {
+                    const lg = getTeamLogo(t);
+                    if (!lg) return null;
+                    return <img key={t} src={lg} alt={t} style={{ height: 26, width: "auto", display: "block" }} />;
+                  })}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -9609,18 +9617,25 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
               <span className="text-lg font-black" style={{ color: teamColor }}>{initials}</span>
             </div>
           )}
-          <div className="flex-1 min-w-0 py-3 pl-2" style={{ paddingRight: 140 }}>
-            <h3 className="text-xl font-bold text-gray-900">{formatName(name)}</h3>
-            <p className="text-gray-500 text-sm mt-0.5">{[...new Set(records.map(r => TEAM_NAMES[r.team] || r.team))].join(" → ")} • {sorted[0].year}–{sorted[sorted.length-1].year}</p>
-            <div className="flex gap-1 mt-1.5 flex-wrap">
-              {mvps > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">{mvps}x MVP</span>}
-              {allPcalCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-300">{allPcalCount}x All-PCAL</span>}
-              {sec > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-700 border border-gray-300">{sec}x 2nd Team</span>}
+          <div className="flex-1 min-w-0 py-3 pl-2" style={{ paddingRight: 100 }}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xl font-bold text-gray-900">{formatName(name)}</h3>
+              {isActive && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">Active</span>}
             </div>
-            <div className="flex gap-1 mt-1 flex-wrap">
-              {champs > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700 border border-green-300">{champs}x Champ</span>}
-              {finalsCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-300">{finalsCount}x Finals</span>}
-              {playoffCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300">{playoffCount}x Playoffs</span>}
+            <p className="text-gray-500 text-sm mt-0.5">
+              {isActive
+                ? (TEAM_NAMES[primaryTeam] || primaryTeam)
+                : [...new Set(records.map(r => TEAM_NAMES[r.team] || r.team))].join(" → ")
+              }
+              {" • "}{sorted[0].year}–{sorted[sorted.length-1].year}
+            </p>
+            <div className="grid grid-cols-3 gap-1 mt-1.5">
+              <div>{mvps > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">{mvps}x MVP</span>}</div>
+              <div>{allPcalCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-300">{allPcalCount}x All-PCAL</span>}</div>
+              <div>{sec > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-700 border border-gray-300">{sec}x 2nd Team</span>}</div>
+              <div>{champs > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700 border border-green-300">{champs}x Champ</span>}</div>
+              <div>{finalsCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-300">{finalsCount}x Finals</span>}</div>
+              <div>{playoffCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300">{playoffCount}x Playoffs</span>}</div>
             </div>
           </div>
         </div>
