@@ -11921,7 +11921,8 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           });
         }
 
-        announcements.forEach(a => {
+        // Build enriched announcements with history
+        const enriched = announcements.map(a => {
           const pronoun = a.gender === "Female" ? "She" : "He";
           const history = findPlayerHistory(a.first_name, a.last_name);
           let historyNote = " This is their first season in PCAL.";
@@ -11934,15 +11935,37 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
             }
           }
           const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
-          items.push({
-            _kind: "reg",
-            _date: dateStr,
-            _ts: a.created_at ? new Date(a.created_at).getTime() : 0,
-            reg: a,
-            historyNote,
-            dateStr,
+          return {
+            ...a, pronoun, history, historyNote, dateStr,
             tc: TEAM_C[a.team_pref] || (history ? (TEAM_COLORS[history.lastTeam] || "#6b7280") : "#6b7280"),
-          });
+            _ts: a.created_at ? new Date(a.created_at).getTime() : 0,
+          };
+        });
+
+        // Group announcements by date. If 3+ on the same day, collapse into one card.
+        const byDate = {};
+        enriched.forEach(a => {
+          const dk = a.dateStr || "unknown";
+          if (!byDate[dk]) byDate[dk] = [];
+          byDate[dk].push(a);
+        });
+
+        Object.entries(byDate).forEach(([dateStr, group]) => {
+          if (group.length >= 3) {
+            // Grouped card
+            items.push({
+              _kind: "reg_group",
+              _date: dateStr,
+              _ts: Math.max(...group.map(a => a._ts)),
+              regs: group,
+              dateStr,
+            });
+          } else {
+            // Individual cards
+            group.forEach(a => {
+              items.push({ _kind: "reg", _date: a.dateStr, _ts: a._ts, reg: a, historyNote: a.historyNote, dateStr: a.dateStr, tc: a.tc });
+            });
+          }
         });
 
         // Sort by timestamp descending
@@ -11967,7 +11990,43 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
                   <div className="space-y-2.5">
                     {buckets[bucket].map((item, idx) => {
                       if (item._kind === "msg") return <CommissionerMessageCard key={item.msg.id} msg={item.msg} />;
-                      // Registration announcement card
+
+                      // Grouped registration card (3+ on same day)
+                      if (item._kind === "reg_group") {
+                        return (
+                          <div key={"rg-" + item.dateStr} className="rounded-2xl bg-white border border-gray-200 overflow-hidden flex">
+                            <div className="w-1 flex-shrink-0" style={{ backgroundColor: "#10b981" }} />
+                            <div className="flex-1 p-3">
+                              <div className="flex items-baseline justify-between gap-2 mb-2">
+                                <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">{item.regs.length} New Registrations</p>
+                                {item.dateStr && <p className="text-xs font-bold text-gray-500">{item.dateStr}</p>}
+                              </div>
+                              <div className="space-y-2">
+                                {item.regs.map(a => (
+                                  <div key={a.id} className="flex items-center gap-2.5">
+                                    {a.headshot_url ? (
+                                      <img src={a.headshot_url} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-gray-200" />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white font-black text-xs" style={{ backgroundColor: a.tc }}>
+                                        {(a.first_name || "?")[0]}
+                                      </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm text-gray-900 leading-snug">
+                                        <strong>{a.first_name} {a.last_name}</strong>
+                                        <span className="text-gray-500 font-normal">{a.historyNote}</span>
+                                      </p>
+                                      {a.reg_quote && <p className="text-[10px] text-gray-400 italic truncate">"{a.reg_quote}"</p>}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Individual registration announcement card
                       const a = item.reg;
                       return (
                         <div key={a.id} className="rounded-2xl bg-white border border-gray-200 overflow-hidden flex">
@@ -20387,24 +20446,27 @@ function CareerLeadersTab({ leaders, goToPlayer }) {
     <div>
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">All-Time Career Leaders</p>
 
-      <div className="flex gap-2 mb-3">
-        <select value={cat} onChange={e => setCat(e.target.value)}
-          className="px-2 py-1.5 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 bg-white flex-1">
-          {CATS.map(ct => <option key={ct.key} value={ct.key}>{ct.label}</option>)}
-        </select>
-        {hasToggle && (
-          <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
-            <button onClick={() => setMode("total")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${effectiveMode === "total" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
-              Total
-            </button>
-            <button onClick={() => setMode("pg")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${effectiveMode === "pg" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
-              Per Game
-            </button>
-          </div>
-        )}
+      <div className="flex flex-wrap gap-1 mb-3">
+        {CATS.map(ct => (
+          <button key={ct.key} onClick={() => setCat(ct.key)}
+            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all flex-shrink-0 ${cat === ct.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+            {ct.label}
+          </button>
+        ))}
       </div>
+
+      {hasToggle && (
+        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 w-fit mb-3">
+          <button onClick={() => setMode("total")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${effectiveMode === "total" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
+            Total
+          </button>
+          <button onClick={() => setMode("pg")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${effectiveMode === "pg" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
+            Per Game
+          </button>
+        </div>
+      )}
 
       {qualNote && (
         <div className="text-[10px] text-gray-400 mb-3">{qualNote}</div>
