@@ -9403,12 +9403,17 @@ YEARS.forEach(y => {
     for (const cand of min7) {
       if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
     }
-    // Rule 3: highest AI on best regular-season team
+    // Rule 3: highest AI on best regular-season team.
+    // Satisfied automatically if the top-AI player on that team is already picked.
     const bestTeam = bestRegSeasonTeam(y);
     if (bestTeam) {
       const teamPlayers = eligible.filter(r => r.team === bestTeam).sort((a, b) => b.aiScore - a.aiScore);
-      for (const cand of teamPlayers) {
-        if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
+      if (teamPlayers.length) {
+        const topOnBest = teamPlayers[0];
+        if (!picked.has(topOnBest.player + "|" + topOnBest.team)) {
+          addPick(topOnBest);
+        }
+        // else: criterion already satisfied by an earlier pick, skip to Rule 4
       }
     }
     // Rule 4: fill to 5 by next highest AI
@@ -9472,59 +9477,6 @@ const LEADER_CATS = [
 ];
 
 // ========== COMPONENTS ==========
-
-const PLAYER_BLURBS = {
-  "ISHAK ANDREW": "The only player to appear in all 20 PCAL seasons (2005–2025). All-time leader in points (3,054), rebounds (1,499), assists (374), steals (337), games (187), and total Game Score. Played alongside 59 unique teammates and against 291 opponents across his SJO and PDF career. Earned 6 MVPs and 16 All-PCAL selections according to PCAL AI Score, with 2 championships.",
-  "MULUGETA YONI": "A five-team journeyman who delivered everywhere he went. An MVP and 7x All-PCAL selection (according to PCAL AI Score) across 13 seasons, plus a 3x champion. His 2009 season (20.0 PPG, 18.5 GmSc) with San Ramon remains one of the great individual campaigns. Brought rare shot-blocking ability from the wing.",
-  "SHEHATA GEORGE": "The most decorated champion in PCAL history with 7 titles. Earned 4 MVPs and 8 All-PCAL selections according to PCAL AI Score. His 2005 debut (22.3 GmSc) set the tone for a career defined by elite two-way play — career 2.6 SPG alongside 14.0 PPG. Led Hayward's dynasty and later anchored Pacific's rotation into his mid-40s.",
-  "KELADA ANTHONY": "Sacramento's iron man. 10 seasons, 5 championships, and the deadliest three-point shooter in league history (47.4% of shots from deep). Earned an MVP and 6 All-PCAL selections according to PCAL AI Score. His 2022 campaign (19.6 PPG, 72.7% TS) was one of the most efficient seasons ever recorded.",
-  "POULES ABANOB": "Mr. Sacramento. 15 seasons and 162 games — both among the most in league history — all for the same team. A 7x champion who earned 4 All-PCAL selections according to PCAL AI Score. The quintessential two-way guard whose consistency and longevity built SAC into a perennial contender.",
-  "AWAD BISHOY": "Sacramento's physical interior force. Earned an MVP (2017) and 6 All-PCAL selections according to PCAL AI Score while anchoring the paint with career averages of 6.7 RPG. A 5x champion whose 2016 season (10.0 RPG) was a double-double machine era.",
-  "YOUSSEF ANDREW": "Earned an MVP (2007) and 3 All-PCAL selections according to PCAL AI Score. His legendary 55-point game against SJO remains the highest single-game scoring output in PCAL history. A 7x champion with Hayward across a decade, he averaged 15.0 PPG with elite steal numbers (1.9 SPG).",
-  "BADROOS ANDREW": "Sacramento's defensive catalyst. Earned 2 MVPs (2012, 2018) and 4 All-PCAL selections according to PCAL AI Score. His career 2.0 SPG is among the highest in league history. The 2018 MVP season featured a remarkable .893 FT% and 15.6 GmSc. A 5x champion across 12 seasons.",
-  "GAD MOUNIR": "The most dominant interior scorer of San Jose's golden era. His 2009 season (22.7 PPG, 11.4 RPG) was a double-double masterpiece. Earned 6 All-PCAL selections according to PCAL AI Score across 11 seasons. Could score from anywhere on the floor.",
-  "HANNA GEORGE": "The league's ultimate lifer — 18 seasons and 149 games spanning 2005 to 2025, mostly with Concord. Never flashy but always reliable, his career 1.7 SPG and 4.8 RPG made him a defensive backbone. Earned 1 All-PCAL selection according to PCAL AI Score in 2008.",
-  "ABDELMALAK SIMON": "The modern era's brightest star. Earned back-to-back MVPs (2024, 2025) according to PCAL AI Score before age 23, with his 2025 campaign (19.2 PPG, 5.1 APG, 20.8 GmSc) ranking among the best ever. His 5.1 APG that year is the highest single-season assist average in PCAL history.",
-  "MIKHAIL ALEX": "Hayward's defensive Swiss army knife. Earned 4 All-PCAL selections according to PCAL AI Score, with 2.0 career SPG ranking among the league's best. Won 4 championships — his 2015 season (14.5 PPG, 8.5 RPG, 2.7 SPG) showcased the rare ability to fill every stat column.",
-  "AWAD MARK": "The ultimate championship role player. 13 seasons, 7 titles, and 7 Second Team selections — all with Sacramento. Earned 1 All-PCAL selection according to PCAL AI Score. Never the star but always essential, his interior defense (5.1 RPG, 2% 3PA rate) defined what it means to be a winner.",
-  "GIRGIS ZACK": "The ironman. 20 seasons and 163 games across three franchises tie him for the longest career in PCAL history. All-time rebounds leader (821) despite modest per-game averages. A rebounding specialist whose 2008 Second Team selection was his statistical peak.",
-  "SHACKER MARK": "Scoring at a level rarely seen in PCAL. His 18.4 career PPG is the highest among players with 40+ games, and his 2023 season (23.7 PPG, 20.2 GmSc) was pure offensive dominance. Earned an MVP (2019) and 4 All-PCAL selections according to PCAL AI Score with San Jose.",
-  "SHARKAWY MATHEW": "An 18-season career across three franchises makes him one of the most well-traveled veterans in league history. A 3x Second Team selection whose versatility kept him relevant from the early era through the modern game. His 2009 Modesto season (15.2 PPG, 9.1 RPG) was his finest.",
-  "MASDARY JOSH": "San Jose's steady hand for over a decade. Earned 1 All-PCAL selection according to PCAL AI Score in 2021 (7.4 PPG, 4.3 RPG, 2.2 SPG, 2.2 APG) — a rare stat-stuffing campaign. Won 2 championships across 11 seasons as the consummate team-first forward.",
-  "ROUHANI DAVID": "A cornerstone of Hayward's dynasty. 8 seasons, 7 championships. Earned 2 All-PCAL selections according to PCAL AI Score. His 2006 season (16.0 PPG, 4.9 RPG) set the standard for Hayward excellence. Elite steal rate (1.5 SPG career) from the forward position.",
-  "ABDELMALAK ANDREW": "San Jose's modern defensive anchor. His career 1.1 BPG is remarkable for any era. Earned 1 All-PCAL selection according to PCAL AI Score in 2023 (12.0 PPG, 9.2 RPG, 1.7 BPG). A versatile forward who can guard multiple positions and impact the game without scoring.",
-  "ABDELSAYED JOE": "Sacramento's original steady hand. 12 seasons and 119 games as the team's reliable perimeter scorer. His 2006 Second Team season (15.8 PPG) was his peak, but his durability and consistency across the first decade of PCAL made him indispensable to SAC's foundation.",
-  "NASHED GEORGE": "Hayward's boards king. His career 6.0 RPG and 707 total rebounds anchor the all-time leaderboard, and his 0.6 BPG provided rare rim protection. A 4x Second Team selection and 7x champion who quietly dominated the glass for 17 seasons without ever demanding the ball.",
-  "SAWIRIS YOUSSEF": "Hayward's longest-tenured guard of the modern era. 11 seasons of steady perimeter play. Earned 1 All-PCAL selection according to PCAL AI Score in 2019 (15.2 PPG, 5.9 RPG). A 2x champion who bridged the gap between Hayward's classic dynasty and its modern rebuilds.",
-  "ABDELSHAID MOSES": "Sacramento's modern playmaker. His 2.4 career APG fuels SAC's offense. Earned 2 All-PCAL selections according to PCAL AI Score across 8 seasons. A 7x champion who has been part of every SAC title run in the modern era while emerging as a perimeter threat.",
-  "MICHAEL JIMMY": "The original two-way forward. 12 seasons spanning three franchises — including rare stints with both Concord and San Ramon. His 2005 Second Team season set the foundation for a career built on defensive versatility (1.2 SPG) and quiet consistency.",
-  "MASOUD DAVID": "Hayward's three-point specialist. An astounding 81.3% of his career field goal attempts came from beyond the arc — the highest rate of any significant player in league history. His 2022 season (13.2 PPG, 6.2 RPG) proved he could do more than just shoot.",
-  "TAWDROS MARIOS": "Pleasanton's franchise cornerstone. In just 4 seasons he's already earned 3 straight All-PCAL selections according to PCAL AI Score with a rare combination of scoring (13.9 PPG), rebounding (7.4 RPG), and shot-blocking (1.1 BPG). The modern center prototype.",
-  "MALEK JOHN": "A 9-season Sacramento stalwart who provided steady production in the paint. His 2008 Second Team season (10.9 PPG, 5.5 RPG) was the peak of a career defined by blue-collar interior play. Part of SAC's early championship foundation.",
-  "MALEK CHRISTOPHER": "Hayward's quiet ironman. 13 seasons and 102 games of reliable forward play, with his 2017 Second Team selection validating years of unheralded contributions. A 2x champion who embodies the role-player ethos — never the star, always on the court.",
-  "BISSADA MATTHEW": "Concord's most decorated player. 4 Second Team selections across 10 seasons represent the most award selections in CON franchise history. His steady 8.9 career PPG and perimeter shooting made him the offensive focal point for Concord throughout the 2010s.",
-  "SHEHATA JACOB": "The highest per-game scorer in active PCAL history. At just 4 seasons, his 20.5 career PPG is staggering. Earned 2 All-PCAL selections according to PCAL AI Score, including his 2022 breakout (20.8 PPG, 18.4 GmSc) at age 16. Pacific's young superstar is still ascending.",
-  "ABDELMALEK ADAM": "The league's premier rebounder of the modern era. His 8.4 career RPG is the highest among active players, and his dual Concord/Modesto career has seen him earn 2 Second Team nods. A rare true center in a perimeter-heavy league.",
-  "MOUSSA TONY": "The ultimate PCAL survivor. 16 seasons and 128 games, almost entirely with San Jose, make him one of the longest-tenured players ever. His 2016 Second Team season (11.4 PPG) was his finest hour, but his longevity and defensive effort (104 career steals) tell the real story.",
-  "SOLIMAN MIKE": "A dominant physical force in PCAL's earliest era. Earned 1 All-PCAL selection according to PCAL AI Score in 2005 (11.4 PPG, 11.3 RPG, 3.4 SPG, 1.7 BPG) — one of the most complete stat lines ever. His 1.5 career BPG remains the all-time record. Limited to 4 seasons, but the impact was undeniable.",
-  "FAHMY WASEEM": "San Jose's floor general across a decade. His career 1.8 APG helped orchestrate SJO's offense through multiple eras. Earned 1 All-PCAL selection according to PCAL AI Score in 2010 (9.9 PPG, 2.8 SPG). Also the league's most well-traveled point guard with stints at SJO, PDF, and SJK.",
-  "NAKHLA JOHN": "The league's most traveled player — 5 different teams across 13 seasons. A facilitator by nature with career 1.2 APG, his 3 championships came with San Ramon's classic squads. His 2019 PDF season (5.4 PPG, 5.8 RPG, 2.6 APG) was a late-career renaissance.",
-  "HANNA JOE": "The all-time ironman. 17 seasons and 148 games across 4 franchises — the most games played by any non-top-10 scorer in PCAL history. 104 career steals and unwavering availability made him the definition of a steady veteran presence.",
-  "GHOBRIAL PETER": "The ultimate glue guy across three franchises. 16 seasons, 6 championships, and 117 games of elite defensive effort despite modest scoring (2.2 PPG). His versatility and 0.5 career BPG from the guard position made him invaluable on championship teams.",
-  "ALLICOCK WARREN": "Concord's greatest scorer. In just 4 seasons, he averaged 16.3 PPG with 7.0 RPG and 2.1 SPG. Earned 2 All-PCAL selections according to PCAL AI Score (2006, 2009) — the peak of Concord basketball.",
-  "SAWIRIS RAFAEL": "Hayward's emerging young gun. 7 seasons of steady improvement with his 2022 breakout (13.5 PPG) showing his potential as a perimeter scorer. At just 22, his career trajectory suggests he's still years from his prime.",
-  "SHAMMAS BASHAR": "A supernova career with Modesto. In just 3 seasons, his 17.3 PPG was electric. Earned 2 All-PCAL selections according to PCAL AI Score, highlighted by the 2013 season (20.4 PPG, 16.7 GmSc). His 3 award selections in only 26 games speaks to rare scoring talent.",
-  "ISHAK EDDIE": "Andrew's older brother and a beast in his own right. Earned 2 All-PCAL selections according to PCAL AI Score, with his 2006 season (15.6 PPG, 11.1 RPG) a double-double monster year. His career 8.3 RPG and 2.0 SPG from the center position are remarkable. A champion with SJO.",
-  "NAGUIB WASSIM": "An 11-season career spanning San Ramon and Pleasanton, stretching into his 50s. His 2006 season (8.7 RPG) and 2007 Second Team selection were his peak, but his longevity — playing competitive PCAL basketball at age 54 — is his most remarkable achievement.",
-  "YOSEF ELIJAH": "Sacramento's quiet contributor. 7 seasons and 6 championships without a single individual award — the epitome of winning basketball. His steady 4.6 PPG and 3.6 RPG provided the depth that championship teams require.",
-  "ZARIFA RAFIK": "The steal artist. His career 3.4 SPG is the highest in PCAL history among players with 15+ games. Earned 1 All-PCAL selection according to PCAL AI Score in 2021 (14.6 PPG, 4.9 SPG) — a defensive masterclass. A devastating on-ball defender in Hayward's backcourt.",
-  "SHARKAWY ANDREW": "Modesto's modern two-way guard. In just 5 seasons he's already earned a Second Team nod (2024) with his combination of scoring and defense (1.3 SPG). Part of the new generation pushing Modesto forward.",
-  "ABDELSHAID BISHOY": "Sacramento's unsung hero. 10 seasons, 6 championships, and zero individual awards — yet his 1.2 career APG and defensive effort were critical to SAC's dynasty. His 2022 season featured 3.6 APG, showing his evolution as a playmaker.",
-  "FAHMY WALID": "San Jose's early-era forward. His 2005 Second Team season (11.7 PPG, 6.2 RPG) helped establish SJO as a contender. A 6-season career with the original SJO and SJK squads that bridged the league's founding years.",
-  "SAKLA ANDREW": "One of the most efficient short careers in PCAL history. In just 15 games across 3 seasons, he averaged 17.7 PPG with a stunning 3.1 SPG. Earned 1 All-PCAL selection according to PCAL AI Score in 2008 (21.3 PPG, 19.1 GmSc) with Modesto — one of the league's single-season masterpieces.",
-  "SAWIRIS MARK": "Hayward's versatile guard. 9 seasons of perimeter defense (1.2 SPG) and timely scoring, with his 2015 breakout (14.3 PPG) showing his potential. A steady presence in HAY's backcourt across multiple eras of the franchise.",
-  "WAHBA JOHN": "San Jose's rim protector. His career 0.6 BPG from a role player is impressive, and his 7 seasons with SJO included 2 championships. A physical presence in the paint who altered shots and grabbed boards (3.9 RPG) without needing touches on offense.",
-};
 
 const PLAYER_PHOTOS = {
   "ISHAK ANDREW": "data:image/png;base64,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"
@@ -9617,10 +9569,6 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
           </div>
         </div>
       </div>
-      {/* Player blurb */}
-      {PLAYER_BLURBS[name] && (
-        <div className="px-4 py-2.5 bg-slate-50 border-b border-gray-200 text-xs text-gray-600 italic leading-relaxed">{PLAYER_BLURBS[name]}</div>
-      )}
       {/* Career stats with ranks */}
       <div className="grid grid-cols-4 sm:grid-cols-8 gap-0 border-b border-gray-200">
         {[
@@ -9677,11 +9625,12 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
           </table>
         ) : (
           <div className="overflow-x-auto -mx-3">
-            <table className="w-full text-xs min-w-[600px]">
+            <table className="text-xs min-w-[700px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
               <thead><tr className="border-b border-gray-200 text-gray-400 uppercase tracking-wider text-[10px]">
-                <th className="text-left py-2 px-3">Year</th><th className="text-left py-2 px-1">Age</th><th className="text-left py-2 px-1">Team</th>
-                <th className="text-left py-2 px-1"></th>
-                <th className="text-left py-2 px-1"></th>
+                <th className="text-left py-2 px-3 sticky left-0 bg-white z-10 border-b border-gray-200">Year</th>
+                <th className="text-left py-2 px-1">Age</th><th className="text-left py-2 px-1">Team</th>
+                <th className="text-left py-2 px-1 whitespace-nowrap" style={{ minWidth: 70 }}>Award</th>
+                <th className="text-left py-2 px-1 whitespace-nowrap" style={{ minWidth: 50 }}>Playoff</th>
                 <th className="text-right py-2 px-1">G</th><th className="text-right py-2 px-1">PPG</th>
                 <th className="text-right py-2 px-1">RPG</th><th className="text-right py-2 px-1">APG</th>
                 <th className="text-right py-2 px-1">SPG</th><th className="text-right py-2 px-1">BPG</th>
@@ -9702,11 +9651,11 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
                   return <><span className="font-semibold text-indigo-700">{r.aiScore.toFixed(1)}</span> <span className={"text-xs " + rankClass}>#{r.aiRank}</span></>;
                 })() : "—";
                 return (<tr key={i} className="border-b border-gray-50 hover:bg-blue-50/50">
-                  <td className="py-1.5 px-3 font-semibold">{r.year}</td>
+                  <td className="py-1.5 px-3 font-semibold sticky left-0 bg-white z-10 border-b border-gray-50">{r.year}</td>
                   <td className="py-1.5 px-1 text-gray-400">{r.age || ""}</td>
                   <td className="py-1.5 px-1 text-gray-500">{getTeamDisplay(r.team, r.year)}</td>
-                  <td className="py-1.5 px-1"><Badge award={r.award} /></td>
-                  <td className="py-1.5 px-1">{playoffBadge}</td>
+                  <td className="py-1.5 px-1 whitespace-nowrap"><Badge award={r.award} /></td>
+                  <td className="py-1.5 px-1 whitespace-nowrap">{playoffBadge}</td>
                   <td className="text-right py-1.5 px-1">{r.g}</td>
                   <td className="text-right py-1.5 px-1 font-bold">{r.ppg.toFixed(1)}</td>
                   <td className="text-right py-1.5 px-1">{r.rpg.toFixed(1)}</td>
@@ -10608,12 +10557,17 @@ export default function App() {
       for (const cand of min7) {
         if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
       }
-      // 3. Highest AI Score on best regular-season team
+      // 3. Highest AI Score on best regular-season team.
+      // Satisfied automatically if the top-AI player on that team is already picked.
       const bestTeam = bestRegSeasonTeam(y);
       if (bestTeam) {
         const teamPlayers = eligible.filter(r => r.team === bestTeam).sort((a, b) => b.score - a.score);
-        for (const cand of teamPlayers) {
-          if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
+        if (teamPlayers.length) {
+          const topOnBest = teamPlayers[0];
+          if (!picked.has(topOnBest.player + "|" + topOnBest.team)) {
+            addPick(topOnBest);
+          }
+          // else: criterion already satisfied, skip to Rule 4
         }
       }
       // 4. Fill to 5 by next highest AI Score
@@ -12915,30 +12869,6 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
     <div>
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Awards History</p>
 
-      {/* 20-season leaders visual table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4">
-        <p className="text-xs font-bold text-gray-900 mb-2">Season Leaders, 2005 to 2025</p>
-        <div className="grid gap-1 text-[11px]" style={{ gridTemplateColumns: "42px repeat(5, 1fr)" }}>
-          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Year</div>
-          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Claude MVP</div>
-          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">AI Score</div>
-          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Total GmSc</div>
-          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Avg GmSc 7G+</div>
-          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">AI on Champ</div>
-          {leadersTableRows.map(row => (
-            <React.Fragment key={row.year}>
-              <div className="flex items-center justify-center text-[11px] font-bold text-gray-700">{row.year}</div>
-              <LeaderCell data={row.mvp} />
-              <LeaderCell data={row.ai} />
-              <LeaderCell data={row.total} />
-              <LeaderCell data={row.avg} />
-              <LeaderCell data={row.champ} />
-            </React.Fragment>
-          ))}
-        </div>
-        <p className="text-[10px] text-gray-500 italic mt-2">Numbers in parentheses are cumulative counts. For 2024 and 2025, player vote also selected Abdelmalak as MVP.</p>
-      </div>
-
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 text-xs text-gray-700 leading-relaxed space-y-3">
         <p className="font-bold text-sm text-gray-900">How awards are determined</p>
         <p>
@@ -12949,8 +12879,8 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
         </p>
         <ol className="list-decimal pl-5 space-y-1">
           <li>Highest total Game Score</li>
-          <li>Highest average Game Score, minimum 7 games played (if not already included)</li>
-          <li>Highest AI Score on the best regular-season team (if not already included)</li>
+          <li>Highest average Game Score, minimum 7 games played (if not already picked above)</li>
+          <li>Highest AI Score on the best regular-season team (skipped if that player is already picked above)</li>
           <li>Next highest AI Scores, filling to five players</li>
         </ol>
         <p>
@@ -12958,9 +12888,6 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
         </p>
         <p>
           <span className="font-bold">Second Team</span> consists of the next 5 players by total Game Score after First Team is filled. This rewards durable, high-volume production. Both teams are displayed in order of AI Score descending, with the MVP marked regardless of their AI Score rank.
-        </p>
-        <p className="text-[11px] text-gray-600 mt-2 pt-2 border-t border-gray-100">
-          <span className="font-bold">Five largest MVP Total Game Score gaps over #2 on record:</span> 2015 Ishak (62.5%), 2014 Ishak (54.0%), 2018 Badroos (32.2%), 2023 Ishak (29.5%), 2016 Ishak (26.8%).
         </p>
       </div>
 
@@ -13030,6 +12957,30 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
             </div>
           );
         })}
+      </div>
+
+      {/* 20-season leaders visual table (moved to bottom) */}
+      <div className="bg-white rounded-xl border border-gray-200 p-3 mt-4">
+        <p className="text-xs font-bold text-gray-900 mb-2">Season Leaders, 2005 to 2025</p>
+        <div className="grid gap-1 text-[11px]" style={{ gridTemplateColumns: "42px repeat(5, 1fr)" }}>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Year</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Claude MVP</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">AI Score</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Total GmSc</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Avg GmSc 7G+</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">AI on Champ</div>
+          {leadersTableRows.map(row => (
+            <React.Fragment key={row.year}>
+              <div className="flex items-center justify-center text-[11px] font-bold text-gray-700">{row.year}</div>
+              <LeaderCell data={row.mvp} />
+              <LeaderCell data={row.ai} />
+              <LeaderCell data={row.total} />
+              <LeaderCell data={row.avg} />
+              <LeaderCell data={row.champ} />
+            </React.Fragment>
+          ))}
+        </div>
+        <p className="text-[10px] text-gray-500 italic mt-2">Numbers in parentheses are cumulative counts. For 2024 and 2025, player vote also selected Abdelmalak as MVP.</p>
       </div>
     </div>
   );
@@ -14719,24 +14670,39 @@ function StatExplainersView() {
       <div className="space-y-3">
         <div className="rounded-xl border border-gray-100 bg-white p-4">
           <h3 className="text-sm font-black text-gray-900 mb-2">Game Score (GmSc)</h3>
+          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+            <span className="font-bold">Game Score is a single number that summarizes how a player performed in one game.</span> It takes the things you already see in a box score &mdash; points, rebounds, assists, steals, blocks, shooting, fouls &mdash; and rolls them into one stat so you can compare games at a glance without staring at a full line.
+          </p>
           <p className="text-xs text-gray-600 leading-relaxed mb-3">
-            Game Score was developed by John Hollinger to estimate a player's statistical impact in a single game. It combines scoring, rebounding, playmaking, and defensive counting stats into one number. The standard formula is:
+            As a rule of thumb: <span className="font-bold">10 is a solid game, 15 is great, 20+ is dominant.</span> "Total GmSc" is the sum across every game a player played. "Avg GmSc" is the per-game average.
+          </p>
+          <p className="text-xs text-gray-600 leading-relaxed mb-3">
+            The stat was developed by John Hollinger. Points carry the most weight. Assists, steals, and blocks are worth more per-event than rebounds. Missed shots and fouls cost you. The formula used in basketball is:
           </p>
           <div className="bg-gray-50 rounded-lg p-3 text-[11px] font-mono text-gray-700 leading-relaxed mb-3">
             GmSc = PTS + 0.4 × FGM − 0.7 × FGA − 0.4 × (FTA − FTM) + 0.7 × OREB + 0.3 × DREB + STL + 0.7 × AST + 0.7 × BLK − 0.4 × PF − TO
           </div>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            PCAL does not track offensive versus defensive rebounds separately, and we do not track turnovers. So what's used here is an estimation. It captures the shooting, rebounding, assists, steals, blocks, and fouls but leaves out turnovers entirely, and treats all rebounds the same. The result is a rough measure of offensive production plus the two defensive stats we do have. It does not capture off-ball defense, screens, communication, or any of the things that don't show up in the box score.
-          </p>
           <p className="text-xs text-gray-600 leading-relaxed">
-            A GmSc of 10 is a solid game. 15 is great. 20+ is a dominant performance. Total GmSc is the sum across every game in a player's career. GmSc/G is the average.
+            PCAL does not separate offensive from defensive rebounds, and we do not track turnovers, so this is a slight approximation &mdash; rebounds are treated uniformly and turnovers are omitted. Game Score also can't see anything that isn't in the box score: off-ball defense, screens, communication, spacing. It's a good shorthand, not a complete picture.
           </p>
         </div>
 
         <div className="rounded-xl border border-gray-100 bg-white p-4">
           <h3 className="text-sm font-black text-gray-900 mb-2">AI Score</h3>
+          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+            <span className="font-bold">AI Score is the season-long version of Game Score, but smarter.</span> Game Score tells you how a player did in one game using just the box score. AI Score looks at a full season and factors in a bunch of things that a single box score can't see.
+          </p>
           <p className="text-xs text-gray-600 leading-relaxed mb-3">
-            AI Score is a season-level companion to Game Score. Where Game Score measures a single game, AI Score looks at the full season and factors in things that don't show up in a single box score: shooting efficiency relative to the league, team success, durability, and how much of the team's total production the player accounted for. It is used as the primary input to the awards system for seasons 2005 through 2023, before player voting was introduced.
+            Specifically, AI Score takes into account:
+          </p>
+          <ul className="list-disc pl-5 space-y-1 text-xs text-gray-600 leading-relaxed mb-3">
+            <li><span className="font-bold">Shooting efficiency</span> &mdash; compared to the league average that season, so scoring 15 per game on bad shooting is worth less than 15 per game on great shooting</li>
+            <li><span className="font-bold">Durability</span> &mdash; a player who misses half the season can't out-rank someone who showed up every week</li>
+            <li><span className="font-bold">Team success</span> &mdash; championship and Finals teams get a small boost; losing teams take a small hit</li>
+            <li><span className="font-bold">Share of team output</span> &mdash; players who truly carried their team get rewarded, especially if the team won</li>
+          </ul>
+          <p className="text-xs text-gray-600 leading-relaxed mb-3">
+            AI Score is the primary input to the awards system for seasons 2005 through 2023, before player voting was introduced. The full formula is below for anyone curious.
           </p>
           <div className="bg-gray-50 rounded-lg p-3 text-[11px] font-mono text-gray-700 leading-relaxed mb-3">
             AI Score = (rawPG × gpFactor × teamMult) + shareBonus
@@ -14780,8 +14746,8 @@ function StatExplainersView() {
           </p>
           <ol className="list-decimal pl-5 space-y-1 text-xs text-gray-600 leading-relaxed mb-3">
             <li>Highest total Game Score for the season</li>
-            <li>Highest average Game Score, minimum 7 games played (if not already included)</li>
-            <li>Highest AI Score on the best regular-season team (if not already included)</li>
+            <li>Highest average Game Score, minimum 7 games played (if not already picked above)</li>
+            <li>Highest AI Score on the best regular-season team (skipped if that player is already picked above)</li>
             <li>Next highest AI Scores, filling to five players</li>
           </ol>
           <p className="text-xs text-gray-600 leading-relaxed mb-2">
@@ -14794,9 +14760,6 @@ function StatExplainersView() {
           </ol>
           <p className="text-xs text-gray-600 leading-relaxed">
             <span className="font-bold">MVP selection (2024 and later):</span> chosen by player vote. AI Score is still displayed as a reference but does not determine the award.
-          </p>
-          <p className="text-xs text-gray-600 leading-relaxed mt-3 pt-3 border-t border-gray-100">
-            <span className="font-bold">Five largest MVP Total Game Score gaps over #2 on record:</span> 2015 Ishak (62.5%), 2014 Ishak (54.0%), 2018 Badroos (32.2%), 2023 Ishak (29.5%), 2016 Ishak (26.8%).
           </p>
         </div>
       </div>
