@@ -9537,6 +9537,7 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
   const sec = records.filter(r => r.award === "Second Team").length;
   const champs = records.filter(r => { const ts = TEAM_SEASONS[r.team + "-" + r.year]; return ts && ts.final === "Champ"; }).length;
   const finalsCount = records.filter(r => { const ts = TEAM_SEASONS[r.team + "-" + r.year]; return ts && (ts.final === "Champ" || ts.final === "Finals"); }).length;
+  const playoffCount = records.filter(r => { const ts = TEAM_SEASONS[r.team + "-" + r.year]; return ts && (ts.final === "Champ" || ts.final === "Finals" || ts.final === "Semis"); }).length;
 
   // Career ranks
   const getRank = (stat) => {
@@ -9575,8 +9576,8 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
   const playerPhoto = PLAYER_PHOTOS[name];
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4" style={{ paddingTop: 100 }}>
-      <div className="relative bg-white" style={{ borderTop: `4px solid ${teamColor}` }}>
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4" style={{ paddingTop: 60 }}>
+      <div className="relative bg-white">
         {/* All teams played for, chronological order */}
         {(() => {
           const teamFirstYear = {};
@@ -9586,9 +9587,9 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
             }
           });
           const teamsChrono = Object.keys(teamFirstYear).sort((a, b) => teamFirstYear[a] - teamFirstYear[b]);
-          const logoSize = teamsChrono.length >= 3 ? 40 : 60;
+          const logoSize = teamsChrono.length >= 3 ? 36 : 52;
           return (
-            <div className="absolute flex items-center gap-2 pointer-events-none" style={{ right: 12, top: "50%", transform: "translateY(-50%)" }}>
+            <div className="absolute flex items-center gap-2 pointer-events-none z-0" style={{ right: 12, top: "50%", transform: "translateY(-50%)" }}>
               {teamsChrono.map(t => {
                 const lg = getTeamLogo(t);
                 if (!lg) return null;
@@ -9600,7 +9601,7 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
         <div className="flex items-end relative z-10">
           {/* Photo or avatar on left — photo extends above the header */}
           {playerPhoto ? (
-            <div className="flex-shrink-0 self-end" style={{ width: 180, marginTop: -100 }}>
+            <div className="flex-shrink-0 self-end" style={{ width: 180, marginTop: -60 }}>
               <img src={playerPhoto} alt="" className="w-full" style={{ display: "block", objectFit: "contain", objectPosition: "bottom" }} />
             </div>
           ) : (
@@ -9608,20 +9609,18 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
               <span className="text-lg font-black" style={{ color: teamColor }}>{initials}</span>
             </div>
           )}
-          <div className="flex-1 min-w-0 py-3 pr-4 pl-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">{formatName(name)}</h3>
-                <p className="text-gray-500 text-sm mt-0.5">{[...new Set(records.map(r => TEAM_NAMES[r.team] || r.team))].join(" → ")} • {sorted[0].year}–{sorted[sorted.length-1].year}</p>
-              </div>
-              {onClose && <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-lg">×</button>}
-            </div>
+          <div className="flex-1 min-w-0 py-3 pl-2" style={{ paddingRight: 140 }}>
+            <h3 className="text-xl font-bold text-gray-900">{formatName(name)}</h3>
+            <p className="text-gray-500 text-sm mt-0.5">{[...new Set(records.map(r => TEAM_NAMES[r.team] || r.team))].join(" → ")} • {sorted[0].year}–{sorted[sorted.length-1].year}</p>
             <div className="flex gap-1 mt-1.5 flex-wrap">
               {mvps > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">{mvps}x MVP</span>}
               {allPcalCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-300">{allPcalCount}x All-PCAL</span>}
               {sec > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-700 border border-gray-300">{sec}x 2nd Team</span>}
+            </div>
+            <div className="flex gap-1 mt-1 flex-wrap">
               {champs > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700 border border-green-300">{champs}x Champ</span>}
               {finalsCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-300">{finalsCount}x Finals</span>}
+              {playoffCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300">{playoffCount}x Playoffs</span>}
             </div>
           </div>
         </div>
@@ -9672,11 +9671,11 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
                 <td className="py-1 px-1 font-semibold">{r.year}</td>
                 <td className="py-1 px-1 text-gray-400">{r.age || ""}</td>
                 <td className="py-1 px-1 text-gray-500"><span className="inline-flex items-center gap-1">{getTeamDisplay(r.team, r.year)}<Badge award={r.award} />{(() => { const ts = TEAM_SEASONS[r.team + "-" + r.year]; if (!ts) return null; if (ts.final === "Champ") return <span className="text-[8px] px-1 py-0 rounded bg-yellow-100 text-yellow-700 font-bold">Champ</span>; if (ts.final === "Finals") return <span className="text-[8px] px-1 py-0 rounded bg-blue-100 text-blue-700 font-bold">Finals</span>; if (ts.final === "Semis") return <span className="text-[8px] px-1 py-0 rounded bg-gray-100 text-gray-500 font-bold">Semis</span>; return null; })()}</span></td>
-                <td className={"text-right py-1 px-1" + (isLeader(r, "g") ? " font-bold" : "")}>{r.g}</td>
-                <td className={"text-right py-1 px-1" + (isLeader(r, "ppg") ? " font-bold" : "")}>{r.ppg.toFixed(1)}</td>
-                <td className={"text-right py-1 px-1" + (isLeader(r, "rpg") ? " font-bold" : "")}>{r.rpg.toFixed(1)}</td>
-                <td className={"text-right py-1 px-1" + (isLeader(r, "spg") ? " font-bold" : "")}>{r.spg.toFixed(1)}</td>
-                <td className={"text-right py-1 px-1" + (isLeader(r, "ts") ? " font-bold" : "")}>{pct(r.ts)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "g") ? " font-bold bg-gray-100" : "")}>{r.g}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "ppg") ? " font-bold bg-gray-100" : "")}>{r.ppg.toFixed(1)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "rpg") ? " font-bold bg-gray-100" : "")}>{r.rpg.toFixed(1)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "spg") ? " font-bold bg-gray-100" : "")}>{r.spg.toFixed(1)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "ts") ? " font-bold bg-gray-100" : "")}>{pct(r.ts)}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -9714,18 +9713,18 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
                   <td className="py-1.5 px-1 text-gray-500">{getTeamDisplay(r.team, r.year)}</td>
                   <td className="py-1.5 px-1 whitespace-nowrap"><Badge award={r.award} /></td>
                   <td className="py-1.5 px-1 whitespace-nowrap">{playoffBadge}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "g") ? " font-bold" : "")}>{r.g}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ppg") ? " font-bold" : "")}>{r.ppg.toFixed(1)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "rpg") ? " font-bold" : "")}>{r.rpg.toFixed(1)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "apg") ? " font-bold" : "")}>{r.apg.toFixed(1)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "spg") ? " font-bold" : "")}>{r.spg.toFixed(1)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "bpg") ? " font-bold" : "")}>{r.bpg.toFixed(1)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "fgPct") ? " font-bold" : "")}>{pct(r.fgPct)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "tpPct") ? " font-bold" : "")}>{pct(r.tpPct)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ftPct") ? " font-bold" : "")}>{pct(r.ftPct)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ts") ? " font-bold" : "")}>{pct(r.ts)}</td>
-                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "avgGmSc") ? " font-bold" : "")}>{r.avgGmSc.toFixed(1)}</td>
-                  <td className={"text-right py-1.5 px-1 whitespace-nowrap" + (isLeader(r, "aiScore") ? " font-bold" : "")}>{aiRankDisplay}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "g") ? " font-bold bg-gray-100" : "")}>{r.g}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ppg") ? " font-bold bg-gray-100" : "")}>{r.ppg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "rpg") ? " font-bold bg-gray-100" : "")}>{r.rpg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "apg") ? " font-bold bg-gray-100" : "")}>{r.apg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "spg") ? " font-bold bg-gray-100" : "")}>{r.spg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "bpg") ? " font-bold bg-gray-100" : "")}>{r.bpg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "fgPct") ? " font-bold bg-gray-100" : "")}>{pct(r.fgPct)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "tpPct") ? " font-bold bg-gray-100" : "")}>{pct(r.tpPct)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ftPct") ? " font-bold bg-gray-100" : "")}>{pct(r.ftPct)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ts") ? " font-bold bg-gray-100" : "")}>{pct(r.ts)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "avgGmSc") ? " font-bold bg-gray-100" : "")}>{r.avgGmSc.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1 whitespace-nowrap" + (isLeader(r, "aiScore") ? " font-bold bg-gray-100" : "")}>{aiRankDisplay}</td>
                 </tr>);
               })}</tbody>
             </table>
