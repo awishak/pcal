@@ -9440,6 +9440,47 @@ YEARS.forEach(y => {
   });
 })();
 
+// Per-year leader sets for each stat. Ties count as leaders.
+// Per-game stats qualify at g>=5. Percentage stats require attempts>=15.
+// Game-count leaders (G) are determined from the max G that year.
+const LEADERS_BY_YEAR = (() => {
+  const out = {};
+  const statsConfig = [
+    { key: "ppg",      qual: r => r.g >= 5 },
+    { key: "rpg",      qual: r => r.g >= 5 },
+    { key: "apg",      qual: r => r.g >= 5 },
+    { key: "spg",      qual: r => r.g >= 5 },
+    { key: "bpg",      qual: r => r.g >= 5 },
+    { key: "avgGmSc",  qual: r => r.g >= 5 },
+    { key: "aiScore",  qual: r => r.g >= 5 },
+    { key: "ts",       qual: r => r.g >= 5 && r.fga >= 15 },
+    { key: "fgPct",    qual: r => r.g >= 5 && r.fga >= 15 },
+    { key: "tpPct",    qual: r => r.g >= 5 && r.tpa >= 15 },
+    { key: "ftPct",    qual: r => r.g >= 5 && r.fta >= 15 },
+    { key: "g",        qual: r => r.g >= 1 },
+  ];
+  YEARS.forEach(y => {
+    const season = DATA.filter(r => r.year === y);
+    out[y] = {};
+    statsConfig.forEach(({ key, qual }) => {
+      const eligible = season.filter(qual);
+      if (!eligible.length) { out[y][key] = new Set(); return; }
+      const maxVal = Math.max(...eligible.map(r => r[key]));
+      // tolerate tiny FP noise for percentages
+      const leaders = new Set();
+      eligible.forEach(r => {
+        if (Math.abs(r[key] - maxVal) < 0.0001) leaders.add(r.player + "|" + r.team);
+      });
+      out[y][key] = leaders;
+    });
+  });
+  return out;
+})();
+function isLeader(r, stat) {
+  const key = r.player + "|" + r.team;
+  return LEADERS_BY_YEAR[r.year] && LEADERS_BY_YEAR[r.year][stat] && LEADERS_BY_YEAR[r.year][stat].has(key);
+}
+
 const AWARD_COLORS = {
   MVP: "bg-yellow-100 text-yellow-800 border-yellow-300",
   "All-PCAL": "bg-blue-100 text-blue-800 border-blue-300",
@@ -9534,7 +9575,7 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
   const playerPhoto = PLAYER_PHOTOS[name];
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4" style={{ paddingTop: 40 }}>
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4" style={{ paddingTop: 100 }}>
       <div className="relative bg-white" style={{ borderTop: `4px solid ${teamColor}` }}>
         {/* All teams played for, chronological order */}
         {(() => {
@@ -9559,7 +9600,7 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
         <div className="flex items-end relative z-10">
           {/* Photo or avatar on left — photo extends above the header */}
           {playerPhoto ? (
-            <div className="flex-shrink-0 self-end" style={{ width: 100, marginTop: -40 }}>
+            <div className="flex-shrink-0 self-end" style={{ width: 180, marginTop: -100 }}>
               <img src={playerPhoto} alt="" className="w-full" style={{ display: "block", objectFit: "contain", objectPosition: "bottom" }} />
             </div>
           ) : (
@@ -9631,11 +9672,11 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
                 <td className="py-1 px-1 font-semibold">{r.year}</td>
                 <td className="py-1 px-1 text-gray-400">{r.age || ""}</td>
                 <td className="py-1 px-1 text-gray-500"><span className="inline-flex items-center gap-1">{getTeamDisplay(r.team, r.year)}<Badge award={r.award} />{(() => { const ts = TEAM_SEASONS[r.team + "-" + r.year]; if (!ts) return null; if (ts.final === "Champ") return <span className="text-[8px] px-1 py-0 rounded bg-yellow-100 text-yellow-700 font-bold">Champ</span>; if (ts.final === "Finals") return <span className="text-[8px] px-1 py-0 rounded bg-blue-100 text-blue-700 font-bold">Finals</span>; if (ts.final === "Semis") return <span className="text-[8px] px-1 py-0 rounded bg-gray-100 text-gray-500 font-bold">Semis</span>; return null; })()}</span></td>
-                <td className="text-right py-1 px-1">{r.g}</td>
-                <td className="text-right py-1 px-1 font-bold">{r.ppg.toFixed(1)}</td>
-                <td className="text-right py-1 px-1">{r.rpg.toFixed(1)}</td>
-                <td className="text-right py-1 px-1">{r.spg.toFixed(1)}</td>
-                <td className="text-right py-1 px-1">{pct(r.ts)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "g") ? " font-bold" : "")}>{r.g}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "ppg") ? " font-bold" : "")}>{r.ppg.toFixed(1)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "rpg") ? " font-bold" : "")}>{r.rpg.toFixed(1)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "spg") ? " font-bold" : "")}>{r.spg.toFixed(1)}</td>
+                <td className={"text-right py-1 px-1" + (isLeader(r, "ts") ? " font-bold" : "")}>{pct(r.ts)}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -9664,7 +9705,8 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
                   : null;
                 const aiRankDisplay = r.aiScore > 0 ? (() => {
                   const rankClass = r.aiRank === 1 ? "font-bold text-yellow-600" : r.aiRank <= 5 ? "font-semibold text-blue-600" : "text-gray-400";
-                  return <><span className="font-semibold text-indigo-700">{r.aiScore.toFixed(1)}</span> <span className={"text-xs " + rankClass}>#{r.aiRank}</span></>;
+                  const scoreWeight = isLeader(r, "aiScore") ? "font-bold" : "font-semibold";
+                  return <><span className={scoreWeight + " text-indigo-700"}>{r.aiScore.toFixed(1)}</span> <span className={"text-xs " + rankClass}>#{r.aiRank}</span></>;
                 })() : "—";
                 return (<tr key={i} className="border-b border-gray-50 hover:bg-blue-50/50">
                   <td className="py-1.5 px-3 font-semibold sticky left-0 bg-white z-10 border-b border-gray-50">{r.year}</td>
@@ -9672,18 +9714,18 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
                   <td className="py-1.5 px-1 text-gray-500">{getTeamDisplay(r.team, r.year)}</td>
                   <td className="py-1.5 px-1 whitespace-nowrap"><Badge award={r.award} /></td>
                   <td className="py-1.5 px-1 whitespace-nowrap">{playoffBadge}</td>
-                  <td className="text-right py-1.5 px-1">{r.g}</td>
-                  <td className="text-right py-1.5 px-1 font-bold">{r.ppg.toFixed(1)}</td>
-                  <td className="text-right py-1.5 px-1">{r.rpg.toFixed(1)}</td>
-                  <td className="text-right py-1.5 px-1">{r.apg.toFixed(1)}</td>
-                  <td className="text-right py-1.5 px-1">{r.spg.toFixed(1)}</td>
-                  <td className="text-right py-1.5 px-1">{r.bpg.toFixed(1)}</td>
-                  <td className="text-right py-1.5 px-1">{pct(r.fgPct)}</td>
-                  <td className="text-right py-1.5 px-1">{pct(r.tpPct)}</td>
-                  <td className="text-right py-1.5 px-1">{pct(r.ftPct)}</td>
-                  <td className="text-right py-1.5 px-1">{pct(r.ts)}</td>
-                  <td className="text-right py-1.5 px-1">{r.avgGmSc.toFixed(1)}</td>
-                  <td className="text-right py-1.5 px-1 whitespace-nowrap">{aiRankDisplay}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "g") ? " font-bold" : "")}>{r.g}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ppg") ? " font-bold" : "")}>{r.ppg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "rpg") ? " font-bold" : "")}>{r.rpg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "apg") ? " font-bold" : "")}>{r.apg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "spg") ? " font-bold" : "")}>{r.spg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "bpg") ? " font-bold" : "")}>{r.bpg.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "fgPct") ? " font-bold" : "")}>{pct(r.fgPct)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "tpPct") ? " font-bold" : "")}>{pct(r.tpPct)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ftPct") ? " font-bold" : "")}>{pct(r.ftPct)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "ts") ? " font-bold" : "")}>{pct(r.ts)}</td>
+                  <td className={"text-right py-1.5 px-1" + (isLeader(r, "avgGmSc") ? " font-bold" : "")}>{r.avgGmSc.toFixed(1)}</td>
+                  <td className={"text-right py-1.5 px-1 whitespace-nowrap" + (isLeader(r, "aiScore") ? " font-bold" : "")}>{aiRankDisplay}</td>
                 </tr>);
               })}</tbody>
             </table>
@@ -11715,6 +11757,13 @@ export default function App() {
             <input type="text" value={search} onChange={e => { setSearch(e.target.value); setSelectedPlayer(null); }}
               placeholder="Search by name..." autoFocus
               className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-base mb-4 bg-gray-50 focus:ring-2 focus:ring-gray-300 focus:bg-white outline-none transition-all" />
+            {selectedPlayer && (
+              <button
+                onClick={() => { setSelectedPlayer(null); setSearch(""); }}
+                className="mb-3 px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                ← Back to search
+              </button>
+            )}
             {selectedPlayer && playerRecords.length > 0 && (
               <PlayerCard name={selectedPlayer} records={playerRecords} careerLeaders={careerLeaders} onClose={() => { setSelectedPlayer(null); setSearch(""); }} />
             )}
