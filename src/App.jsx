@@ -10370,6 +10370,30 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Load player photos from Supabase and merge into PLAYER_PHOTOS
+  const [photoVersion, setPhotoVersion] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from("player_photos").select("player_name, image_url");
+        if (cancelled || error) return;
+        if (data && data.length) {
+          data.forEach(row => {
+            if (row.player_name && row.image_url) {
+              PLAYER_PHOTOS[row.player_name] = row.image_url;
+            }
+          });
+          setPhotoVersion(v => v + 1);
+        }
+      } catch (e) {
+        // Table may not exist yet; silent fallback to baked-in PLAYER_PHOTOS
+        console.log("player_photos load skipped:", e?.message || e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // 3. Check admin token from localStorage on mount (auto-login if still valid)
   useEffect(() => {
     const token = getAdminToken();
@@ -17652,6 +17676,7 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
     { key: "tiles", label: "Tile Management" },
     { key: "registrations", label: "Registrations" },
     { key: "gamelog", label: "Game Log" },
+    { key: "photos", label: "Player Photos" },
     { key: "announcement", label: "Announcement" },
     { key: "stats", label: "Quick Stats" },
     { key: "config", label: "Export/Import" },
@@ -17806,6 +17831,10 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
 
       {section === "gamelog" && (
         <GameLogAdminSection />
+      )}
+
+      {section === "photos" && (
+        <PlayerPhotoAdminSection />
       )}
 
       {section === "announcement" && (
@@ -18314,6 +18343,226 @@ function GLEditRow({ row, onSave, onCancel, saving }) {
     </div>
   );
 }
+
+function PlayerPhotoAdminSection() {
+  const [search, setSearch] = useState("");
+  const [editingPlayer, setEditingPlayer] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [pendingFile, setPendingFile] = useState(null);
+  const [, forceRerender] = useState(0);
+
+  // All unique players from DATA, alphabetical, with games played for sort context
+  const allPlayers = useMemo(() => {
+    const map = {};
+    DATA.forEach(r => {
+      if (!map[r.player]) map[r.player] = { name: r.player, g: 0, pts: 0 };
+      map[r.player].g += r.g;
+      map[r.player].pts += r.pts;
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
+
+  const filtered = search.trim()
+    ? allPlayers.filter(p => p.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : allPlayers;
+
+  const openEdit = (name) => {
+    setEditingPlayer(name);
+    setPendingFile(null);
+    setPreviewUrl(null);
+    setStatus("");
+  };
+
+  const closeEdit = () => {
+    setEditingPlayer(null);
+    setPendingFile(null);
+    setPreviewUrl(null);
+    setStatus("");
+  };
+
+  const handleFileSelect = (file) => {
+    if (!file) return;
+    setPendingFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setPreviewUrl(e.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = async () => {
+    if (!pendingFile || !editingPlayer) return;
+    setUploading(true);
+    setStatus("Uploading image...");
+    try {
+      const uploadRes = await uploadPhoto(pendingFile);
+      if (uploadRes.error) {
+        setStatus("Upload failed: " + uploadRes.error);
+        setUploading(false);
+        return;
+      }
+      setUploading(false);
+      setSaving(true);
+      setStatus("Saving link...");
+      const saveRes = await adminUpsertRow("player_photos", {
+        player_name: editingPlayer,
+        image_url: uploadRes.url,
+        updated_at: new Date().toISOString(),
+      });
+      setSaving(false);
+      if (saveRes.error) {
+        setStatus("Save failed: " + saveRes.error);
+        return;
+      }
+      PLAYER_PHOTOS[editingPlayer] = uploadRes.url;
+      setStatus("Saved.");
+      forceRerender(n => n + 1);
+      setTimeout(closeEdit, 600);
+    } catch (err) {
+      setUploading(false);
+      setSaving(false);
+      setStatus("Error: " + (err.message || String(err)));
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!editingPlayer) return;
+    if (!confirm(`Remove photo for ${formatName(editingPlayer)}?`)) return;
+    setSaving(true);
+    setStatus("Removing...");
+    try {
+      const res = await adminDeleteRow("player_photos", editingPlayer);
+      setSaving(false);
+      if (res.error) {
+        setStatus("Remove failed: " + res.error);
+        return;
+      }
+      delete PLAYER_PHOTOS[editingPlayer];
+      setStatus("Removed.");
+      forceRerender(n => n + 1);
+      setTimeout(closeEdit, 600);
+    } catch (err) {
+      setSaving(false);
+      setStatus("Error: " + (err.message || String(err)));
+    }
+  };
+
+  const withPhoto = allPlayers.filter(p => PLAYER_PHOTOS[p.name]).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+        <p className="text-[11px] text-amber-900 leading-relaxed">
+          <span className="font-bold">Note:</span> One-time Supabase setup required. Run the SQL in the docs/setup section. Photos are stored via the existing upload mechanism. Upload transparent PNGs for best results.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Player Photos</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{withPhoto} of {allPlayers.length} players have photos</p>
+        </div>
+      </div>
+
+      <input
+        type="text"
+        placeholder="Search player..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:ring-2 focus:ring-gray-300 focus:bg-white outline-none"
+      />
+
+      <div className="bg-white rounded-xl border border-gray-200 max-h-[500px] overflow-y-auto">
+        {filtered.map(p => {
+          const hasPhoto = !!PLAYER_PHOTOS[p.name];
+          return (
+            <div
+              key={p.name}
+              onClick={() => openEdit(p.name)}
+              className="flex items-center gap-3 px-3 py-2 border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+            >
+              <div className="flex-shrink-0" style={{ width: 40, height: 40, borderRadius: 6, overflow: "hidden", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {hasPhoto ? (
+                  <img src={PLAYER_PHOTOS[p.name]} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                ) : (
+                  <span className="text-[9px] text-gray-400 font-bold">NONE</span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-gray-900 truncate">{formatName(p.name)}</p>
+                <p className="text-[10px] text-gray-400">{p.g} games</p>
+              </div>
+              {hasPhoto && <span className="text-[9px] font-bold text-emerald-600">HAS PHOTO</span>}
+              <span className="text-gray-400">›</span>
+            </div>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div className="px-3 py-6 text-center text-xs text-gray-400">No players match that search.</div>
+        )}
+      </div>
+
+      {editingPlayer && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={closeEdit}>
+          <div className="bg-white rounded-2xl p-4 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-bold text-gray-900">{formatName(editingPlayer)}</p>
+              <button onClick={closeEdit} className="text-gray-400 hover:text-gray-700 text-lg">×</button>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-3 mb-3 flex items-center justify-center" style={{ minHeight: 180 }}>
+              {previewUrl ? (
+                <img src={previewUrl} alt="preview" style={{ maxWidth: "100%", maxHeight: 180, objectFit: "contain" }} />
+              ) : PLAYER_PHOTOS[editingPlayer] ? (
+                <img src={PLAYER_PHOTOS[editingPlayer]} alt="current" style={{ maxWidth: "100%", maxHeight: 180, objectFit: "contain" }} />
+              ) : (
+                <p className="text-xs text-gray-400">No photo yet</p>
+              )}
+            </div>
+
+            <input
+              type="file"
+              accept="image/*"
+              disabled={uploading || saving}
+              onChange={e => handleFileSelect(e.target.files?.[0])}
+              className="w-full text-xs mb-3"
+            />
+
+            {status && <p className="text-[11px] text-blue-600 mb-2">{status}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={!pendingFile || uploading || saving}
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-gray-900 text-white disabled:bg-gray-300"
+              >
+                {uploading ? "Uploading..." : saving ? "Saving..." : "Save"}
+              </button>
+              {PLAYER_PHOTOS[editingPlayer] && (
+                <button
+                  onClick={handleRemove}
+                  disabled={uploading || saving}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-red-100 text-red-700 disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              )}
+              <button
+                onClick={closeEdit}
+                disabled={uploading || saving}
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GameLogAdminSection() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
