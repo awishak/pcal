@@ -9101,6 +9101,20 @@ const GAME_LOG = [
 // Apply player merges to GAME_LOG
 GAME_LOG.forEach(g => { if (PLAYER_MERGE[g[0]]) g[0] = PLAYER_MERGE[g[0]]; });
 
+// Compute per-team-season and per-player-team-season total Game Score from GAME_LOG.
+// Used for the Team Share bonus in AI Score. Includes all game types (R, P, C, X)
+// and all GmSc values including negatives. Only counts rows where the player played (g === 1).
+const TEAM_GMSC_BY_YEAR = {};
+const PLAYER_GMSC_BY_TEAM_YEAR = {};
+GAME_LOG.forEach(row => {
+  const player = row[0], team = row[1], g = row[6], gmsc = row[19], year = row[20];
+  if (g !== 1) return;
+  const teamKey = team + "-" + year;
+  TEAM_GMSC_BY_YEAR[teamKey] = (TEAM_GMSC_BY_YEAR[teamKey] || 0) + gmsc;
+  const playerKey = player + "-" + team + "-" + year;
+  PLAYER_GMSC_BY_TEAM_YEAR[playerKey] = (PLAYER_GMSC_BY_TEAM_YEAR[playerKey] || 0) + gmsc;
+});
+
 const TEAM_NAMES = {
   CIS: "Christ in Sports", CON: "Concord", HAY: "Hayward",
   MOD: "Modesto", PDF: "Pacific", PLE: "Pleasanton", SAC: "Sacramento",
@@ -9221,6 +9235,37 @@ const TEAM_SEASONS = {
 "SJO-2005":{final:"Finals",w:5,l:3},"SJO-2006":{final:"Semis",w:2,l:7},"SJO-2007":{final:"Finals",w:6,l:6},"SJO-2008":{final:"Missed",w:4,l:6},"SJO-2009":{final:"Finals",w:9,l:3},"SJO-2010":{final:"Finals",w:9,l:3},"SJO-2011":{final:"Champ",w:9,l:3},"SJO-2012":{final:"Semis",w:6,l:5},"SJO-2013":{final:"Semis",w:5,l:6},"SJO-2014":{final:"Finals",w:7,l:5},"SJO-2015":{final:"Champ",w:6,l:6},"SJO-2016":{final:"Missed",w:5,l:5},"SJO-2017":{final:"Finals",w:5,l:5},"SJO-2018":{final:"Semis",w:6,l:3},"SJO-2019":{final:"Champ",w:10,l:2},"SJO-2021":{final:"Finals",w:9,l:3},"SJO-2022":{final:"Semis",w:7,l:4},"SJO-2023":{final:"Missed",w:4,l:6},"SJO-2024":{final:"Semis",w:7,l:4},"SJO-2025":{final:"Semis",w:8,l:3}
 };
 
+// Team Share bonus: rewards players who produced a disproportionate share of their
+// team's total Game Score, weighted by team win rate. Only applies at 20%+ share.
+// Formula: (share - 0.20) * 10 * (0.5 + win_rate)
+// No cap. Requires 5+ games and positive team total GmSc.
+function getShareBonus(r) {
+  if (r.g < 5) return 0;
+  const teamKey = r.team + "-" + r.year;
+  const teamGmsc = TEAM_GMSC_BY_YEAR[teamKey];
+  if (!teamGmsc || teamGmsc <= 0) return 0;
+  const playerKey = r.player + "-" + r.team + "-" + r.year;
+  const playerGmsc = PLAYER_GMSC_BY_TEAM_YEAR[playerKey] || 0;
+  const share = playerGmsc / teamGmsc;
+  if (share < 0.20) return 0;
+  const ts = TEAM_SEASONS[teamKey];
+  if (!ts) return 0;
+  const totalG = ts.w + ts.l;
+  if (totalG <= 0) return 0;
+  const winRate = ts.w / totalG;
+  const winFactor = 0.5 + winRate;
+  return (share - 0.20) * 10 * winFactor;
+}
+
+function getPlayerShare(r) {
+  const teamKey = r.team + "-" + r.year;
+  const teamGmsc = TEAM_GMSC_BY_YEAR[teamKey];
+  if (!teamGmsc || teamGmsc <= 0) return 0;
+  const playerKey = r.player + "-" + r.team + "-" + r.year;
+  const playerGmsc = PLAYER_GMSC_BY_TEAM_YEAR[playerKey] || 0;
+  return playerGmsc / teamGmsc;
+}
+
 // Get team performance multiplier for AI score
 function getTeamMultiplier(team, year) {
   const key = team + "-" + year;
@@ -9278,9 +9323,13 @@ YEARS.forEach(y => { _maxGByYear[y] = Math.max(...DATA.filter(d => d.year === y)
 DATA.forEach(r => {
   const sc = rankScore(r, _maxGByYear[r.year], _leagueTS[r.year]);
   const teamMult = getTeamMultiplier(r.team, r.year);
-  r.aiScore = Math.round(sc.total * teamMult * 10) / 10;
+  const shareBonus = getShareBonus(r);
+  const baseScore = sc.total * teamMult;
+  r.aiScore = Math.round((baseScore + shareBonus) * 10) / 10;
   r.teamMult = teamMult;
   r.lowG = sc.lowG;
+  r.teamShare = getPlayerShare(r);
+  r.shareBonus = Math.round(shareBonus * 10) / 10;
 });
 // Compute AI rank per season
 YEARS.forEach(y => {
@@ -10414,7 +10463,8 @@ export default function App() {
       const ranked = [...season].map(r => {
         const sc = rankScore(r, maxG, avgTS);
         const teamMult = getTeamMultiplier(r.team, r.year);
-        return { ...r, rawPG: sc.rawPG, gpFactor: sc.gpFactor, score: Math.round(sc.total * teamMult * 10) / 10 };
+        const shareBonus = getShareBonus(r);
+        return { ...r, rawPG: sc.rawPG, gpFactor: sc.gpFactor, score: Math.round((sc.total * teamMult + shareBonus) * 10) / 10 };
       }).sort((a, b) => b.score - a.score);
       byYear[y] = {
         mvp: ranked[0] || null,
@@ -12337,9 +12387,20 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
         <Row label="Games Played" value={`${r.g} / ${maxG}`} detail={`GP factor: ${sc.gpFactor}${r.g < 5 ? " (ineligible)" : r.g < 8 ? " (reduced)" : ""}`} />
         <Row label="Base Score" value={sc.total.toFixed(1)} />
         {teamMult !== 1.0 && <Row label="Team Multiplier" value={"x" + teamMult.toFixed(4)} detail={teamMultLabel} />}
+        {(() => {
+          const shareBonus = getShareBonus(r);
+          const share = getPlayerShare(r);
+          const tsData2 = TEAM_SEASONS[r.team + "-" + r.year];
+          const winRate = tsData2 && (tsData2.w + tsData2.l) > 0 ? tsData2.w / (tsData2.w + tsData2.l) : 0;
+          if (shareBonus === 0) {
+            const reason = r.g < 5 ? "under 5 games" : share < 0.20 ? `share ${(share*100).toFixed(1)}% under 20% threshold` : "no team data";
+            return <Row label="Team Share Bonus" value="+0.0" detail={reason} />;
+          }
+          return <Row label="Team Share Bonus" value={"+" + shareBonus.toFixed(1)} detail={`${(share*100).toFixed(1)}% of team GmSc x (0.5 + ${winRate.toFixed(2)} win rate)`} />;
+        })()}
         <div className="flex items-center justify-between pt-2 mt-1 border-t-2 border-gray-300">
           <span className="text-sm font-bold text-gray-800">Total Score</span>
-          <span className="text-sm font-mono font-black text-blue-900">{(Math.round(sc.total * teamMult * 10) / 10).toFixed(1)}</span>
+          <span className="text-sm font-mono font-black text-blue-900">{(Math.round((sc.total * teamMult + getShareBonus(r)) * 10) / 10).toFixed(1)}</span>
         </div>
       </div>
     );
@@ -12353,7 +12414,8 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
     if (!r) return null;
     const sc = rankScore(r, maxG, avgTS);
     const teamMult = getTeamMultiplier(r.team, r.year);
-    return Math.round(sc.total * teamMult * 10) / 10;
+    const shareBonus = getShareBonus(r);
+    return Math.round((sc.total * teamMult + shareBonus) * 10) / 10;
   };
 
   const renderRow = (r, award, year, isExtra = false) => {
