@@ -17,6 +17,18 @@ const RAW = [["SAWIRIS YOUSSEF","HAY",2014,11,17,107,27,3,19,3,43,111,20,66,1,22
 const PLAYER_MERGE = {
   "HANNA JOHN": "RAMZY HANNA JOHN",
   "RAMZY JOHN": "RAMZY HANNA JOHN",
+  "MASDARY JOSHUA": "MASDARY JOSH",
+  "BOTROS JOHN": "BOTROS JOHNNY",
+  "MOUSSA ANTHONY": "MOUSSA TONY",
+  "MALEK CHRIS": "MALEK CHRISTOPHER",
+  "GUIRGUIS KIROLOUS": "GUIRGUIS KIRO",
+  "GUIRGUIS  KIRO": "GUIRGUIS KIRO",
+  "OKI CHRISTOPHER": "OKI CHRIS",
+  "ROUHANI DAVE": "ROUHANI DAVID",
+  "ELIA STEVE": "ELIA STEPHEN",
+  "MALEK JOHNNY": "MALEK JOHN",
+  "ABDELSHAID  MOSES": "ABDELSHAID MOSES",
+  "SAWIRIS RAFY": "SAWIRIS RAFAEL",
 };
 const DATA = RAW.map(r => ({
   player: PLAYER_MERGE[r[0]] || r[0], team: r[1], year: r[2], g: r[3], age: r[4],
@@ -10454,22 +10466,93 @@ export default function App() {
   }, []);
 
   const aiPicksByYear = useMemo(() => {
+    // Hardcoded Claude MVP picks for 2005-2023 and player-vote MVPs for 2024+.
+    // MVP must be chosen from First Team; these picks are locked.
+    const MVP_PICKS = {
+      2005: ["SHEHATA GEORGE", "HAY"], 2006: ["SHEHATA GEORGE", "HAY"],
+      2007: ["YOUSSEF ANDREW", "HAY"], 2008: ["MULUGETA YONI", "SRA"],
+      2009: ["SHEHATA GEORGE", "HAY"], 2010: ["SHEHATA GEORGE", "HAY"],
+      2011: ["ABRAHAM PETER", "SJO"], 2012: ["BADROOS ANDREW", "SAC"],
+      2013: ["ISHAK ANDREW", "SJO"], 2014: ["ISHAK ANDREW", "SJO"],
+      2015: ["ISHAK ANDREW", "SJO"], 2016: ["ISHAK ANDREW", "SJO"],
+      2017: ["AWAD BISHOY", "SAC"], 2018: ["BADROOS ANDREW", "SAC"],
+      2019: ["SHACKER MARK", "SJO"], 2021: ["ISHAK ANDREW", "PDF"],
+      2022: ["KELADA ANTHONY", "SAC"], 2023: ["ISHAK ANDREW", "PDF"],
+      2024: ["ABDELMALAK SIMON", "SJO"], 2025: ["ABDELMALAK SIMON", "SJO"],
+    };
+    const bestRegSeasonTeam = (year) => {
+      const teams = Object.entries(TEAM_SEASONS)
+        .filter(([k]) => k.endsWith("-" + year))
+        .map(([k, v]) => ({ team: k.split("-")[0], wr: (v.w + v.l) > 0 ? v.w / (v.w + v.l) : 0, w: v.w }));
+      if (!teams.length) return null;
+      teams.sort((a, b) => b.wr - a.wr || b.w - a.w);
+      return teams[0].team;
+    };
     const byYear = {};
     YEARS.forEach(y => {
-      const season = DATA.filter(r => r.year === y);
-      if (!season.length) return;
-      const maxG = Math.max(...season.map(r => r.g));
+      const seasonAll = DATA.filter(r => r.year === y);
+      if (!seasonAll.length) return;
+      const maxG = Math.max(...seasonAll.map(r => r.g));
       const avgTS = getLeagueAvgTS(y);
-      const ranked = [...season].map(r => {
+      // Compute AI score for everyone
+      const ranked = seasonAll.map(r => {
         const sc = rankScore(r, maxG, avgTS);
         const teamMult = getTeamMultiplier(r.team, r.year);
         const shareBonus = getShareBonus(r);
         return { ...r, rawPG: sc.rawPG, gpFactor: sc.gpFactor, score: Math.round((sc.total * teamMult + shareBonus) * 10) / 10 };
-      }).sort((a, b) => b.score - a.score);
+      });
+      // 5G minimum for award eligibility
+      const eligible = ranked.filter(r => r.g >= 5);
+      if (!eligible.length) return;
+      // First Team selection in order
+      const picked = new Set();
+      const firstTeamPlayers = [];
+      const addPick = (p) => {
+        if (!p) return;
+        const k = p.player + "|" + p.team;
+        if (picked.has(k)) return;
+        picked.add(k);
+        firstTeamPlayers.push(p);
+      };
+      // 1. Highest Total GmSc
+      const byTotal = [...eligible].sort((a, b) => b.gmSc - a.gmSc);
+      if (byTotal.length) addPick(byTotal[0]);
+      // 2. Highest Avg GmSc min 7G
+      const min7 = eligible.filter(r => r.g >= 7).sort((a, b) => b.avgGmSc - a.avgGmSc);
+      for (const cand of min7) {
+        if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
+      }
+      // 3. Highest AI Score on best regular-season team
+      const bestTeam = bestRegSeasonTeam(y);
+      if (bestTeam) {
+        const teamPlayers = eligible.filter(r => r.team === bestTeam).sort((a, b) => b.score - a.score);
+        for (const cand of teamPlayers) {
+          if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
+        }
+      }
+      // 4. Fill to 5 by next highest AI Score
+      const byAI = [...eligible].sort((a, b) => b.score - a.score);
+      for (const cand of byAI) {
+        if (firstTeamPlayers.length >= 5) break;
+        if (!picked.has(cand.player + "|" + cand.team)) addPick(cand);
+      }
+      // MVP: find from hardcoded picks, verify they're in First Team
+      let mvp = null;
+      const mvpPick = MVP_PICKS[y];
+      if (mvpPick) {
+        mvp = firstTeamPlayers.find(p => p.player === mvpPick[0] && p.team === mvpPick[1]) || null;
+      }
+      // Display: First Team ordered by AI Score desc (MVP included, marked via isMvp flag)
+      const firstTeamDisplay = [...firstTeamPlayers]
+        .map(p => ({ ...p, isMvp: mvp && p.player === mvp.player && p.team === mvp.team }))
+        .sort((a, b) => b.score - a.score);
+      // Second Team: next 5 by AI Score from eligible
+      const secondTeam = byAI.filter(r => !picked.has(r.player + "|" + r.team)).slice(0, 5);
       byYear[y] = {
-        mvp: ranked[0] || null,
-        firstTeam: ranked.slice(1, 5),
-        secondTeam: ranked.slice(5, 10),
+        mvp,
+        firstTeam: firstTeamDisplay,
+        firstTeamNonMvp: firstTeamDisplay.filter(p => !p.isMvp),
+        secondTeam,
         avgTS,
       };
     });
@@ -11183,6 +11266,22 @@ export default function App() {
         {tab === "stats_home" && (
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Stats & History</p>
+            <button
+              onClick={() => setTab("stat_explainers")}
+              className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-indigo-50 to-white p-3.5 mb-5 hover:border-indigo-300 active:scale-[0.99] transition-all">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                  <span className="text-sm font-black text-indigo-700">AI</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-black text-gray-900 mb-0.5">Explaining AI Score and Game Score</div>
+                  <div className="text-[11px] text-gray-600 leading-snug">
+                    AI Score is a season-level companion to Game Score. It powers awards for 2005 through 2023 and factors in efficiency, team success, durability, and share of team output.
+                  </div>
+                  <div className="text-[10px] text-indigo-600 font-bold mt-1.5">Read full explainer →</div>
+                </div>
+              </div>
+            </button>
             <div className="space-y-5">
               {DISPLAY_GROUPS.map(group => (
                 <div key={group.title || "_featured"}>
@@ -12314,25 +12413,189 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
   const [expanded, setExpanded] = useState(null);
   const sortedYears = [...years].sort((a, b) => a - b);
 
+  // Each entry has: leaders (4 lines with mvp-led flags), narrative, tag.
+  // The leaders block is rendered above the narrative; the "mvp" flag on a line bolds that line's player name.
   const MVP_BLURBS = {
-    2005: { text: "Shehata led the league in all three: 15.9 PPG, 22.3 Avg GmSc, and 156.2 Total GmSc. Best player on the 8-0 championship Hayward team. Every criterion points to him.", tag: "Consensus MVP" },
-    2006: { text: "Shehata led Avg GmSc (19.5) and PPG (17.7) among qualified players on the 10-0 championship Hayward team. Rouhani led Total GmSc (148.2 in 10 games), but Shehata's per-game dominance on the undefeated repeat champion takes it.", tag: "Criterion 1: Highest Avg GmSc" },
-    2007: { text: "Youssef led the league in PPG (20.8) and played all 12 games for the 12-0 championship Hayward team, its third straight title. Ishak had higher Total (248.1) and Avg GmSc (20.7) on a 6-6 SJO team that lost the Finals. Best player on the undefeated champion wins it.", tag: "Outstanding Impact" },
-    2008: { text: "Mulugeta led Total GmSc (184.7) across 11 games and posted a 16.8 Avg GmSc with 19.6 PPG. Sakla had a higher per-game rate (19.1 Avg GmSc, 21.3 PPG) but in only 8 games. Highest aggregate production among durable players.", tag: "Criterion 1: Highest Total GmSc" },
-    2009: { text: "Shehata led Total GmSc with 183.3 across 12 games. Gad had the higher Avg GmSc (19.3) but in only 7 games, and Mulugeta was second in Avg (18.5) in 9 games. Shehata's 12-game durability plus best player on the 9-3 championship Hayward team decides it.", tag: "Outstanding Impact" },
-    2010: { text: "Shehata and Gad tied in Avg GmSc (13.1) among qualified players, but Shehata led PPG (17.6) by 3.3 over Gad. Mulugeta led Total GmSc (127.7) on champion SRA but had only a 10.6 Avg. Criterion 1 tiebreaker on PPG gives it to Shehata.", tag: "Criterion 4: PPG Leader" },
-    2011: { text: "Abraham's 22.3 Avg GmSc across 5 games was the outstanding-impact pick on the 9-3 championship SJO team. He fell short of the 7-game minimum, but his per-game dominance as the best player on the title team qualifies under the outstanding impact clause. Gad Mounir was the conventional min-7g choice with a 13.0 Avg GmSc and 129.7 Total.", tag: "Outstanding Impact" },
-    2012: { text: "Badroos led Total GmSc (139.2) across all 12 games on the 10-2 SAC team that made the Finals. Kelada had a higher Avg GmSc (14.4 in 8g) and Shehata peaked higher (19.2 in 5g), but neither matched Badroos's aggregate output. Durability on a dominant regular-season team earns it.", tag: "Criterion 1: Highest Total GmSc" },
-    2013: { text: "Ishak led both Avg GmSc (18.6) and Total GmSc (204.9). A 35-point margin in Total over the next qualified candidate. No argument on the stat sheet.", tag: "Consensus MVP" },
-    2014: { text: "Ishak led Total GmSc (177.2) by a 62-point margin and Avg GmSc (14.8) among qualified players. Shammas had a higher PPG (17.6) in only 7 games. Ishak swept every category on a Finals team.", tag: "Consensus MVP" },
-    2015: { text: "Ishak swept all three: 21.3 PPG, 20.1 Avg GmSc, and 241.1 Total GmSc with a 93-point margin over second place. Best player on the championship SJO team. No close competition.", tag: "Consensus MVP" },
-    2016: { text: "Ishak led Avg GmSc (19.1) and Total GmSc (191.3) with a 40-point margin. His per-game rate was untouched: 3 points clear of the next qualified player. Swept PPG too at 18.2.", tag: "Consensus MVP" },
-    2017: { text: "Awad led Avg GmSc (15.1) and Total GmSc (151.4) on the 10-0 championship SAC team. Poules edged him in PPG (13.9 to 12.9), but Awad swept the Game Score categories on the undefeated champion.", tag: "Criterion 1: Highest Avg GmSc" },
-    2018: { text: "Badroos led Avg GmSc (15.6) and Total GmSc (155.7) on the 8-2 championship SAC team. Poules led PPG (13.9), but Badroos's per-game rate was the league's best among qualified players.", tag: "Criterion 1: Highest Avg GmSc" },
-    2019: { text: "Shacker led Total GmSc (188.6) across 12 games on the 10-2 championship SJO team. Ishak had a slightly higher Avg GmSc (17.3 to 15.7) on PDF in 10 games. Shacker's 16-point edge in Total plus his role on the champion tips it.", tag: "Outstanding Impact" },
-    2021: { text: "Ishak led Avg GmSc (20.5), Total GmSc (225.3), and tied for the PPG lead at 23.0. PDF went 8-3. Statistical dominance over Shacker, who had 18.1 Avg and 216.7 Total on the Finals-team SJO.", tag: "Criterion 1: Highest Avg GmSc" },
-    2022: { text: "Kelada led Avg GmSc (18.7) and was 2nd in both PPG (19.6) and Total GmSc (205.9). Best player on the 12-0 championship SAC team. Ishak led Total (227.5) on a Finals team, but Kelada's per-game rate on the undefeated champion seals it.", tag: "Outstanding Impact" },
-    2023: { text: "Ishak led Total GmSc (183.1) by a 42-point margin. Shacker had a higher Avg GmSc (20.2) but only in 7 games, and SJO went 4-6 and missed the playoffs. Ishak's 11-game workload, 16.6 Avg GmSc, and aggregate lead on a qualifying PDF team wins it.", tag: "Criterion 1: Highest Total GmSc" },
+    2005: {
+      leaders: [
+        { label: "AI Score", player: "Shehata", team: "HAY", val: "48.4", mvp: true },
+        { label: "Total GmSc", player: "Shehata", team: "HAY", val: "156.2", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Shehata", team: "HAY", val: "22.3", mvp: true },
+        { label: "AI on HAY Champion", player: "Shehata", team: "HAY", val: "48.4", mvp: true },
+      ],
+      text: "Claude chose Shehata because he led the league in AI Score (48.4, still the highest single-season AI Score ever recorded), Total GmSc (156.2), Avg GmSc (22.3, also the highest ever), and PPG (15.9) while captaining the 8-0 undefeated champion Hayward. He was also the all-time SPG leader for a season at 5.6 and posted 4.0 APG (#3 all-time). Best game: 27.1 GmSc (18p/9r/7a/6s) in Week 1 vs. San Ramon. Every metric points to him. No competition.",
+      tag: "Consensus MVP",
+    },
+    2006: {
+      leaders: [
+        { label: "AI Score", player: "Shehata", team: "HAY", val: "43.0", mvp: true },
+        { label: "Total GmSc", player: "Rouhani", team: "HAY", val: "148.2", mvp: false },
+        { label: "Avg GmSc, min 7G", player: "Shehata", team: "HAY", val: "19.5", mvp: true },
+        { label: "AI on HAY Champion", player: "Shehata", team: "HAY", val: "43.0", mvp: true },
+      ],
+      text: "Claude chose Shehata because he led the league in AI Score (43.0), Avg GmSc (19.5), and PPG (17.7) on the 10-0 undefeated repeat champion. His 5.6 APG is the highest assist average in league history. Rouhani (HAY) edged him in Total GmSc 148.2 vs. 136.7 (8.4% larger), but Shehata's per-game dominance and all-time-great playmaking on the undefeated champion outweighs the 10-game vs. 7-game durability gap. Best game: 25.5 GmSc (22p/8r/3a/4s) in Week 6 vs. San Ramon.",
+      tag: "Highest AI Score",
+    },
+    2007: {
+      leaders: [
+        { label: "AI Score", player: "Youssef", team: "HAY", val: "45.4", mvp: true },
+        { label: "Total GmSc", player: "Ishak", team: "SJO", val: "248.1", mvp: false },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "SJO", val: "20.7", mvp: false },
+        { label: "AI on HAY Champion", player: "Youssef", team: "HAY", val: "45.4", mvp: true },
+      ],
+      text: "Claude chose Youssef as the outstanding impact pick. He led the league in AI Score (45.4, #4 all-time) and PPG (20.8) while playing all 12 games on the 12-0 three-peat champion Hayward. His 226.6 Total GmSc is the #5 all-time single-season total. Ishak Andrew had a higher Total GmSc (248.1, 9.5% larger) and higher Avg GmSc (20.7 vs. 18.9) on 6-6 Finals-losing SJO, but the best player on an undefeated three-peat champion is the MVP. Best game: 45 GmSc (55p/7r/3a/3s) in Week 6 vs. San Jose, an individual performance still in the conversation for the greatest single game ever.",
+      tag: "Outstanding Impact",
+    },
+    2008: {
+      leaders: [
+        { label: "AI Score", player: "Sakla", team: "MOD", val: "37.2", mvp: false },
+        { label: "Total GmSc", player: "Mulugeta", team: "SRA", val: "184.7", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Sakla", team: "MOD", val: "19.1", mvp: false },
+        { label: "AI on HAY Champion", player: "Youssef", team: "HAY", val: "33.6", mvp: false },
+      ],
+      text: "Claude chose Mulugeta because he led Total GmSc (184.7) across 11 games with 19.6 PPG on a 5-6 San Ramon team that made Semis. Sakla led AI Score (37.2 vs. 35.6) and had a higher Avg GmSc (19.1 in 8 games vs. 16.8 in 11) with league-leading 21.3 PPG, but his Modesto team went 2-8 and missed the playoffs, making him ineligible. Best game: 26.4 GmSc (26p/4r/4s/4b) in Week 4 vs. San Jose.",
+      tag: "Highest Total GmSc",
+    },
+    2009: {
+      leaders: [
+        { label: "AI Score", player: "Gad", team: "SJO", val: "38.6", mvp: false },
+        { label: "Total GmSc", player: "Shehata", team: "HAY", val: "183.3", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Gad", team: "SJO", val: "19.3", mvp: false },
+        { label: "AI on HAY Champion", player: "Shehata", team: "HAY", val: "38.0", mvp: true },
+      ],
+      text: "Claude chose Shehata because he led Total GmSc (183.3) across 12 games as the best player on the 9-3 champion Hayward. Gad led AI Score (38.6 vs. 38.0) and had a higher Avg GmSc (19.3 in 7 games) and higher PPG (22.7). Mulugeta posted 18.5 Avg GmSc, but his San Ramon missed the playoffs with a 3-7 record, making him ineligible. Shehata's durability across 12 games plus best-player role on the champion decides it. Best game: 37 GmSc (40p/10r/3a) in Week 4 vs. Modesto.",
+      tag: "Outstanding Impact",
+    },
+    2010: {
+      leaders: [
+        { label: "AI Score", player: "Shehata", team: "HAY", val: "29.2", mvp: true },
+        { label: "Total GmSc", player: "Mulugeta", team: "SRA", val: "127.7", mvp: false },
+        { label: "Avg GmSc, min 7G", player: "Shehata", team: "HAY", val: "13.1", mvp: true },
+        { label: "AI on SRA Champion", player: "Mulugeta", team: "SRA", val: "26.5", mvp: false },
+      ],
+      text: "Claude chose Shehata because he led AI Score (29.2), PPG (17.6), and Avg GmSc (13.1) on 6-5 Semis Hayward. Mulugeta led Total GmSc (127.7 vs. 104.5, 22.2% larger) on the 7-5 champion San Ramon but his Avg GmSc was only 10.6. Shehata's rate-category sweep edges out Mulugeta's durability. Best game: 34.1 GmSc (33p/3r/3a/5s) in Week 2 vs. San Jose.",
+      tag: "Highest AI Score",
+    },
+    2011: {
+      leaders: [
+        { label: "AI Score", player: "Abraham", team: "SJO", val: "32.9", mvp: true },
+        { label: "Total GmSc", player: "Gad", team: "SJO", val: "129.7", mvp: false },
+        { label: "Avg GmSc, min 7G", player: "Gad", team: "SJO", val: "13.0", mvp: false },
+        { label: "AI on SJO Champion", player: "Abraham", team: "SJO", val: "32.9", mvp: true },
+      ],
+      text: "Claude chose Abraham as the outstanding impact pick despite playing only 5 games (below the 7-game minimum for the Avg GmSc criterion). He led AI Score (32.9) and was the best player on the 9-3 champion San Jose during the playoff run. In the Championship week he posted a 32 GmSc (25 points, 12 rebounds, 5 blocks) and in the playoff game 22.1 GmSc (15 points, 8 rebounds, 3 steals, 3 blocks), both the top score on SJO in those games. His playoff average was 27.1 GmSc, and he averaged 20.2 PPG / 7.8 RPG across all 5 appearances. Gad Mounir was the conventional min-7g choice (13.0 Avg GmSc, 129.7 Total) but Abraham's postseason takeover carrying SJO to the title clears the outstanding impact bar.",
+      tag: "Outstanding Impact",
+    },
+    2012: {
+      leaders: [
+        { label: "AI Score", player: "Shehata", team: "HAY", val: "29.0", mvp: false },
+        { label: "Total GmSc", player: "Badroos", team: "SAC", val: "139.2", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Kelada", team: "SAC", val: "14.4", mvp: false },
+        { label: "AI on HAY Champion", player: "Shehata", team: "HAY", val: "29.0", mvp: false },
+      ],
+      text: "Claude chose Badroos because he led Total GmSc (139.2) across all 12 games on the 10-2 Sacramento team that made the Finals, 11.2% larger than Mikhail's 125.2. Shehata led AI Score (29.0 in 5 games) and Avg GmSc (19.2), and Kelada had a higher Avg GmSc (14.4 in 8 games), but Badroos's aggregate production on a dominant regular-season team wins. Best game: 20.6 GmSc (16p/9r/2s/1b) in Week 1 vs. Hayward.",
+      tag: "Highest Total GmSc",
+    },
+    2013: {
+      leaders: [
+        { label: "AI Score", player: "Ishak", team: "SJO", val: "36.7", mvp: true },
+        { label: "Total GmSc", player: "Ishak", team: "SJO", val: "204.9", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "SJO", val: "18.6", mvp: true },
+        { label: "AI on HAY Champion", player: "Youssef", team: "HAY", val: "34.2", mvp: false },
+      ],
+      text: "Claude chose Ishak because he led AI Score (36.7), Total GmSc (204.9), and Avg GmSc (18.6) among qualified players. His Total was 20.9% larger than Youssef Andrew's 169.6 on the champion Hayward. Shammas led PPG (20.4) on a 2-9 Modesto team, but Ishak swept the Game Score categories. Best game: 33.3 GmSc (25p/17r/3a/2s) in Week 1 vs. Modesto.",
+      tag: "Consensus MVP",
+    },
+    2014: {
+      leaders: [
+        { label: "AI Score", player: "Ishak", team: "SJO", val: "31.8", mvp: true },
+        { label: "Total GmSc", player: "Ishak", team: "SJO", val: "177.2", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "SJO", val: "14.8", mvp: true },
+        { label: "AI on SAC Champion", player: "Badroos", team: "SAC", val: "26.0", mvp: false },
+      ],
+      text: "Claude chose Ishak because he led AI Score (31.8), Total GmSc (177.2 at a 54.0% larger margin over #2, the second-largest MVP Total GmSc gap on record), and Avg GmSc (14.8) on the 7-5 Finals San Jose. Shammas led PPG (17.6 in 7 games) but couldn't match the aggregate or the team result. Best game: 25.1 GmSc (27p/8r) in Week 5 vs. Modesto.",
+      tag: "Consensus MVP",
+    },
+    2015: {
+      leaders: [
+        { label: "AI Score", player: "Ishak", team: "SJO", val: "46.3", mvp: true },
+        { label: "Total GmSc", player: "Ishak", team: "SJO", val: "241.1", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "SJO", val: "20.1", mvp: true },
+        { label: "AI on SJO Champion", player: "Ishak", team: "SJO", val: "46.3", mvp: true },
+      ],
+      text: "Claude chose Ishak because he swept every single statistical category: AI Score (46.3, #2 all-time ever), Total GmSc (241.1, #2 all-time at a 62.5% larger margin over #2 that season, the largest MVP Total GmSc gap on record), Avg GmSc (20.1), and PPG (21.3, #5 all-time). Best player on the 6-6 champion San Jose. No competition at any criterion. Best game: 31.7 GmSc (32p/20r/2a) in the Championship week vs. Concord.",
+      tag: "Consensus MVP",
+    },
+    2016: {
+      leaders: [
+        { label: "AI Score", player: "Ishak", team: "SJO", val: "38.0", mvp: true },
+        { label: "Total GmSc", player: "Ishak", team: "SJO", val: "191.3", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "SJO", val: "19.1", mvp: true },
+        { label: "AI on SRA Champion", player: "Mulugeta", team: "SRA", val: "28.7", mvp: false },
+      ],
+      text: "Claude chose Ishak because he swept AI Score (38.0), Total GmSc (191.3), Avg GmSc (19.1), and PPG (18.2), meeting the MVP eligibility threshold at 50% wins. His Total GmSc was 49.7% larger than the next-closest player. The 2016 season had no obvious alternative. Awad Bishoy (SAC Finals, 16.0 Avg GmSc in 8 games, 127.8 Total) and Poules Abanob (SAC Finals, 13.5 Avg GmSc, 134.9 Total) were the #2 and #3 candidates by AI Score, both on the 10-2 Finals Sacramento team, but neither came close to Ishak in any individual category. Mulugeta Yoni led all qualified players in games played (12) on the 8-4 champion San Ramon with 150.9 Total GmSc but just a 12.6 Avg GmSc. Ishak was the only player in 2016 posting elite per-game production at high volume. Best game: 29.2 GmSc (25p/12r/6a) in Week 2 vs. Concord.",
+      tag: "Consensus MVP",
+    },
+    2017: {
+      leaders: [
+        { label: "AI Score", player: "Awad", team: "SAC", val: "32.7", mvp: true },
+        { label: "Total GmSc", player: "Awad", team: "SAC", val: "151.4", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Awad", team: "SAC", val: "15.1", mvp: true },
+        { label: "AI on SAC Champion", player: "Awad", team: "SAC", val: "32.7", mvp: true },
+      ],
+      text: "Claude chose Awad because he led AI Score (32.7), Avg GmSc (15.1), and Total GmSc (151.4 at 17.9% larger than #2 Ishak) on the 10-0 undefeated champion Sacramento. Poules edged him in PPG 13.9 to 12.9, but Awad swept the Game Score categories on the undefeated champion. Best game: 28.8 GmSc (21p/8r/3a/4s/3b) in Week 3 vs. Concord.",
+      tag: "Consensus MVP",
+    },
+    2018: {
+      leaders: [
+        { label: "AI Score", player: "Badroos", team: "SAC", val: "34.0", mvp: true },
+        { label: "Total GmSc", player: "Badroos", team: "SAC", val: "155.7", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Badroos", team: "SAC", val: "15.6", mvp: true },
+        { label: "AI on SAC Champion", player: "Badroos", team: "SAC", val: "34.0", mvp: true },
+      ],
+      text: "Claude chose Badroos because he led AI Score (34.0), Avg GmSc (15.6), and Total GmSc (155.7 at a 32.2% larger margin over #2, third-largest MVP Total GmSc gap on record) on the 8-2 champion Sacramento. Poules led PPG (13.9), but Badroos's per-game Game Score rate was the league's best among qualified players on the champion. Best game: 23.3 GmSc (17p/3r/3a/5s/2b) in Week 4 vs. Concord.",
+      tag: "Consensus MVP",
+    },
+    2019: {
+      leaders: [
+        { label: "AI Score", player: "Shacker", team: "SJO", val: "36.0", mvp: true },
+        { label: "Total GmSc", player: "Shacker", team: "SJO", val: "188.6", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "PDF", val: "17.3", mvp: false },
+        { label: "AI on SJO Champion", player: "Shacker", team: "SJO", val: "36.0", mvp: true },
+      ],
+      text: "Claude chose Shacker because he led AI Score (36.0) and Total GmSc (188.6, 9.3% larger than Ishak's 172.6) across 12 games on the 10-2 champion San Jose. Ishak Andrew had a higher Avg GmSc (17.3 in 10 games vs. 15.7 in 12) on 4-7 Semis Pacific, but Shacker's durability and championship role tips it. Best game: 24 GmSc (23p/9r/7b) in the Week 7 playoff vs. Hayward.",
+      tag: "Outstanding Impact",
+    },
+    2021: {
+      leaders: [
+        { label: "AI Score", player: "Ishak", team: "PDF", val: "45.4", mvp: true },
+        { label: "Total GmSc", player: "Ishak", team: "PDF", val: "225.3", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "PDF", val: "20.5", mvp: true },
+        { label: "AI on SAC Champion", player: "Kelada", team: "SAC", val: "26.3", mvp: false },
+      ],
+      text: "Claude chose Ishak because he led AI Score (45.4, #3 all-time ever), Avg GmSc (20.5, #4 all-time), Total GmSc (225.3, only 3.9% larger than Shacker's 216.7), and PPG (23.0, #2 all-time). Shacker posted 18.1 Avg GmSc and 216.7 Total on 9-3 Finals San Jose, but Ishak's historically elite individual sweep is decisive. Best game: 35.4 GmSc (32p/8r/3a/4s) in Week 4 vs. Concord.",
+      tag: "Consensus MVP",
+    },
+    2022: {
+      leaders: [
+        { label: "AI Score", player: "Ishak", team: "PDF", val: "41.0", mvp: false },
+        { label: "Total GmSc", player: "Ishak", team: "PDF", val: "227.5", mvp: false },
+        { label: "Avg GmSc, min 7G", player: "Ishak", team: "PDF", val: "19.0", mvp: false },
+        { label: "AI on SAC Champion", player: "Kelada", team: "SAC", val: "38.9", mvp: true },
+      ],
+      text: "Claude chose Kelada as the outstanding impact pick. He was the best player on the 12-0 undefeated champion Sacramento with 19.6 PPG and a qualified-leader 18.7 Avg GmSc. Ishak led AI Score (41.0 vs. 38.9) and Total GmSc (227.5 vs. 205.9, 10.5% larger, also the #4 single-season Total GmSc ever) on 9-3 Finals Pacific, but Kelada's role as the lead scorer on an undefeated champion clears the outstanding impact bar. Best game: 30.4 GmSc (32p/6r/4a/6s) in Week 1 vs. Hayward.",
+      tag: "Outstanding Impact",
+    },
+    2023: {
+      leaders: [
+        { label: "AI Score", player: "Ishak", team: "PDF", val: "36.4", mvp: true },
+        { label: "Total GmSc", player: "Ishak", team: "PDF", val: "183.1", mvp: true },
+        { label: "Avg GmSc, min 7G", player: "Shacker", team: "SJO", val: "20.2", mvp: false },
+        { label: "AI on SAC Champion", player: "Kelada", team: "SAC", val: "28.6", mvp: false },
+      ],
+      text: "Claude chose Ishak because he led AI Score (36.4) and Total GmSc (183.1 at a 29.5% larger margin over #2, fourth-largest MVP Total GmSc gap on record) on 6-5 Semis Pacific. Shacker had the higher Avg GmSc (20.2) but in only 7 games on a 4-6 San Jose team that missed the playoffs, making him ineligible. Ishak's aggregate lead plus team qualification is the decision. Best game: 28.3 GmSc (25p/16r/3a/3s) in Week 6 vs. Sacramento.",
+      tag: "Highest AI Score",
+    },
     2024: { text: "Abdelmalak swept every category: 17.7 PPG, 17.7 Avg GmSc, and 195.2 Total GmSc with a 45-point margin. Played all 11 games. No close competition. Selected by player vote.", tag: "Player Vote" },
     2025: { text: "Abdelmalak swept every category again: 19.2 PPG, 20.8 Avg GmSc, and 229.1 Total GmSc with a 61-point margin. Back-to-back MVP on the 8-3 SJO team. Selected by player vote.", tag: "Player Vote" },
   };
@@ -12458,30 +12721,159 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
     </div>
   );
 
+  const TEAM_COLOR_STYLES = {
+    HAY: { bg: "#2563eb20", text: "#1e3a8a" },
+    SAC: { bg: "#7c3aed20", text: "#4c1d95" },
+    MOD: { bg: "#dc262620", text: "#7f1d1d" },
+    SJO: { bg: "#ffffff", text: "#9f1239", border: "0.5px solid #9f1239" },
+    PDF: { bg: "#0d948820", text: "#134e4a" },
+    PLE: { bg: "#eab30820", text: "#713f12" },
+    SRA: { bg: "#7dd3fc30", text: "#075985" },
+    CON: { bg: "#11182720", text: "#1f2937" },
+    CIS: { bg: "#16a34a20", text: "#14532d" },
+    SJK: { bg: "#fde68060", text: "#78350f" },
+  };
+  const teamStyle = (t) => TEAM_COLOR_STYLES[t] || { bg: "#f3f4f6", text: "#374151" };
+
+  // Build the 20-season leaders table data: each year, identify AI Score, Total GmSc,
+  // Avg GmSc (min 7G), and AI on Champion. Track cumulative counts per player per category.
+  const leadersTableRows = useMemo(() => {
+    const MVP_PICKS = {
+      2005: ["SHEHATA GEORGE", "HAY"], 2006: ["SHEHATA GEORGE", "HAY"],
+      2007: ["YOUSSEF ANDREW", "HAY"], 2008: ["MULUGETA YONI", "SRA"],
+      2009: ["SHEHATA GEORGE", "HAY"], 2010: ["SHEHATA GEORGE", "HAY"],
+      2011: ["ABRAHAM PETER", "SJO"], 2012: ["BADROOS ANDREW", "SAC"],
+      2013: ["ISHAK ANDREW", "SJO"], 2014: ["ISHAK ANDREW", "SJO"],
+      2015: ["ISHAK ANDREW", "SJO"], 2016: ["ISHAK ANDREW", "SJO"],
+      2017: ["AWAD BISHOY", "SAC"], 2018: ["BADROOS ANDREW", "SAC"],
+      2019: ["SHACKER MARK", "SJO"], 2021: ["ISHAK ANDREW", "PDF"],
+      2022: ["KELADA ANTHONY", "SAC"], 2023: ["ISHAK ANDREW", "PDF"],
+      2024: ["ABDELMALAK SIMON", "SJO"], 2025: ["ABDELMALAK SIMON", "SJO"],
+    };
+    const getFirstInitial = (fullName) => {
+      const parts = fullName.trim().split(/\s+/);
+      if (parts.length < 2) return "?";
+      return (parts[1][0] || "?");
+    };
+    const getLastName = (fullName) => {
+      const parts = fullName.trim().split(/\s+/);
+      return parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+    };
+    const champTeamFor = (year) => {
+      for (const [k, v] of Object.entries(TEAM_SEASONS)) {
+        const parts = k.split("-");
+        if (parseInt(parts[1]) === year && v.final === "Champ") return parts[0];
+      }
+      return null;
+    };
+    const yrs = [...years].sort((a, b) => a - b);
+    const mvpCount = {}, aiCount = {}, totalCount = {}, avgCount = {}, champCount = {};
+    const rows = [];
+    yrs.forEach(y => {
+      const seasonAll = DATA.filter(r => r.year === y);
+      if (!seasonAll.length) return;
+      const maxG = Math.max(...seasonAll.map(r => r.g));
+      const avgTS = getLeagueAvgTS(y);
+      const withScore = seasonAll.map(r => {
+        const sc = rankScore(r, maxG, avgTS);
+        const teamMult = getTeamMultiplier(r.team, r.year);
+        const shareBonus = getShareBonus(r);
+        return { ...r, aiScore: Math.round((sc.total * teamMult + shareBonus) * 10) / 10 };
+      });
+      const elig5 = withScore.filter(r => r.g >= 5);
+      const elig7 = withScore.filter(r => r.g >= 7);
+      if (!elig5.length) return;
+      const topAi = elig5.reduce((a, b) => b.aiScore > a.aiScore ? b : a);
+      const topTotal = elig5.reduce((a, b) => b.gmSc > a.gmSc ? b : a);
+      const topAvg = elig7.length ? elig7.reduce((a, b) => b.avgGmSc > a.avgGmSc ? b : a) : null;
+      const champ = champTeamFor(y);
+      let champAi = null;
+      if (champ) {
+        const cp = elig5.filter(r => r.team === champ);
+        if (cp.length) champAi = cp.reduce((a, b) => b.aiScore > a.aiScore ? b : a);
+      }
+      const mvpPick = MVP_PICKS[y];
+      const mvpKey = mvpPick ? mvpPick[0] : null;
+      if (mvpKey) mvpCount[mvpKey] = (mvpCount[mvpKey] || 0) + 1;
+      aiCount[topAi.player] = (aiCount[topAi.player] || 0) + 1;
+      totalCount[topTotal.player] = (totalCount[topTotal.player] || 0) + 1;
+      if (topAvg) avgCount[topAvg.player] = (avgCount[topAvg.player] || 0) + 1;
+      if (champAi) champCount[champAi.player] = (champCount[champAi.player] || 0) + 1;
+      rows.push({
+        year: y,
+        mvp: mvpPick ? { fi: getFirstInitial(mvpPick[0]), last: getLastName(mvpPick[0]), team: mvpPick[1], count: mvpCount[mvpKey] } : null,
+        ai: { fi: getFirstInitial(topAi.player), last: getLastName(topAi.player), team: topAi.team, val: topAi.aiScore.toFixed(1), count: aiCount[topAi.player] },
+        total: { fi: getFirstInitial(topTotal.player), last: getLastName(topTotal.player), team: topTotal.team, val: topTotal.gmSc.toFixed(1), count: totalCount[topTotal.player] },
+        avg: topAvg ? { fi: getFirstInitial(topAvg.player), last: getLastName(topAvg.player), team: topAvg.team, val: topAvg.avgGmSc.toFixed(1), count: avgCount[topAvg.player] } : null,
+        champ: champAi ? { fi: getFirstInitial(champAi.player), last: getLastName(champAi.player), team: champAi.team, val: champAi.aiScore.toFixed(1), count: champCount[champAi.player] } : null,
+      });
+    });
+    return rows;
+  }, [years]);
+
+  const LeaderCell = ({ data }) => {
+    if (!data) return <div className="p-1.5 text-[10px] text-gray-400 text-center">—</div>;
+    const s = teamStyle(data.team);
+    return (
+      <div className="p-1.5 rounded text-center flex flex-col items-center justify-center"
+        style={{ background: s.bg, color: s.text, border: s.border || "none", minHeight: 56, lineHeight: 1.2 }}>
+        <div style={{ fontSize: 11, fontWeight: 500 }}>{data.fi}. {data.last}{data.count ? <span style={{ marginLeft: 2, opacity: 0.75 }}>({data.count})</span> : null}</div>
+        <div style={{ fontSize: 9, opacity: 0.8, marginTop: 1 }}>{data.team}</div>
+        {data.val && <div style={{ fontSize: 11, fontWeight: 500, marginTop: 1 }}>{data.val}</div>}
+      </div>
+    );
+  };
+
   return (
     <div>
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Awards History</p>
 
+      {/* 20-season leaders visual table */}
+      <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4">
+        <p className="text-xs font-bold text-gray-900 mb-2">Season Leaders, 2005 to 2025</p>
+        <div className="grid gap-1 text-[11px]" style={{ gridTemplateColumns: "42px repeat(5, 1fr)" }}>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Year</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Claude MVP</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">AI Score</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Total GmSc</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">Avg GmSc 7G+</div>
+          <div className="p-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider text-center border-b border-gray-200">AI on Champ</div>
+          {leadersTableRows.map(row => (
+            <React.Fragment key={row.year}>
+              <div className="flex items-center justify-center text-[11px] font-bold text-gray-700">{row.year}</div>
+              <LeaderCell data={row.mvp} />
+              <LeaderCell data={row.ai} />
+              <LeaderCell data={row.total} />
+              <LeaderCell data={row.avg} />
+              <LeaderCell data={row.champ} />
+            </React.Fragment>
+          ))}
+        </div>
+        <p className="text-[10px] text-gray-500 italic mt-2">Numbers in parentheses are cumulative counts. For 2024 and 2025, player vote also selected Abdelmalak as MVP.</p>
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 text-xs text-gray-700 leading-relaxed space-y-3">
         <p className="font-bold text-sm text-gray-900">How awards are determined</p>
         <p>
-          MVPs for 2005 through 2023 were determined by Claude using these criteria on the historical data. 2024 and 2025 were determined by player vote.
+          For seasons 2005 through 2023, MVPs and All-PCAL teams are reconstructed from the historical data using AI Score combined with specific tiebreaker rules. Starting in 2024, MVP is selected by player vote.
         </p>
         <p>
-          First Team All-League selections combine objective statistical measures with some subjective judgment. The five players are chosen in the following order:
+          <span className="font-bold">First Team All-PCAL</span> selections are filled in this order, with a minimum 5 games played for any award eligibility:
         </p>
         <ol className="list-decimal pl-5 space-y-1">
           <li>Highest total Game Score</li>
-          <li>Highest average Game Score, minimum 7 games played</li>
-          <li>Highest total Game Score on the best regular-season team, if not already included</li>
-          <li>Points per game leader, minimum 7 games played</li>
-          <li>Next highest average Game Scores, minimum 7 games played</li>
+          <li>Highest average Game Score, minimum 7 games played (if not already included)</li>
+          <li>Highest AI Score on the best regular-season team (if not already included)</li>
+          <li>Next highest AI Scores, filling to five players</li>
         </ol>
         <p>
-          <span className="font-bold">MVP</span> is selected by taking the highest average Game Score (minimum 7 games played) among players on a qualifying team, then highest total Game Score, with consideration given to players of outstanding impact when Game Scores are close. A qualifying team is one that made the playoffs or finished .500 or better. Outstanding impact is defined as clear impact on the league, or being the best player on a championship or Finals team.
+          <span className="font-bold">MVP</span> must be a First Team player. Claude chooses from those five using the following rules. The MVP must come from a team that either won at least half of its games or made the playoffs. Previous MVP wins do not factor in. Among eligible First Team players, Claude weighs highest average Game Score (minimum 7 games), highest total Game Score, and outstanding impact when Game Scores are close. Outstanding impact means clear league-wide influence or being the best player on the team that won the championship.
         </p>
         <p>
-          Second Team consists of the next five players by these same criteria. AI Score is shown next to every player as a secondary reference, and AI-Score top-10 picks that were not selected for actual awards appear below each year's list.
+          <span className="font-bold">Second Team</span> consists of the next 5 players by AI Score after First Team is filled. Both teams are displayed in order of AI Score descending, with the MVP marked regardless of their AI Score rank.
+        </p>
+        <p className="text-[11px] text-gray-600 mt-2 pt-2 border-t border-gray-100">
+          <span className="font-bold">Five largest MVP Total Game Score gaps over #2 on record:</span> 2015 Ishak (62.5%), 2014 Ishak (54.0%), 2018 Badroos (32.2%), 2023 Ishak (29.5%), 2016 Ishak (26.8%).
         </p>
       </div>
 
@@ -12494,10 +12886,16 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
           const picks = aiPicksByYear[year];
           const extraAiPicks = [];
           if (picks) {
-            [picks.mvp, ...picks.firstTeam, ...picks.secondTeam].filter(Boolean).forEach(r => {
-              if (!actualPlayersSet.has(r.player.toUpperCase())) {
-                const aiAward = picks.mvp && picks.mvp.player === r.player ? "MVP"
-                  : picks.firstTeam.some(p => p.player === r.player) ? "All-PCAL"
+            // MVP is already inside firstTeam, so iterate firstTeam (with isMvp flag) plus secondTeam
+            const allPicks = [...(picks.firstTeam || []), ...(picks.secondTeam || [])];
+            const seen = new Set();
+            allPicks.filter(Boolean).forEach(r => {
+              const k = r.player.toUpperCase();
+              if (seen.has(k)) return;
+              seen.add(k);
+              if (!actualPlayersSet.has(k)) {
+                const aiAward = r.isMvp ? "MVP"
+                  : (picks.firstTeam || []).some(p => p.player === r.player) ? "All-PCAL"
                   : "Second Team";
                 extraAiPicks.push({ ...r, aiAward });
               }
@@ -12516,10 +12914,27 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
                     <React.Fragment key={award}>
                       {ps.map(r => renderRow(r, award, year, false))}
                       {award === "MVP" && MVP_BLURBS[year] && (
-                        <div className="px-4 py-2 bg-amber-50/40 text-[11px] text-gray-600 leading-relaxed border-t border-amber-100">
-                          <span className="font-bold text-gray-700 not-italic">Claude says: </span>
-                          <span className="italic">{MVP_BLURBS[year].text}</span>
-                          <span className="font-bold text-gray-800 not-italic"> — {MVP_BLURBS[year].tag}</span>
+                        <div className="px-4 py-2.5 bg-amber-50/40 text-[11px] text-gray-600 leading-relaxed border-t border-amber-100">
+                          {MVP_BLURBS[year].leaders && (
+                            <div className="mb-2">
+                              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Season leaders</div>
+                              {MVP_BLURBS[year].leaders.map((ln, i) => (
+                                <div key={i} className="text-[11px] text-gray-700" style={{ lineHeight: 1.6 }}>
+                                  <span className="text-gray-500">{ln.label}: </span>
+                                  {ln.mvp
+                                    ? <span className="font-bold text-gray-900">{ln.player}</span>
+                                    : <span>{ln.player}</span>}
+                                  <span className="text-gray-500"> ({ln.team})</span>
+                                  <span> {ln.val}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-bold text-gray-700 not-italic">Claude says: </span>
+                            <span className="italic">{MVP_BLURBS[year].text}</span>
+                            <span className="font-bold text-gray-800 not-italic"> — {MVP_BLURBS[year].tag}</span>
+                          </div>
                         </div>
                       )}
                     </React.Fragment>
@@ -14231,7 +14646,7 @@ function StatExplainersView() {
             GmSc = PTS + 0.4 × FGM − 0.7 × FGA − 0.4 × (FTA − FTM) + 0.7 × OREB + 0.3 × DREB + STL + 0.7 × AST + 0.7 × BLK − 0.4 × PF − TO
           </div>
           <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            PCAL does not track offensive versus defensive rebounds separately, and we do not track turnovers or personal fouls. So what's used here is an estimation. It captures the shooting, rebounding, assists, steals, and blocks but leaves out turnovers and fouls entirely, and treats all rebounds the same. The result is a rough measure of offensive production plus the two defensive stats we do have. It does not capture off-ball defense, screens, communication, or any of the things that don't show up in the box score.
+            PCAL does not track offensive versus defensive rebounds separately, and we do not track turnovers. So what's used here is an estimation. It captures the shooting, rebounding, assists, steals, blocks, and fouls but leaves out turnovers entirely, and treats all rebounds the same. The result is a rough measure of offensive production plus the two defensive stats we do have. It does not capture off-ball defense, screens, communication, or any of the things that don't show up in the box score.
           </p>
           <p className="text-xs text-gray-600 leading-relaxed">
             A GmSc of 10 is a solid game. 15 is great. 20+ is a dominant performance. Total GmSc is the sum across every game in a player's career. GmSc/G is the average.
@@ -14241,10 +14656,10 @@ function StatExplainersView() {
         <div className="rounded-xl border border-gray-100 bg-white p-4">
           <h3 className="text-sm font-black text-gray-900 mb-2">AI Score</h3>
           <p className="text-xs text-gray-600 leading-relaxed mb-3">
-            AI Score is a season-level metric developed by Claude. Unlike Game Score, it accounts for team performance and rewards players on winning teams. It's what we use to calculate projected awards for the years 2005 through 2023. When you see a player listed as MVP, All-PCAL, or Second Team in those years, it was determined by AI Score. Each year, the top player is MVP, the next four round out the All-PCAL First Team, and the next five are Second Team.
+            AI Score is a season-level companion to Game Score. Where Game Score measures a single game, AI Score looks at the full season and factors in things that don't show up in a single box score: shooting efficiency relative to the league, team success, durability, and how much of the team's total production the player accounted for. It is used as the primary input to the awards system for seasons 2005 through 2023, before player voting was introduced.
           </p>
           <div className="bg-gray-50 rounded-lg p-3 text-[11px] font-mono text-gray-700 leading-relaxed mb-3">
-            AI Score = rawPG × gpFactor × teamMult
+            AI Score = (rawPG × gpFactor × teamMult) + shareBonus
             <br /><br />
             rawPG = PPG + efficiencyBonus + RPG × 1.0 + APG × 1.6 + (SPG + BPG) × 1.8 − foulPenalty
             <br /><br />
@@ -14253,15 +14668,55 @@ function StatExplainersView() {
             &nbsp;&nbsp;where effMult = 1.0 if above league average, 1.5 if below
             <br /><br />
             foulPenalty = (fouls / games) × 0.3
+            <br /><br />
+            shareBonus = (teamShare − 0.20) × 10 × (0.5 + winRate)
+            <br />
+            &nbsp;&nbsp;only applied if teamShare is at least 20%
           </div>
           <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            Scoring is weighted most heavily. Assists and defensive stats (steals + blocks) are weighted above rebounds. Shooting efficiency is compared against the league average for that season, so putting up points on bad shooting doesn't help you, and efficient scoring is rewarded.
+            Scoring is weighted most heavily. Assists and defensive stats (steals + blocks) are weighted above rebounds. Shooting efficiency is compared against the league average for that season, so putting up points on bad shooting doesn't help you, and efficient scoring is rewarded. Bad shooting hurts 1.5 times as much as good shooting helps, so high-volume inefficient scorers are penalized harder than efficient scorers are rewarded.
           </p>
           <p className="text-xs text-gray-600 leading-relaxed mb-2">
             The <span className="font-bold">gpFactor</span> adjusts for games played: 8 or more games gets full credit, then it scales down (7g = 0.95, 6g = 0.85, 5g = 0.70, and further reductions below that). This is why a player who misses half the season can't out-rank a player who showed up every week.
           </p>
+          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+            The <span className="font-bold">teamMult</span> adjusts for team context: championship teams get +10%, Finals teams get +3%, and teams that missed the playoffs take a 5% hit. A losing record (more losses than wins) stacks an additional 5% penalty.
+          </p>
           <p className="text-xs text-gray-600 leading-relaxed">
-            The <span className="font-bold">teamMult</span> adjusts for team context: championship teams get +10%, Finals teams get +3%, and teams that missed the playoffs take a 5% hit. A losing record (more losses than wins) stacks an additional 5% penalty. This is how AI Score rewards players on good teams and penalizes empty stats on bad teams.
+            The <span className="font-bold">shareBonus</span> rewards players who carried a disproportionate share of their team's Game Score production, weighted by the team's win rate. A player has to be responsible for at least 20% of their team's total Game Score to get any bonus at all. Once past that threshold, the bonus scales with how much of the team's output they drove, and how successful the team was. A dominant player on a winning team gets the biggest bonus. A ball-hog on a losing team gets much less. This is what rewards players who truly were the engine of a competitive team.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-4">
+          <h3 className="text-sm font-black text-gray-900 mb-2">How awards are determined</h3>
+          <p className="text-xs text-gray-600 leading-relaxed mb-3">
+            For seasons 2005 through 2023, there was no formal voting process, so awards are reconstructed using AI Score combined with specific tiebreaker rules. Starting in 2024, MVP is selected by player vote.
+          </p>
+          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+            <span className="font-bold">All-PCAL First and Second Team:</span> First Team is filled by the rules below. Second Team consists of the next 5 players by AI Score after First Team is filled. A minimum of 5 games played is required for any award.
+          </p>
+          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+            <span className="font-bold">First Team selection order:</span> the five First Team spots are filled in this order.
+          </p>
+          <ol className="list-decimal pl-5 space-y-1 text-xs text-gray-600 leading-relaxed mb-3">
+            <li>Highest total Game Score for the season</li>
+            <li>Highest average Game Score, minimum 7 games played (if not already included)</li>
+            <li>Highest AI Score on the best regular-season team (if not already included)</li>
+            <li>Next highest AI Scores, filling to five players</li>
+          </ol>
+          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+            <span className="font-bold">MVP selection (2005 through 2023):</span> the MVP must be a First Team player. Claude chooses from those five using the following rules.
+          </p>
+          <ol className="list-decimal pl-5 space-y-1 text-xs text-gray-600 leading-relaxed mb-3">
+            <li>The MVP must come from a team that either won at least half of its games or made the playoffs. A player on a team that missed the playoffs with a losing record is not eligible.</li>
+            <li>Previous MVP wins do not factor into the decision.</li>
+            <li>Among eligible First Team players, Claude weighs highest average Game Score (minimum 7 games), highest total Game Score, and outstanding impact when Game Scores are close. Outstanding impact means clear league-wide influence or being the best player on the team that won the championship.</li>
+          </ol>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            <span className="font-bold">MVP selection (2024 and later):</span> chosen by player vote. AI Score is still displayed as a reference but does not determine the award.
+          </p>
+          <p className="text-xs text-gray-600 leading-relaxed mt-3 pt-3 border-t border-gray-100">
+            <span className="font-bold">Five largest MVP Total Game Score gaps over #2 on record:</span> 2015 Ishak (62.5%), 2014 Ishak (54.0%), 2018 Badroos (32.2%), 2023 Ishak (29.5%), 2016 Ishak (26.8%).
           </p>
         </div>
       </div>
