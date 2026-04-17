@@ -9534,37 +9534,53 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
   const playerPhoto = PLAYER_PHOTOS[name];
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-4">
-      <div className="text-white relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${teamColor} 0%, ${teamColor}dd 40%, ${teamColor}99 100%)` }}>
-        {/* Faded team logo watermark */}
-        {teamLogo && (
-          <img src={teamLogo} alt="" className="absolute pointer-events-none" style={{ right: 8, top: "50%", transform: "translateY(-50%)", height: 80, opacity: 0.12 }} />
-        )}
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4" style={{ paddingTop: 40 }}>
+      <div className="relative bg-white" style={{ borderTop: `4px solid ${teamColor}` }}>
+        {/* All teams played for, chronological order */}
+        {(() => {
+          const teamFirstYear = {};
+          [...records].forEach(r => {
+            if (teamFirstYear[r.team] === undefined || r.year < teamFirstYear[r.team]) {
+              teamFirstYear[r.team] = r.year;
+            }
+          });
+          const teamsChrono = Object.keys(teamFirstYear).sort((a, b) => teamFirstYear[a] - teamFirstYear[b]);
+          const logoSize = teamsChrono.length >= 3 ? 40 : 60;
+          return (
+            <div className="absolute flex items-center gap-2 pointer-events-none" style={{ right: 12, top: "50%", transform: "translateY(-50%)" }}>
+              {teamsChrono.map(t => {
+                const lg = getTeamLogo(t);
+                if (!lg) return null;
+                return <img key={t} src={lg} alt={t} style={{ height: logoSize, width: "auto", display: "block" }} />;
+              })}
+            </div>
+          );
+        })()}
         <div className="flex items-end relative z-10">
-          {/* Photo or avatar on left */}
+          {/* Photo or avatar on left — photo extends above the header */}
           {playerPhoto ? (
-            <div className="flex-shrink-0 self-end" style={{ width: 100 }}>
+            <div className="flex-shrink-0 self-end" style={{ width: 100, marginTop: -40 }}>
               <img src={playerPhoto} alt="" className="w-full" style={{ display: "block", objectFit: "contain", objectPosition: "bottom" }} />
             </div>
           ) : (
-            <div className="flex-shrink-0 flex items-center justify-center m-4" style={{ width: 56, height: 56, borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.15)", border: "2px solid rgba(255,255,255,0.3)" }}>
-              <span className="text-lg font-black text-white/90">{initials}</span>
+            <div className="flex-shrink-0 flex items-center justify-center m-4" style={{ width: 56, height: 56, borderRadius: "50%", backgroundColor: `${teamColor}20`, border: `2px solid ${teamColor}` }}>
+              <span className="text-lg font-black" style={{ color: teamColor }}>{initials}</span>
             </div>
           )}
           <div className="flex-1 min-w-0 py-3 pr-4 pl-2">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-xl font-bold">{formatName(name)}</h3>
-                <p className="text-slate-300 text-sm mt-0.5">{[...new Set(records.map(r => TEAM_NAMES[r.team] || r.team))].join(" → ")} • {sorted[0].year}–{sorted[sorted.length-1].year}</p>
+                <h3 className="text-xl font-bold text-gray-900">{formatName(name)}</h3>
+                <p className="text-gray-500 text-sm mt-0.5">{[...new Set(records.map(r => TEAM_NAMES[r.team] || r.team))].join(" → ")} • {sorted[0].year}–{sorted[sorted.length-1].year}</p>
               </div>
-              {onClose && <button onClick={onClose} className="text-slate-400 hover:text-white text-lg">×</button>}
+              {onClose && <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-lg">×</button>}
             </div>
             <div className="flex gap-1 mt-1.5 flex-wrap">
-              {mvps > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">{mvps}x MVP</span>}
-              {allPcalCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">{allPcalCount}x All-PCAL</span>}
-              {sec > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-500/30 text-slate-300 border border-slate-500/40">{sec}x 2nd Team</span>}
-              {champs > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-500/20 text-green-300 border border-green-500/30">{champs}x Champ</span>}
-              {finalsCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">{finalsCount}x Finals</span>}
+              {mvps > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">{mvps}x MVP</span>}
+              {allPcalCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-300">{allPcalCount}x All-PCAL</span>}
+              {sec > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-700 border border-gray-300">{sec}x 2nd Team</span>}
+              {champs > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700 border border-green-300">{champs}x Champ</span>}
+              {finalsCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-300">{finalsCount}x Finals</span>}
             </div>
           </div>
         </div>
@@ -9667,7 +9683,7 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
                   <td className="text-right py-1.5 px-1">{pct(r.ftPct)}</td>
                   <td className="text-right py-1.5 px-1">{pct(r.ts)}</td>
                   <td className="text-right py-1.5 px-1">{r.avgGmSc.toFixed(1)}</td>
-                  <td className="text-right py-1.5 px-1">{aiRankDisplay}</td>
+                  <td className="text-right py-1.5 px-1 whitespace-nowrap">{aiRankDisplay}</td>
                 </tr>);
               })}</tbody>
             </table>
