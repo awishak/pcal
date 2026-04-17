@@ -241,6 +241,60 @@ export async function adminToggleAnnouncement(id, announce, quote) {
 }
 
 // ============================================================================
+// GAME LOG ADMIN (Supabase)
+// ============================================================================
+
+export async function adminSearchGameLog(query) {
+  const token = getAdminToken();
+  if (!token) return { error: "not admin" };
+  const { data, error } = await supabase.rpc("admin_search_game_log", {
+    p_token: token, p_query: query,
+  });
+  if (error) { console.error("adminSearchGameLog error:", error); return { error: error.message }; }
+  return data || [];
+}
+
+export async function adminUpdateGameLog(id, rowData) {
+  const token = getAdminToken();
+  if (!token) return { error: "not admin" };
+  const { data, error } = await supabase.rpc("admin_update_game_log", {
+    p_token: token, p_id: id, p_data: rowData,
+  });
+  if (error) { console.error("adminUpdateGameLog error:", error); return { error: error.message }; }
+  return data;
+}
+
+export async function adminAddGameLog(rowData) {
+  const token = getAdminToken();
+  if (!token) return { error: "not admin" };
+  const { data, error } = await supabase.rpc("admin_add_game_log", {
+    p_token: token, p_data: rowData,
+  });
+  if (error) { console.error("adminAddGameLog error:", error); return { error: error.message }; }
+  return data;
+}
+
+export async function adminDeleteGameLog(id) {
+  const token = getAdminToken();
+  if (!token) return { error: "not admin" };
+  const { data, error } = await supabase.rpc("admin_delete_game_log", {
+    p_token: token, p_id: id,
+  });
+  if (error) { console.error("adminDeleteGameLog error:", error); return { error: error.message }; }
+  return data;
+}
+
+export async function adminBatchUpdateGameLog(ids, updates) {
+  const token = getAdminToken();
+  if (!token) return { error: "not admin" };
+  const { data, error } = await supabase.rpc("admin_batch_update_game_log", {
+    p_token: token, p_ids: ids, p_data: updates,
+  });
+  if (error) { console.error("adminBatchUpdateGameLog error:", error); return { error: error.message }; }
+  return data;
+}
+
+// ============================================================================
 // EMAIL (via Supabase Edge Function -> Resend)
 // ============================================================================
 
