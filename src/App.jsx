@@ -9583,16 +9583,16 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
   const playerPhoto = PLAYER_PHOTOS[name];
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4" style={{ paddingTop: 60 }}>
-      <div className="relative bg-white">
-        {/* Primary team logo top-right, secondary logos (by games played) nested beneath */}
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-4 overflow-hidden">
+      <div className="relative bg-white" style={{ minHeight: 160 }}>
+        {/* Top-right: primary logo big, secondary logos smaller below */}
         {(() => {
           const otherTeams = Object.keys(teamTotals)
             .filter(t => t !== primaryTeam)
             .sort((a, b) => teamTotals[b].g - teamTotals[a].g || teamTotals[b].pts - teamTotals[a].pts);
           const primaryLogo = getTeamLogo(primaryTeam);
           return (
-            <div className="absolute flex flex-col items-end gap-1 pointer-events-none z-0" style={{ right: 12, top: 8 }}>
+            <div className="absolute flex flex-col items-end gap-1 pointer-events-none z-0" style={{ right: 12, top: 10 }}>
               {primaryLogo && <img src={primaryLogo} alt={primaryTeam} style={{ height: 64, width: "auto", display: "block" }} />}
               {otherTeams.length > 0 && (
                 <div className="flex items-center gap-1">
@@ -9606,40 +9606,44 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
             </div>
           );
         })()}
-        <div className="flex items-end relative z-10">
-          {/* Photo or avatar on left — photo extends above the header */}
+        {/* Bottom-left: photo, justified to bottom of box */}
+        <div className="absolute bottom-0 left-0 flex items-end z-10">
           {playerPhoto ? (
-            <div className="flex-shrink-0 self-end" style={{ width: 180, marginTop: -60 }}>
-              <img src={playerPhoto} alt="" className="w-full" style={{ display: "block", objectFit: "contain", objectPosition: "bottom" }} />
+            <div style={{ width: 160, height: 160 }}>
+              <img src={playerPhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "bottom left", display: "block" }} />
             </div>
           ) : (
-            <div className="flex-shrink-0 flex items-center justify-center m-4" style={{ width: 56, height: 56, borderRadius: "50%", backgroundColor: `${teamColor}20`, border: `2px solid ${teamColor}` }}>
+            <div className="flex items-center justify-center m-4" style={{ width: 56, height: 56, borderRadius: "50%", backgroundColor: `${teamColor}20`, border: `2px solid ${teamColor}` }}>
               <span className="text-lg font-black" style={{ color: teamColor }}>{initials}</span>
             </div>
           )}
-          <div className="flex-1 min-w-0 py-3 pl-2" style={{ paddingRight: 100 }}>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-xl font-bold text-gray-900">{formatName(name)}</h3>
-              {isActive && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">Active</span>}
-            </div>
-            <p className="text-gray-500 text-sm mt-0.5">
+        </div>
+        {/* Bottom-right: name and team, right-justified */}
+        <div className="absolute bottom-0 right-0 text-right z-10 pb-3 pr-4" style={{ maxWidth: "60%" }}>
+          <h3 className="text-xl font-bold text-gray-900">{formatName(name)}</h3>
+          <div className="flex items-center justify-end gap-1.5 mt-0.5">
+            <p className="text-gray-500 text-sm">
               {isActive
                 ? (TEAM_NAMES[primaryTeam] || primaryTeam)
                 : [...new Set(records.map(r => TEAM_NAMES[r.team] || r.team))].join(" → ")
               }
               {" • "}{sorted[0].year}–{sorted[sorted.length-1].year}
             </p>
-            <div className="grid grid-cols-3 gap-1 mt-1.5">
-              <div>{mvps > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">{mvps}x MVP</span>}</div>
-              <div>{allPcalCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-300">{allPcalCount}x All-PCAL</span>}</div>
-              <div>{sec > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-700 border border-gray-300">{sec}x 2nd Team</span>}</div>
-              <div>{champs > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700 border border-green-300">{champs}x Champ</span>}</div>
-              <div>{finalsCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-300">{finalsCount}x Finals</span>}</div>
-              <div>{playoffCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300">{playoffCount}x Playoffs</span>}</div>
-            </div>
+            {isActive && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">Active</span>}
           </div>
         </div>
       </div>
+      {/* Chips row — its own strip below the header */}
+      {(mvps > 0 || allPcalCount > 0 || sec > 0 || champs > 0 || finalsCount > 0 || playoffCount > 0) && (
+        <div className="flex items-center gap-1 flex-wrap px-4 py-2 border-t border-gray-200 bg-gray-50">
+          {mvps > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">{mvps}x MVP</span>}
+          {allPcalCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-300">{allPcalCount}x All-PCAL</span>}
+          {sec > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-700 border border-gray-300">{sec}x 2nd Team</span>}
+          {champs > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700 border border-green-300">{champs}x Champ</span>}
+          {finalsCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-300">{finalsCount}x Finals</span>}
+          {playoffCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300">{playoffCount}x Playoffs</span>}
+        </div>
+      )}
       {/* Career stats with ranks */}
       <div className="grid grid-cols-4 sm:grid-cols-8 gap-0 border-b border-gray-200">
         {[
@@ -9685,7 +9689,7 @@ function PlayerCard({ name, records, careerLeaders, onClose }) {
               <tr key={i} className="border-b border-gray-50">
                 <td className="py-1 px-1 font-semibold">{r.year}</td>
                 <td className="py-1 px-1 text-gray-400">{r.age || ""}</td>
-                <td className="py-1 px-1 text-gray-500"><span className="inline-flex items-center gap-1">{getTeamDisplay(r.team, r.year)}<Badge award={r.award} />{(() => { const ts = TEAM_SEASONS[r.team + "-" + r.year]; if (!ts) return null; if (ts.final === "Champ") return <span className="text-[8px] px-1 py-0 rounded bg-yellow-100 text-yellow-700 font-bold">Champ</span>; if (ts.final === "Finals") return <span className="text-[8px] px-1 py-0 rounded bg-blue-100 text-blue-700 font-bold">Finals</span>; if (ts.final === "Semis") return <span className="text-[8px] px-1 py-0 rounded bg-gray-100 text-gray-500 font-bold">Semis</span>; return null; })()}</span></td>
+                <td className="py-1 px-1 text-gray-500">{getTeamDisplay(r.team, r.year)}</td>
                 <td className={"text-right py-1 px-1" + (isLeader(r, "g") ? " font-bold bg-gray-100" : "")}>{r.g}</td>
                 <td className={"text-right py-1 px-1" + (isLeader(r, "ppg") ? " font-bold bg-gray-100" : "")}>{r.ppg.toFixed(1)}</td>
                 <td className={"text-right py-1 px-1" + (isLeader(r, "rpg") ? " font-bold bg-gray-100" : "")}>{r.rpg.toFixed(1)}</td>
