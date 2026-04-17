@@ -9349,6 +9349,92 @@ YEARS.forEach(y => {
   season.forEach((r, i) => { r.aiRank = i + 1; });
 });
 
+// Overwrite CSV-baked `award` field for 2005-2023 based on Claude's computed First/Second Team.
+// 2024-2025 retain their CSV (player vote) values.
+(() => {
+  const MVP_PICKS = {
+    2005: ["SHEHATA GEORGE", "HAY"], 2006: ["SHEHATA GEORGE", "HAY"],
+    2007: ["YOUSSEF ANDREW", "HAY"], 2008: ["MULUGETA YONI", "SRA"],
+    2009: ["SHEHATA GEORGE", "HAY"], 2010: ["SHEHATA GEORGE", "HAY"],
+    2011: ["ABRAHAM PETER", "SJO"], 2012: ["BADROOS ANDREW", "SAC"],
+    2013: ["ISHAK ANDREW", "SJO"], 2014: ["ISHAK ANDREW", "SJO"],
+    2015: ["ISHAK ANDREW", "SJO"], 2016: ["ISHAK ANDREW", "SJO"],
+    2017: ["AWAD BISHOY", "SAC"], 2018: ["BADROOS ANDREW", "SAC"],
+    2019: ["SHACKER MARK", "SJO"], 2021: ["ISHAK ANDREW", "PDF"],
+    2022: ["KELADA ANTHONY", "SAC"], 2023: ["ISHAK ANDREW", "PDF"],
+  };
+  const bestRegSeasonTeam = (year) => {
+    const teams = {};
+    Object.entries(TEAM_SEASONS).forEach(([k, v]) => {
+      const [tn, yr] = k.split("-");
+      if (parseInt(yr) === year) {
+        const total = v.w + v.l;
+        teams[tn] = { wr: total > 0 ? v.w / total : 0, w: v.w };
+      }
+    });
+    const entries = Object.entries(teams);
+    if (!entries.length) return null;
+    entries.sort((a, b) => b[1].wr - a[1].wr || b[1].w - a[1].w);
+    return entries[0][0];
+  };
+  const claudePicksYears = Object.keys(MVP_PICKS).map(Number);
+  claudePicksYears.forEach(y => {
+    // Reset award field for all players this year whose current award is one we'd overwrite
+    DATA.filter(r => r.year === y).forEach(r => {
+      if (r.award === "MVP" || r.award === "All-PCAL" || r.award === "Second Team") {
+        r.award = "";
+      }
+    });
+    const eligible = DATA.filter(r => r.year === y && r.g >= 5);
+    if (!eligible.length) return;
+    const picked = new Set();
+    const firstTeam = [];
+    const addPick = (p) => {
+      const k = p.player + "|" + p.team;
+      if (picked.has(k)) return;
+      picked.add(k);
+      firstTeam.push(p);
+    };
+    // Rule 1: highest Total GmSc
+    const byTotal = [...eligible].sort((a, b) => b.gmSc - a.gmSc);
+    if (byTotal.length) addPick(byTotal[0]);
+    // Rule 2: highest Avg GmSc min 7G
+    const min7 = eligible.filter(r => r.g >= 7).sort((a, b) => b.avgGmSc - a.avgGmSc);
+    for (const cand of min7) {
+      if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
+    }
+    // Rule 3: highest AI on best regular-season team
+    const bestTeam = bestRegSeasonTeam(y);
+    if (bestTeam) {
+      const teamPlayers = eligible.filter(r => r.team === bestTeam).sort((a, b) => b.aiScore - a.aiScore);
+      for (const cand of teamPlayers) {
+        if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
+      }
+    }
+    // Rule 4: fill to 5 by next highest AI
+    const byAI = [...eligible].sort((a, b) => b.aiScore - a.aiScore);
+    for (const cand of byAI) {
+      if (firstTeam.length >= 5) break;
+      if (!picked.has(cand.player + "|" + cand.team)) addPick(cand);
+    }
+    // MVP: must be in First Team
+    const mp = MVP_PICKS[y];
+    const mvpRecord = mp ? firstTeam.find(p => p.player === mp[0] && p.team === mp[1]) : null;
+    // Second Team: next 5 by Total GmSc from remaining
+    const byTotalDesc = [...eligible].sort((a, b) => b.gmSc - a.gmSc);
+    const secondTeam = byTotalDesc.filter(r => !picked.has(r.player + "|" + r.team)).slice(0, 5);
+    // Apply awards
+    firstTeam.forEach(p => {
+      if (mvpRecord && p.player === mvpRecord.player && p.team === mvpRecord.team) {
+        p.award = "MVP";
+      } else {
+        p.award = "All-PCAL";
+      }
+    });
+    secondTeam.forEach(p => { p.award = "Second Team"; });
+  });
+})();
+
 const AWARD_COLORS = {
   MVP: "bg-yellow-100 text-yellow-800 border-yellow-300",
   "All-PCAL": "bg-blue-100 text-blue-800 border-blue-300",
@@ -10546,8 +10632,9 @@ export default function App() {
       const firstTeamDisplay = [...firstTeamPlayers]
         .map(p => ({ ...p, isMvp: mvp && p.player === mvp.player && p.team === mvp.team }))
         .sort((a, b) => b.score - a.score);
-      // Second Team: next 5 by AI Score from eligible
-      const secondTeam = byAI.filter(r => !picked.has(r.player + "|" + r.team)).slice(0, 5);
+      // Second Team: next 5 by Total GmSc from remaining eligible players
+      const byTotalDesc = [...eligible].sort((a, b) => b.gmSc - a.gmSc);
+      const secondTeam = byTotalDesc.filter(r => !picked.has(r.player + "|" + r.team)).slice(0, 5);
       byYear[y] = {
         mvp,
         firstTeam: firstTeamDisplay,
@@ -12870,7 +12957,7 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
           <span className="font-bold">MVP</span> must be a First Team player. Claude chooses from those five using the following rules. The MVP must come from a team that either won at least half of its games or made the playoffs. Previous MVP wins do not factor in. Among eligible First Team players, Claude weighs highest average Game Score (minimum 7 games), highest total Game Score, and outstanding impact when Game Scores are close. Outstanding impact means clear league-wide influence or being the best player on the team that won the championship.
         </p>
         <p>
-          <span className="font-bold">Second Team</span> consists of the next 5 players by AI Score after First Team is filled. Both teams are displayed in order of AI Score descending, with the MVP marked regardless of their AI Score rank.
+          <span className="font-bold">Second Team</span> consists of the next 5 players by total Game Score after First Team is filled. This rewards durable, high-volume production. Both teams are displayed in order of AI Score descending, with the MVP marked regardless of their AI Score rank.
         </p>
         <p className="text-[11px] text-gray-600 mt-2 pt-2 border-t border-gray-100">
           <span className="font-bold">Five largest MVP Total Game Score gaps over #2 on record:</span> 2015 Ishak (62.5%), 2014 Ishak (54.0%), 2018 Badroos (32.2%), 2023 Ishak (29.5%), 2016 Ishak (26.8%).
@@ -12879,28 +12966,27 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
 
       <div className="space-y-4">
         {sortedYears.map(year => {
-          const players = (awardsByYear.find(([y]) => parseInt(y) === year) || [null, []])[1];
-          if (!players.length) return null;
-
-          const actualPlayersSet = new Set(players.map(p => p.player.toUpperCase()));
           const picks = aiPicksByYear[year];
-          const extraAiPicks = [];
-          if (picks) {
-            // MVP is already inside firstTeam, so iterate firstTeam (with isMvp flag) plus secondTeam
-            const allPicks = [...(picks.firstTeam || []), ...(picks.secondTeam || [])];
-            const seen = new Set();
-            allPicks.filter(Boolean).forEach(r => {
-              const k = r.player.toUpperCase();
-              if (seen.has(k)) return;
-              seen.add(k);
-              if (!actualPlayersSet.has(k)) {
-                const aiAward = r.isMvp ? "MVP"
-                  : (picks.firstTeam || []).some(p => p.player === r.player) ? "All-PCAL"
-                  : "Second Team";
-                extraAiPicks.push({ ...r, aiAward });
-              }
+          // For 2024+, use CSV-baked awards (player vote). For 2005-2023, use computed picks.
+          const usePlayerVote = year >= 2024;
+          const csvPlayers = (awardsByYear.find(([y]) => parseInt(y) === year) || [null, []])[1];
+          let rowsToRender = [];
+          if (usePlayerVote) {
+            // Build from CSV data, preserve award grouping
+            const groups = [["MVP", "MVP"], ["All-PCAL", "All-PCAL"], ["Second Team", "Second Team"]];
+            groups.forEach(([award, label]) => {
+              csvPlayers.filter(p => p.award === award).forEach(r => rowsToRender.push({ ...r, displayAward: award, groupLabel: label }));
+            });
+          } else if (picks) {
+            // Use computed First Team (ordered by AI desc, MVP marked) and Second Team (by Total GmSc)
+            (picks.firstTeam || []).forEach(r => {
+              rowsToRender.push({ ...r, displayAward: r.isMvp ? "MVP" : "All-PCAL", groupLabel: r.isMvp ? "MVP" : "All-PCAL" });
+            });
+            (picks.secondTeam || []).forEach(r => {
+              rowsToRender.push({ ...r, displayAward: "Second Team", groupLabel: "Second Team" });
             });
           }
+          if (!rowsToRender.length) return null;
 
           return (
             <div key={year} className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
@@ -12908,11 +12994,11 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
               <HeaderRow />
               <div className="divide-y divide-gray-50">
                 {["MVP", "All-PCAL", "Second Team"].map(award => {
-                  const ps = players.filter(p => p.award === award);
+                  const ps = rowsToRender.filter(p => p.groupLabel === award);
                   if (!ps.length) return null;
                   return (
                     <React.Fragment key={award}>
-                      {ps.map(r => renderRow(r, award, year, false))}
+                      {ps.map(r => renderRow(r, r.displayAward, year, false))}
                       {award === "MVP" && MVP_BLURBS[year] && (
                         <div className="px-4 py-2.5 bg-amber-50/40 text-[11px] text-gray-600 leading-relaxed border-t border-amber-100">
                           {MVP_BLURBS[year].leaders && (
@@ -12940,12 +13026,6 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
                     </React.Fragment>
                   );
                 })}
-                {extraAiPicks.length > 0 && (
-                  <>
-                    <div className="px-4 py-1.5 bg-indigo-50/50 text-[10px] text-indigo-500 uppercase tracking-wider font-medium">AI picks not in actual awards</div>
-                    {extraAiPicks.map(r => renderRow(r, r.aiAward, year, true))}
-                  </>
-                )}
               </div>
             </div>
           );
@@ -14693,7 +14773,7 @@ function StatExplainersView() {
             For seasons 2005 through 2023, there was no formal voting process, so awards are reconstructed using AI Score combined with specific tiebreaker rules. Starting in 2024, MVP is selected by player vote.
           </p>
           <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            <span className="font-bold">All-PCAL First and Second Team:</span> First Team is filled by the rules below. Second Team consists of the next 5 players by AI Score after First Team is filled. A minimum of 5 games played is required for any award.
+            <span className="font-bold">All-PCAL First and Second Team:</span> First Team is filled by the rules below. Second Team consists of the next 5 players by total Game Score after First Team is filled, rewarding durability and high-volume production. A minimum of 5 games played is required for any award.
           </p>
           <p className="text-xs text-gray-600 leading-relaxed mb-2">
             <span className="font-bold">First Team selection order:</span> the five First Team spots are filled in this order.
