@@ -12010,7 +12010,7 @@ export default function App() {
                           </div>
                           <div className="text-right">
                             <div className="font-bold text-gray-900">{totalPts} pts</div>
-                            <div className="text-xs text-gray-400">career</div>
+                            <div className="text-xs text-gray-400">{searchPreset === "2025byTeam" ? latestYear : "career"}</div>
                           </div>
                         </div>
                       );
