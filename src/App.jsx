@@ -11469,6 +11469,9 @@ export default function App() {
                             <div className="flex items-center gap-1.5 mb-0.5">
                               {isActive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" aria-label="active" />}
                               <div className={`text-sm font-bold leading-tight ${isComing ? "text-gray-400" : "text-gray-900"}`}>{card.label}</div>
+                              {["teams", "gameleaders", "leaders", "career"].includes(card.key) && !isComing && !isInvisible && (
+                                <span className="text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 flex-shrink-0">New</span>
+                              )}
                             </div>
                             <div className={`text-[11px] mt-0.5 leading-snug ${isComing ? "text-gray-300" : "text-gray-400"}`}>{card.desc}</div>
                             {isComing && <div className="mt-1.5 inline-block text-[9px] font-bold text-gray-400 px-1.5 py-0.5 rounded border border-gray-300">COMING {(card._comingDate || "SOON").toUpperCase()}</div>}
@@ -12218,6 +12221,7 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
   // so registration announcements can say "He played for X last season"
   const playerHistoryMap = useMemo(() => {
     const map = {};
+    const yearsByPlayer = {};
     GAME_LOG.forEach(r => {
       if (r[6] !== 1) return;
       const name = r[0];
@@ -12228,6 +12232,11 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         map[name].lastTeam = team;
         map[name].lastYear = year;
       }
+      if (!yearsByPlayer[name]) yearsByPlayer[name] = new Set();
+      yearsByPlayer[name].add(year);
+    });
+    Object.keys(map).forEach(name => {
+      map[name].seasonsPlayed = yearsByPlayer[name].size;
     });
     return map;
   }, []);
@@ -12330,14 +12339,16 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         // Build enriched announcements with history
         const enriched = announcements.map(a => {
           const pronoun = a.gender === "Female" ? "She" : "He";
+          const possessive = a.gender === "Female" ? "her" : "his";
           const history = findPlayerHistory(a.first_name, a.last_name);
-          let historyNote = " This is their first season in PCAL.";
+          let historyNote = " This will be their first season in PCAL.";
           if (history) {
             const teamDisplay = TEAM_NAMES[history.lastTeam] || history.lastTeam;
+            const seasonOrdinal = ordinal((history.seasonsPlayed || 0) + 1);
             if (history.lastYear === 2025) {
-              historyNote = ` ${pronoun} played for ${teamDisplay} last season.`;
+              historyNote = ` ${pronoun} played for ${teamDisplay} last season. This will be ${possessive} ${seasonOrdinal} season in PCAL.`;
             } else {
-              historyNote = ` ${pronoun} last played for ${teamDisplay} in ${history.lastYear}.`;
+              historyNote = ` ${pronoun} last played for ${teamDisplay} in ${history.lastYear}. This will be ${possessive} ${seasonOrdinal} season in PCAL.`;
             }
           }
           const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
@@ -17180,7 +17191,8 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
                   <label className="text-[11px] text-emerald-600 font-semibold uppercase tracking-wide mb-1 block">Enter 6-Digit Code</label>
                   <input type="text" maxLength={6} value={form.verificationPin} onChange={e => checkPin(e.target.value.replace(/\D/g, ""))}
                     className="w-full px-3 py-3 rounded-xl border-2 border-emerald-200 text-center text-2xl font-black tracking-[0.5em] text-gray-900 placeholder-gray-300 outline-none focus:border-emerald-400 transition-colors bg-white" placeholder="000000" />
-                  <p className="text-[10px] text-gray-400 mt-1">Check your email. Code expires in 15 minutes.</p>
+                  <p className="text-xs font-bold text-red-600 mt-2">PLEASE CHECK YOUR SPAM FOLDER, as most codes are currently going to spam.</p>
+                  <p className="text-[10px] text-gray-400 mt-1">Code expires in 15 minutes.</p>
                 </div>
                 {form.emailVerified && (
                   <p className="text-sm font-bold text-emerald-700">Email verified</p>
@@ -17462,7 +17474,7 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
             {/* PIN and email note */}
             <div className="rounded-2xl bg-gray-50 border border-gray-200 p-4 space-y-2">
               <p className="text-xs text-gray-500 leading-relaxed">We've emailed a confirmation to you with all your info and a PIN you can use to edit your registration before the deadline.</p>
-              <p className="text-[11px] text-gray-400">Check your inbox (and spam folder) for an email from noreply@pcaleague.com.</p>
+              <p className="text-xs font-bold text-red-600">PLEASE CHECK YOUR SPAM FOLDER. Emails from noreply@pcaleague.com are currently being filtered as spam.</p>
             </div>
 
             {/* Links */}
@@ -17474,6 +17486,22 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
               <button onClick={() => { setPinToShow(null); resetForm(); if (switchSection) switchSection("stats"); }}
                 className="w-full py-3 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 active:scale-[0.98] transition-all">
                 Check out Stats & History
+              </button>
+              <button onClick={() => { setPinToShow(null); resetForm(); if (switchSection) switchSection("teams"); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-white text-gray-900 border-2 border-emerald-300 active:scale-[0.98] transition-all">
+                Team Histories
+              </button>
+              <button onClick={() => { setPinToShow(null); resetForm(); if (switchSection) switchSection("gameleaders"); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-white text-gray-900 border-2 border-emerald-300 active:scale-[0.98] transition-all">
+                Game Leaders
+              </button>
+              <button onClick={() => { setPinToShow(null); resetForm(); if (switchSection) switchSection("leaders"); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-white text-gray-900 border-2 border-emerald-300 active:scale-[0.98] transition-all">
+                Season Leaders
+              </button>
+              <button onClick={() => { setPinToShow(null); resetForm(); if (switchSection) switchSection("career"); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-white text-gray-900 border-2 border-emerald-300 active:scale-[0.98] transition-all">
+                Career Leaders
               </button>
             </div>
 
