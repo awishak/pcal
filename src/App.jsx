@@ -20891,8 +20891,11 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
 
   const TEAM_HISTORIES = [
     {
-      key: "HAY", name: "Hayward", years: "2005–2025", record: "140-76", titles: 7,
+      key: "HAY", name: "Hayward Monks", years: "2005–2025", record: "140-76", titles: 7,
       color: TEAM_COLORS.HAY,
+      bestSeasonYear: 2007,
+      bestSeasonLine: "12-0 Champ",
+      bestSeasonBlurb: "12-0 and the peak of the Hayward dynasty. Andrew Youssef had one of the strongest offensive seasons the league has ever seen, winning MVP per PCAL AI Score. The team was run by George Shehata, the eventual four-time MVP.",
       paragraphs: [
         "Hayward is the original PCAL dynasty — and for the league's first decade, the most feared team on the floor. From 2005 to 2009, Hayward won five consecutive championships including four straight undefeated seasons, playing an up-tempo, suffocating style that overwhelmed opponents on both ends. They pushed the ball relentlessly, turned defense into offense with an absurd rate of steals, and simply outran everyone. If you played Hayward, you spent the whole game chasing.",
         "George Shehata was the engine of that terror: a four-time MVP, eight-time All-PCAL selection, and the franchise's all-time steals leader at 3.1 per game across 75 career games. Andrew Youssef was the ideal complement — 1,287 career points, an MVP of his own in 2007 (20.8 PPG on a 12-0 team), and 1.9 steals per game that made Hayward's press lethal. Alex Mikhail anchored the defensive identity in the later dynasty years with 156 career steals and four All-PCAL selections, averaging over 2 steals per game across his prime.",
@@ -20901,8 +20904,11 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
       ]
     },
     {
-      key: "SAC", name: "Sacramento", years: "2006–2025", record: "146-67", titles: 8,
+      key: "SAC", name: "Sacramento Halos", years: "2006–2025", record: "146-67", titles: 8,
       color: TEAM_COLORS.SAC,
+      bestSeasonYear: 2022,
+      bestSeasonLine: "12-0 Champ",
+      bestSeasonBlurb: "Perfect 12-0, the second undefeated title in franchise history. Shot 53.6% from the field against a league average of 36.8%, the most efficient season any team has ever posted. Anthony Kelada was MVP per PCAL AI Score.",
       paragraphs: [
         "Sacramento is the winningest franchise in PCAL history with a 146-67 all-time record (.685) and a league-best eight championships. The team entered the league in 2006 and spent their first several years as a slow build — missing the playoffs twice, then gradually climbing through the semis before breaking through to the Finals in 2012 and 2013. When the first title finally came in 2014, it was the culmination of years of patient roster-building.",
         "The Sacramento identity was forged by Andrew Badroos, Anthony Kelada, and Abanob Poules, who all rose together and developed a style of super-team basketball — constant ball movement, a disciplined zone defense that slowed opponents down, and an unselfishness that made them brutally hard to play against. Poules, who also led the team as a player-coach, became the franchise's all-time leading scorer with 1,399 career points across 14 seasons and 150 games. Badroos earned two MVPs and four All-PCAL selections, while Kelada collected his own MVP, six All-PCAL nods, and a career spanning from the early build through the current dynasty.",
@@ -20911,8 +20917,11 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
       ]
     },
     {
-      key: "SJO", name: "San Jose", years: "2005–2025", record: "129-88", titles: 3,
+      key: "SJO", name: "San Jose Dragon Slayers", years: "2005–2025", record: "129-88", titles: 3,
       color: TEAM_COLORS.SJO,
+      bestSeasonYear: 2019,
+      bestSeasonLine: "10-2 Champ",
+      bestSeasonBlurb: "10-2 title run, marking the start of a new era for the franchise. Mark Shacker arrived from the Knights and won MVP per PCAL AI Score in his first San Jose season.",
       paragraphs: [
         "San Jose has been one of the PCAL's most consistently competitive franchises from the very beginning. In 20 seasons, San Jose has reached the Finals or won the championship ten times — three titles (2011, 2015, 2019) and seven Finals appearances — a remarkable level of sustained relevance in a league where dynasties come and go. They've truly been down only a handful of times, missing the playoffs just three times in two decades.",
         "Andrew Ishak was San Jose's cornerstone for 14 seasons, scoring 1,838 points and pulling down 939 rebounds while earning four MVPs and ten All-PCAL selections. His 2015 title run — 21.3 PPG and 10.6 RPG carrying a .500 team to the championship — stands as one of the great individual playoff performances in league history. The 2011 title featured Peter Abraham's legendary 5-game stretch (20.2 PPG, 3.2 BPG), while the 2019 championship brought Mark Shacker into the fold, one of the most lethal shooters the league has ever seen.",
@@ -20921,8 +20930,11 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
       ]
     },
     {
-      key: "SRA", name: "Pleasanton / San Ramon", years: "2005–2016, 2022–2025", record: "57-83", titles: 2,
+      key: "SRA", name: "Pleasanton/San Ramon Eagles", years: "2005–2016, 2022–2025", record: "57-83", titles: 2,
       color: TEAM_COLORS.SRA,
+      bestSeasonYear: 2016,
+      bestSeasonLine: "8-4 Champ",
+      bestSeasonBlurb: "8-4 and a championship in the final season under the San Ramon name. Started 0-2 before turning the season around, winning 8 of their last 10. Yoni Mulugeta led the run with 163 points across 12 games.",
       paragraphs: [
         "The Pleasanton/San Ramon franchise has operated under two names across two eras, but the competitive spirit has remained constant. San Ramon entered the league in 2005 and played through 2016, compiling a 41-55 record and two championships. After a hiatus, the franchise returned as Pleasanton in 2022 and has quickly established itself as a rising force with an 18-34 record and a 2025 Finals appearance.",
         "The San Ramon era belongs to Yoni Mulugeta. The franchise's all-time leader in points (1,223) and rebounds (404), Mulugeta was a one-man offense who carried San Ramon through eight seasons. His MVP-winning 2008 campaign (19.6 PPG) and dominant 2009 follow-up (20.0 PPG) rank among the great sustained stretches of individual play in league history. Mike Soliman provided crucial early production, while the Nakhla brothers — John and Mark — gave the franchise a blue-collar identity across nine seasons each. San Ramon's two titles bookend their run: the 2010 championship during Mulugeta's peak, and the 2016 title in the franchise's final season under that name.",
@@ -20931,8 +20943,11 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
       ]
     },
     {
-      key: "CON", name: "Concord", years: "2005–2022", record: "53-120", titles: 0,
+      key: "CON", name: "Concord WonderWorkers", years: "2005–2022", record: "53-120", titles: 0,
       color: TEAM_COLORS.CON,
+      bestSeasonYear: 2008,
+      bestSeasonLine: "6-6 Finals",
+      bestSeasonBlurb: "6-6 and a Finals appearance in Concord's gritty one-year era without Warren Allicock. George Hanna averaged 14.5 points and 7.8 rebounds per game, and the team knocked off San Ramon in the semifinals before falling to Hayward in the Finals.",
       paragraphs: [
         "Concord is the PCAL's lovable underdog — 17 seasons, zero championships, but plenty of heart. The franchise's all-time record of 53-120 (.306) tells a story of perennial struggle, but within that struggle emerged some of the most entertaining individual performers the league has produced.",
         "George Hanna was Concord's foundational player: 842 career points, 512 rebounds, and a do-everything style that earned him one All-PCAL selection across ten seasons. His 2008 Finals run — 14.5 PPG, 7.8 RPG, 2.4 SPG carrying Concord to their only championship appearance — remains the franchise's finest moment. Warren Allicock provided explosive scoring in limited appearances, posting 17.4 PPG in 2006 and earning two All-PCAL nods.",
@@ -20941,8 +20956,11 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
       ]
     },
     {
-      key: "PDF", name: "Pacific", years: "2019–2025", record: "33-35", titles: 0,
+      key: "PDF", name: "Pacific Desert Fathers", years: "2019–2025", record: "33-35", titles: 0,
       color: TEAM_COLORS.PDF,
+      bestSeasonYear: 2022,
+      bestSeasonLine: "9-3 Finals",
+      bestSeasonBlurb: "9-3 and the franchise's first Finals appearance. Put up 51.0 PPG to 38.3 PA, a +12.7 margin, with Andrew Ishak and a breakout Jacob Shehata leading the attack.",
       paragraphs: [
         "Pacific is the PCAL's most unique franchise — a team built entirely of 30-and-older veterans who play for the love of the game. With an average roster age that started at 34.2 in their 2019 debut and has climbed to 40.2 by 2025, Pacific is far and away the oldest team in league history. They don't have the speed or athleticism of the younger squads, but what they have is basketball IQ, chemistry, and the kind of unselfish ball movement that makes them a joy to watch.",
         "Pacific's assist rates tell the story: the team consistently posts some of the highest assist totals in the league, a reflection of a roster full of veterans who know how to find the open man. They may not blow past you, but they'll pick you apart with extra passes and smart cuts. They're also widely regarded as the most fun-loving team in the league — the locker room energy is unmatched.",
@@ -20951,36 +20969,36 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
       ]
     },
     {
-      key: "MOD", name: "Modesto", years: "2007–2025", record: "31-90", titles: 0,
+      key: "MOD", name: "Modesto Lions", years: "2007–2025", record: "31-90", titles: 0,
       color: TEAM_COLORS.MOD,
+      bestSeasonYear: 2015,
+      bestSeasonLine: "6-5 Semis",
+      bestSeasonBlurb: "6-5 and a semis run, the franchise's first winning season. The most competitive Modesto team ever fielded, with Bashar Shammas and Alfred Arrington as the scoring and rebounding anchors.",
       paragraphs: [
         "Modesto has endured the longest championship drought of any PCAL franchise with a sustained presence — 12 seasons of operation, zero titles, and a 31-90 all-time record (.256). But the franchise has produced some genuinely exciting individual talent that deserves recognition beyond the win column.",
         "Andrew Sakla's 2008 debut — 21.3 PPG, 8.4 RPG, and 3.6 SPG in just 8 games — is one of the most dominant single-season performances in PCAL history, earning him an All-PCAL nod despite Modesto's 2-8 record. Bashar Shammas followed with back-to-back brilliant seasons (20.4 PPG in 2013, 17.6 PPG in 2014), earning two All-PCAL selections as the franchise's best two-way player. Mathew Sharkawy quietly became the all-time franchise leader in points (610) and rebounds (319) across seven loyal seasons.",
-        "The more recent era has seen Andre Muqhar provide scoring punch (272 points in three seasons) and Daniel Elsakr anchor the glass. Modesto has missed the playoffs nine times — more than any other franchise — but continues to compete season after season. Their story is one of persistence in the face of a league dominated by dynasties at the top."
+        "The more recent era has seen Andre Muqhar provide scoring punch (272 points in three seasons) and Daniel Elsakr anchor the glass. Modesto has missed the playoffs nine times — more than any other franchise — but continues to compete season after season. Their story is one of persistence in the face of a league dominated by dynasties at the top.",
+        "In 2018, Modesto joined with Christ in Sports to field a combined team that went 1-8 and reached the semifinals. Those games are included in the franchise record."
       ]
     },
     {
       key: "CIS", name: "Christ in Sports", years: "2014–2021", record: "2-24", titles: 0,
       color: TEAM_COLORS.CIS,
+      bestSeasonYear: 2019,
+      bestSeasonLine: "2-8 Missed",
+      bestSeasonBlurb: "The only CIS season with a win, finishing 2-8. Produced the franchise's lone non-trivial scoring contribution in its three-year history.",
       paragraphs: [
         "Christ in Sports had the shortest and most challenging run of any PCAL franchise — just three seasons of play (2014, 2019, 2021) with a combined 2-24 record. The team missed the playoffs in every season of their existence and never found the roster depth to compete consistently.",
-        "Despite the struggles, Yousef Trabouly and Charlie Aziz provided steady contributions across all three seasons, combining for 127 points and showing up every year. George Hanna's lone 2019 cameo (8.6 PPG in 7 games) was the franchise's single-season scoring high point. The team's competitive spirit was evident even in lopsided losses, and their presence helped the league maintain a broader community footprint during those years."
+        "Despite the struggles, Yousef Trabouly and Charlie Aziz provided steady contributions across all three seasons, combining for 127 points and showing up every year. George Hanna's lone 2019 cameo (8.6 PPG in 7 games) was the franchise's single-season scoring high point. The team's competitive spirit was evident even in lopsided losses, and their presence helped the league maintain a broader community footprint during those years.",
+        "In 2018, Christ in Sports combined with Modesto to field a joint team. That season's record is counted under Modesto."
       ]
     },
     {
-      key: "SJK", name: "Knights", years: "2016", record: "5-6", titles: 0,
+      key: "SJK", name: "San Jose Knights", years: "2016", record: "5-6", titles: 0,
       color: TEAM_COLORS.SJK,
       paragraphs: [
         "The Knights were a single-season franchise in 2016, finishing 5-6 and reaching the semifinals. Their roster featured Mounir Gad (13.3 PPG in 7 games) and a young Mark Shacker (7.9 PPG in 8 games) before his breakout San Jose years, as well as veteran Walid Fahmy. The team reached the semis in their only season — a respectable showing for a one-year experiment.",
         "Though brief, the Knights' season is notable for housing future stars. Shacker would go on to win an MVP and score the most points in a single PCAL season (276 in 2021), while Gad was already an established All-PCAL talent winding down his career. The Knights existed for one season and left without a title, but their alumni went on to make significant marks elsewhere."
-      ]
-    },
-    {
-      key: "MOD", name: "Modesto+CIS", years: "2018", record: "1-8", titles: 0,
-      color: TEAM_COLORS.MOD || "#9333ea",
-      paragraphs: [
-        "Modesto+CIS was a one-season merger in 2018, combining the rosters of Modesto and Christ in Sports into a single team. The combined squad went 1-8 but featured one standout performance: Eldon Long's 18.8 PPG in 6 games, which earned him an All-PCAL selection — the only individual honor in the franchise's brief existence.",
-        "Rafael Sawiris contributed 55 points in 7 games as the second option, while veteran George Nashed provided rebounding. The merger was a creative solution to roster challenges for both parent franchises, and while the on-court results were modest, it kept players in the league who might otherwise have sat out the season."
       ]
     },
   ];
@@ -20990,18 +21008,55 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Team Histories</p>
       {TEAM_HISTORIES.map(team => {
         const isOpen = expandedTeam === team.key;
-        // Quick stats
-        const teamYears = Object.keys(teamSeasons).filter(k => k.startsWith(team.key + '-'));
-        const champs = teamYears.filter(k => teamSeasons[k].final === 'Champ').length;
-        
+        // Collect team keys for this entry (SRA also pulls in PLE)
+        const keyPrefixes = team.key === "SRA" ? ["SRA-", "PLE-"] : [team.key + "-"];
+        const teamCodes = team.key === "SRA" ? ["SRA", "PLE"] : [team.key];
+        const teamYearKeys = Object.keys(teamSeasons).filter(k => keyPrefixes.some(p => k.startsWith(p)));
+        const champYears = teamYearKeys
+          .filter(k => teamSeasons[k].final === 'Champ')
+          .map(k => parseInt(k.split('-')[1]))
+          .sort((a, b) => a - b);
+        const seasonsCount = new Set(teamYearKeys.map(k => k.split('-')[1])).size;
+        const gamesCount = teamYearKeys.reduce((sum, k) => sum + (teamSeasons[k].w || 0) + (teamSeasons[k].l || 0), 0);
+
+        // Career leaders: aggregate across all franchise player-seasons
+        const franchiseRows = data.filter(d => teamCodes.includes(d.team));
+        const careerTotals = {};
+        franchiseRows.forEach(r => {
+          if (!careerTotals[r.player]) careerTotals[r.player] = { player: r.player, g: 0, pts: 0, aiScore: 0 };
+          careerTotals[r.player].g += r.g || 0;
+          careerTotals[r.player].pts += r.pts || 0;
+          careerTotals[r.player].aiScore += r.aiScore || 0;
+        });
+        const careerList = Object.values(careerTotals);
+        const gamesLeader = careerList.slice().sort((a, b) => b.g - a.g)[0];
+        const pointsLeader = careerList.slice().sort((a, b) => b.pts - a.pts)[0];
+        const careerAILeader = careerList.slice().sort((a, b) => b.aiScore - a.aiScore)[0];
+        // Single-season AI leader
+        const seasonAILeader = franchiseRows.slice().sort((a, b) => (b.aiScore || 0) - (a.aiScore || 0))[0];
+
         return (
           <div key={team.key} className="rounded-2xl border border-gray-100 overflow-hidden bg-white">
             <button onClick={() => setExpandedTeam(isOpen ? null : team.key)}
               className="w-full px-4 py-4 flex items-center gap-3 active:bg-gray-50 transition-colors text-left">
-              <TeamLogo team={team.key} size={48} />
+              {team.key === "SRA" ? (
+                <div className="flex items-center gap-1">
+                  <TeamLogo team="SRA" size={48} />
+                  <TeamLogo team="PLE" size={48} />
+                </div>
+              ) : (
+                <TeamLogo team={team.key} size={48} />
+              )}
               <div className="flex-1 min-w-0">
-                <div className="font-bold text-gray-900">{team.name}</div>
-                <div className="text-xs text-gray-400">{team.years} • {team.record} • {team.titles > 0 ? team.titles + "× Champ" : "No titles"}</div>
+                <div className="font-bold text-gray-900 text-lg">{team.name}</div>
+                <div className="text-sm text-gray-400">{seasonsCount} seasons • {gamesCount} games • {team.record}</div>
+                {champYears.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {champYears.map(y => (
+                      <span key={y} className="text-xs font-bold rounded" style={{ background: team.color, color: "white", padding: "4px 8px" }}>{y}</span>
+                    ))}
+                  </div>
+                )}
               </div>
               <svg className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -21010,6 +21065,20 @@ function TeamsView({ data, teamSeasons, goToPlayer }) {
 
             {isOpen && (
               <div className="px-4 pb-4 border-t border-gray-50">
+                {team.key !== "SJK" && (
+                  <div className="mt-3 space-y-1 text-sm text-gray-700">
+                    {gamesLeader && <div><span className="text-gray-500">Games Leader:</span> {gamesLeader.player} ({gamesLeader.g})</div>}
+                    {pointsLeader && <div><span className="text-gray-500">Points Leader:</span> {pointsLeader.player} ({pointsLeader.pts})</div>}
+                    {careerAILeader && <div><span className="text-gray-500">AI Score Leader (career):</span> {careerAILeader.player} ({careerAILeader.aiScore.toFixed(1)})</div>}
+                    {seasonAILeader && <div><span className="text-gray-500">AI Score Leader (single season):</span> {seasonAILeader.player}, {seasonAILeader.year} ({(seasonAILeader.aiScore || 0).toFixed(1)})</div>}
+                    {team.bestSeasonYear && (
+                      <div className="pt-2">
+                        <div><span className="text-gray-500">Best Season, according to Claude:</span> {team.bestSeasonYear} ({team.bestSeasonLine})</div>
+                        <div className="text-gray-600 italic mt-1">{team.bestSeasonBlurb}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-3 mt-3">
                   {team.paragraphs.map((p, i) => (
                     <p key={i} className="text-sm text-gray-700 leading-relaxed">{p}</p>
