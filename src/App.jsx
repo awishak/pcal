@@ -12340,6 +12340,13 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
     "george hanna": "Straight from Space Mountain to the hardwood.",
   };
 
+  // Player-specific season-count replacements. When present, these REPLACE the generic
+  // season-count line entirely so the announcement doesn't repeat the season number.
+  const playerSeasonReplacements = {
+    "zack girgis": "Year 21. He might be in his 40s but there's still gas in the tank.",
+    "andrew ishak": "Season 21, and if he hasn't learned to stretch before games by now, he never will.",
+  };
+
   // Normalize a name for override lookup. Handles extra whitespace.
   const normalizeName = (first, last) => `${(first || "").trim()} ${(last || "").trim()}`.replace(/\s+/g, " ").toLowerCase();
 
@@ -12465,28 +12472,35 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           // History and season count
           let historyText = "";
           let seasonText = "";
+          const nameKey = normalizeName(a.first_name, a.last_name);
+          const seasonReplacement = playerSeasonReplacements[nameKey];
           if (history) {
             const teamDisplay = TEAM_NAMES[history.lastTeam] || history.lastTeam;
             const seasonNum = (history.seasonsPlayed || 0) + 1;
-            if (history.lastYear === 2025) {
-              const pool = pronoun === "She" ? REG_HISTORY_2025_F : REG_HISTORY_2025;
-              historyText = " " + pool[seed % pool.length](teamDisplay);
-            } else {
-              historyText = " " + REG_HISTORY_PAST[seed % REG_HISTORY_PAST.length](teamDisplay, history.lastYear, pronoun);
-            }
-            // Season count: long-timer (10+ prior seasons) gets special variant option
-            if ((history.seasonsPlayed || 0) >= 10 && seed % 4 === 0) {
+            // Season count: player-specific replacement beats all else, then long-timer, then generic pool
+            if (seasonReplacement) {
+              seasonText = " " + seasonReplacement;
+            } else if ((history.seasonsPlayed || 0) >= 10 && seed % 4 === 0) {
               seasonText = " " + REG_SEASON_COUNT_LONGTIMER(seasonNum);
             } else {
               const fn = REG_SEASON_COUNT[seed % REG_SEASON_COUNT.length];
               seasonText = " " + fn(seasonNum, pronoun);
+            }
+            // History: if season count uses "season", avoid 2025-history variants that also say "season"
+            if (history.lastYear === 2025) {
+              const pool = pronoun === "She" ? REG_HISTORY_2025_F : REG_HISTORY_2025;
+              const seasonCollision = /\bseasons?\b/i.test(seasonText);
+              const filtered = seasonCollision ? pool.filter(fn => !/\bseasons?\b/i.test(fn("TEAM"))) : pool;
+              const chosen = filtered.length ? filtered : pool;
+              historyText = " " + chosen[seed % chosen.length](teamDisplay);
+            } else {
+              historyText = " " + REG_HISTORY_PAST[seed % REG_HISTORY_PAST.length](teamDisplay, history.lastYear, pronoun);
             }
           } else {
             seasonText = " " + REG_FIRST_TIMER[seed % REG_FIRST_TIMER.length];
           }
 
           // Player-specific modifier
-          const nameKey = normalizeName(a.first_name, a.last_name);
           const playerMod = playerModifiers[nameKey];
           const playerModText = playerMod ? " " + playerMod : "";
 
@@ -12501,7 +12515,8 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           // Display name with override
           const displayName = playerNameOverrides[nameKey] || `${a.first_name} ${a.last_name}`;
 
-          const historyNote = historyText + seasonText + playerModText + ageModText;
+          // Assembly order: season count first, then history, then modifiers
+          const historyNote = seasonText + historyText + playerModText + ageModText;
           const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
           return {
             ...a, pronoun, history, historyNote, openerText, displayName, dateStr,
