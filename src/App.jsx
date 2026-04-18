@@ -12253,6 +12253,121 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
     return null;
   }, [playerHistoryMap]);
 
+  // Registration announcement phrasing pools. Variant is seeded by created_at so
+  // each registration reads the same every render but different regs vary.
+  const REG_OPENERS = [
+    "has registered.",
+    "is back.",
+    "is locked in.",
+    "made it official.",
+    "is running it back.",
+    "was moved by the Spirit to register.",
+    "wrote their name in the book.",
+    "crossed themselves and hit submit.",
+  ];
+  const REG_HISTORY_2025 = [
+    (team) => `He played for ${team} last season.`,
+    (team) => `He wore ${team} colors last season.`,
+    (team) => `He spent 2025 with ${team}.`,
+    (team) => `He was repping ${team} last year.`,
+    (team) => `He was on ${team}'s squad last year.`,
+  ];
+  const REG_HISTORY_2025_F = [
+    (team) => `She played for ${team} last season.`,
+    (team) => `She wore ${team} colors last season.`,
+    (team) => `She spent 2025 with ${team}.`,
+    (team) => `She was repping ${team} last year.`,
+    (team) => `She was on ${team}'s squad last year.`,
+  ];
+  const REG_HISTORY_PAST = [
+    (team, yr, pn) => `${pn} last played for ${team} in ${yr}.`,
+    (team, yr, pn) => `${pn} last suited up for ${team} in ${yr}.`,
+    (team, yr, pn) => `Last seen in a ${team} jersey in ${yr}.`,
+    (team, yr, pn) => `${pn} steps back in after ${pn === "She" ? "her" : "his"} ${yr} ${team} run.`,
+    (team, yr, pn) => `Last seen repping ${team} in ${yr}.`,
+    (team, yr, pn) => `Pull up the tape, last time was ${team}, ${yr}.`,
+  ];
+  const REG_SEASON_COUNT = [
+    (n, pn) => `This will be ${pn === "She" ? "her" : "his"} ${ordinal(n)} season in PCAL.`,
+    (n) => `This marks ${ordinal(n)} PCAL season.`,
+    (n, pn) => `${pn === "She" ? "She" : "He"}'s entering ${pn === "She" ? "her" : "his"} ${ordinal(n)} PCAL season.`,
+    (n, pn) => `${pn === "She" ? "She" : "He"}'s back for ${pn === "She" ? "her" : "his"} ${ordinal(n)} season.`,
+    (n) => `${ordinal(n)} season deep.`,
+    (n) => `${n} seasons, glory be to God.`,
+    (n) => `${n} seasons in and still blessed.`,
+  ];
+  const REG_SEASON_COUNT_LONGTIMER = (n) => `Still showing up for year ${n}.`;
+  const REG_FIRST_TIMER = [
+    "This will be their first season in PCAL.",
+    "PCAL debut incoming.",
+    "Rookie season starts now.",
+    "Glory to God, a new PCAL player.",
+    "Welcome to the PCAL fold.",
+    "New to the PCAL circuit.",
+    "A new PCAL name joins the roll.",
+    "Stepping in for their first PCAL season.",
+  ];
+  const REG_AGE_MODIFIER = [
+    "Veteran energy incoming.",
+    "Father Time remains undefeated, but he's still showing up.",
+    "With the strength of the fathers.",
+    "Forever young in spirit.",
+    (age) => `Still hooping at ${age}.`,
+  ];
+
+  // Player-specific overrides: name (display) and modifier sentence
+  const playerNameOverrides = {
+    "zack girgis": 'Zack "Draymond" Girgis',
+    "hanni fakhoury": "The Honorable Judge Hanni Fakhoury",
+    "sunil saini": "Sunny Saini",
+    "john ameen": 'John "Kobe" Ameen',
+    "andre hanna": "Andy Hanna",
+    "john hanna": "John Ramzy Hanna",
+  };
+  const playerModifiers = {
+    "moses abdelshaid": "Taking over as team rep for the eight-time champs, the Sacramento Halos.",
+    "marios tawdros": "In his 5th year as Pleasanton team rep.",
+    "daniel elsakr": "Holding it down for Modesto.",
+    "simon abdelmalak": "The MVP and San Jose team rep returns.",
+    "mark abdalla": "The man from Hayward is in, serving as team rep.",
+    "andrew abdelmalak": "Sandy's soon-to-be husband is returning.",
+    "andrew sharkawy": "Back on social media content duty.",
+    "hanni fakhoury": "Order in the court.",
+    "sunil saini": "The sunshine is back.",
+    "john ameen": "Mamba mentality returns.",
+    "john hanna": "Working on the next hit record in between games.",
+    "mario yany": "Every player's favorite player is back.",
+    "george hanna": "Straight from Space Mountain to the hardwood.",
+  };
+
+  // Normalize a name for override lookup. Handles extra whitespace.
+  const normalizeName = (first, last) => `${(first || "").trim()} ${(last || "").trim()}`.replace(/\s+/g, " ").toLowerCase();
+
+  // Deterministic integer from a string (created_at timestamp) for seeded variant selection
+  const hashSeed = (str) => {
+    let h = 0;
+    if (!str) return 0;
+    for (let i = 0; i < str.length; i++) {
+      h = ((h << 5) - h) + str.charCodeAt(i);
+      h |= 0;
+    }
+    return Math.abs(h);
+  };
+
+  // Compute age from a dob string like "MM/DD/YYYY"
+  const ageFromDob = (dob) => {
+    if (!dob) return null;
+    const parts = dob.split("/");
+    if (parts.length !== 3) return null;
+    const bd = new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+    if (isNaN(bd.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - bd.getFullYear();
+    const m = today.getMonth() - bd.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) age--;
+    return age;
+  };
+
   return (
     <div className="space-y-3 pb-6">
       {/* Sticky links bar (top) */}
@@ -12336,24 +12451,60 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           });
         }
 
-        // Build enriched announcements with history
+        // Build enriched announcements with history, using seeded variant pools
         const enriched = announcements.map(a => {
           const pronoun = a.gender === "Female" ? "She" : "He";
           const possessive = a.gender === "Female" ? "her" : "his";
           const history = findPlayerHistory(a.first_name, a.last_name);
-          let historyNote = " This will be their first season in PCAL.";
+          const seed = hashSeed(a.created_at || `${a.first_name}${a.last_name}`);
+          const pick = (pool) => pool[seed % pool.length];
+
+          // Opener (always used)
+          const openerText = pick(REG_OPENERS);
+
+          // History and season count
+          let historyText = "";
+          let seasonText = "";
           if (history) {
             const teamDisplay = TEAM_NAMES[history.lastTeam] || history.lastTeam;
-            const seasonOrdinal = ordinal((history.seasonsPlayed || 0) + 1);
+            const seasonNum = (history.seasonsPlayed || 0) + 1;
             if (history.lastYear === 2025) {
-              historyNote = ` ${pronoun} played for ${teamDisplay} last season. This will be ${possessive} ${seasonOrdinal} season in PCAL.`;
+              const pool = pronoun === "She" ? REG_HISTORY_2025_F : REG_HISTORY_2025;
+              historyText = " " + pool[seed % pool.length](teamDisplay);
             } else {
-              historyNote = ` ${pronoun} last played for ${teamDisplay} in ${history.lastYear}. This will be ${possessive} ${seasonOrdinal} season in PCAL.`;
+              historyText = " " + REG_HISTORY_PAST[seed % REG_HISTORY_PAST.length](teamDisplay, history.lastYear, pronoun);
             }
+            // Season count: long-timer (10+ prior seasons) gets special variant option
+            if ((history.seasonsPlayed || 0) >= 10 && seed % 4 === 0) {
+              seasonText = " " + REG_SEASON_COUNT_LONGTIMER(seasonNum);
+            } else {
+              const fn = REG_SEASON_COUNT[seed % REG_SEASON_COUNT.length];
+              seasonText = " " + fn(seasonNum, pronoun);
+            }
+          } else {
+            seasonText = " " + REG_FIRST_TIMER[seed % REG_FIRST_TIMER.length];
           }
+
+          // Player-specific modifier
+          const nameKey = normalizeName(a.first_name, a.last_name);
+          const playerMod = playerModifiers[nameKey];
+          const playerModText = playerMod ? " " + playerMod : "";
+
+          // Age modifier (age 40+)
+          const age = ageFromDob(a.dob);
+          let ageModText = "";
+          if (age !== null && age >= 40) {
+            const mod = REG_AGE_MODIFIER[seed % REG_AGE_MODIFIER.length];
+            ageModText = " " + (typeof mod === "function" ? mod(age) : mod);
+          }
+
+          // Display name with override
+          const displayName = playerNameOverrides[nameKey] || `${a.first_name} ${a.last_name}`;
+
+          const historyNote = historyText + seasonText + playerModText + ageModText;
           const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
           return {
-            ...a, pronoun, history, historyNote, dateStr,
+            ...a, pronoun, history, historyNote, openerText, displayName, dateStr,
             tc: TEAM_C[a.team_pref] || (history ? (TEAM_COLORS[history.lastTeam] || "#6b7280") : "#6b7280"),
             _ts: a.created_at ? new Date(a.created_at).getTime() : 0,
           };
@@ -12430,10 +12581,10 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
                                     )}
                                     <div className="flex-1 min-w-0">
                                       <p className="text-sm text-gray-900 leading-snug">
-                                        <strong>{a.first_name} {a.last_name}</strong>
-                                        <span className="text-gray-500 font-normal">{a.historyNote}</span>
+                                        <strong>{a.displayName || `${a.first_name} ${a.last_name}`}</strong>
+                                        <span className="text-gray-500 font-normal"> {a.openerText || "has registered."}{a.historyNote}</span>
+                                        {a.reg_quote && <span className="text-gray-500 italic"> "{a.reg_quote}"</span>}
                                       </p>
-                                      {a.reg_quote && <p className="text-[10px] text-gray-400 italic truncate">"{a.reg_quote}"</p>}
                                     </div>
                                   </div>
                                 ))}
@@ -12463,9 +12614,9 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
                                   {item.dateStr && <p className="text-xs font-bold text-gray-500">{item.dateStr}</p>}
                                 </div>
                                 <p className="text-sm text-gray-900 leading-relaxed">
-                                  <strong>{a.first_name} {a.last_name}</strong> has registered.{item.historyNote}
+                                  <strong>{a.displayName || `${a.first_name} ${a.last_name}`}</strong> {a.openerText || "has registered."}{item.historyNote}
+                                  {a.reg_quote && <span className="text-gray-500 italic"> "{a.reg_quote}"</span>}
                                 </p>
-                                {a.reg_quote && <p className="text-[11px] text-gray-500 italic mt-1">"{a.reg_quote}"</p>}
                               </div>
                             </div>
                           </div>
