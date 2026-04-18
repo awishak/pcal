@@ -15148,46 +15148,95 @@ function StatExplainersView() {
   return (
     <div>
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Explaining AI Score and Game Score</p>
-      <p className="text-[11px] text-gray-400 mb-4">The two metrics that power most of the rankings in this app</p>
+      <p className="text-sm text-gray-500 mb-4">The two metrics that power most of the rankings in this app</p>
 
       <div className="space-y-3">
         <div className="rounded-xl border border-gray-100 bg-white p-4">
-          <h3 className="text-sm font-black text-gray-900 mb-2">Game Score (GmSc)</h3>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            <span className="font-bold">Game Score is a single number that summarizes how a player performed in one game.</span> It takes the things you already see in a box score &mdash; points, rebounds, assists, steals, blocks, shooting, fouls &mdash; and rolls them into one stat so you can compare games at a glance without staring at a full line.
+          <h3 className="text-base font-black text-gray-900 mb-2">The limits of stats</h3>
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            There's really no way to measure the full value of a player from statistics alone, and especially from the limited statistics we have in PCAL. We don't track player movement, gravity, or expected value the way the NBA does, let alone things like heart or defensive effort that don't show up in the box score at all.
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed mb-3">
-            As a rule of thumb: <span className="font-bold">10 is a solid game, 15 is great, 20+ is dominant.</span> "Total GmSc" is the sum across every game a player played. "Avg GmSc" is the per-game average.
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            What we have is points, rebounds, assists, steals, blocks, shooting, and fouls. With that, we try to put together an estimation of statistical value, which is a partial approximation of a player's value to their team.
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed mb-3">
-            The stat was developed by John Hollinger. Points carry the most weight. Assists, steals, and blocks are worth more per-event than rebounds. Missed shots and fouls cost you. The formula used in basketball is:
-          </p>
-          <div className="bg-gray-50 rounded-lg p-3 text-[11px] font-mono text-gray-700 leading-relaxed mb-3">
-            GmSc = PTS + 0.4 × FGM − 0.7 × FGA − 0.4 × (FTA − FTM) + 0.7 × OREB + 0.3 × DREB + STL + 0.7 × AST + 0.7 × BLK − 0.4 × PF − TO
-          </div>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            PCAL does not separate offensive from defensive rebounds, and we do not track turnovers, so this is a slight approximation &mdash; rebounds are treated uniformly and turnovers are omitted. Game Score also can't see anything that isn't in the box score: off-ball defense, screens, communication, spacing. It's a good shorthand, not a complete picture.
+          <p className="text-sm text-gray-700 leading-relaxed">
+            Two metrics power most of the rankings in this app. <span className="font-bold">Game Score</span> was developed a few decades ago by John Hollinger, who has done a lot of work for NBA advanced metrics. <span className="font-bold">AI Score</span> was developed here by Claude. Both are explained below.
           </p>
         </div>
 
         <div className="rounded-xl border border-gray-100 bg-white p-4">
-          <h3 className="text-sm font-black text-gray-900 mb-2">AI Score</h3>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            <span className="font-bold">AI Score is the season-long version of Game Score, but smarter.</span> Game Score tells you how a player did in one game using just the box score. AI Score looks at a full season and factors in a bunch of things that a single box score can't see.
+          <h3 className="text-base font-black text-gray-900 mb-2">Game Score (GmSc)</h3>
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            <span className="font-bold">Game Score is a single number that summarizes how a player performed in one game.</span> It takes the things you already see in a box score, points, rebounds, assists, steals, blocks, shooting, fouls, and rolls them into one stat so you can compare games at a glance without staring at a full line.
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed mb-3">
+          <p className="text-sm text-gray-700 leading-relaxed mb-3">
+            As a rule of thumb: <span className="font-bold">10 is a solid game, 15 is great, 20+ is dominant.</span> "Total GmSc" is the sum across every game a player played. "Avg GmSc" is the per-game average.
+          </p>
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            Points carry the most weight. Assists, steals, and blocks are worth more per-event than rebounds. Missed shots and fouls cost you.
+          </p>
+          <p className="text-xs text-gray-500 italic leading-relaxed mb-2">If you don't care about the math, skip the formula below.</p>
+          <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono text-gray-700 leading-relaxed mb-3">
+            GmSc = PTS + 0.4 × FGM − 0.7 × FGA − 0.4 × (FTA − FTM) + 0.3 × REB + STL + 0.7 × AST + 0.7 × BLK − 0.4 × PF
+          </div>
+          <p className="text-sm text-gray-700 leading-relaxed mb-3">
+            PCAL does not separate offensive from defensive rebounds, and we do not track turnovers, so this is a slight approximation. Game Score also can't see anything that isn't in the box score: off-ball defense, screens, communication, spacing. It's a good shorthand, not a complete picture.
+          </p>
+
+          <div className="bg-slate-50 rounded-lg p-3 mt-4">
+            <h4 className="text-sm font-bold text-gray-900 mb-2">Example 1: Shooting efficiency matters</h4>
+            <p className="text-sm text-gray-700 leading-relaxed mb-2">
+              Mina and Michael both score 20 points in the same game, with the same 5 rebounds, 2 assists, 1 steal, and 2 fouls. But they get to 20 very differently.
+            </p>
+            <div className="text-sm text-gray-700 leading-relaxed ml-2 mb-2">
+              <div className="mb-1"><span className="font-bold">Mina:</span> 20p on 8-14 FG and 4-4 FT</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-1">GmSc = 20 + (0.4×8) − (0.7×14) − 0 + (0.3×5) + 1 + (0.7×2) + 0 − (0.4×2)</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">     = 20 + 3.2 − 9.8 + 1.5 + 1 + 1.4 − 0.8 = <span className="font-bold text-gray-900">16.5</span></div>
+              <div className="mb-1"><span className="font-bold">Michael:</span> 20p on 9-24 FG and 2-2 FT</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-1">GmSc = 20 + (0.4×9) − (0.7×24) − 0 + (0.3×5) + 1 + (0.7×2) + 0 − (0.4×2)</div>
+              <div className="text-xs text-gray-500 font-mono ml-2">     = 20 + 3.6 − 16.8 + 1.5 + 1 + 1.4 − 0.8 = <span className="font-bold text-gray-900">9.9</span></div>
+            </div>
+            <p className="text-sm text-gray-700 leading-relaxed">
+              Michael took 10 more shots to get the same 20 points. Missed shots carry a 0.7 penalty each, so his Game Score drops by almost 7 points compared to Mina for nothing more than shot volume.
+            </p>
+          </div>
+
+          <div className="bg-slate-50 rounded-lg p-3 mt-3">
+            <h4 className="text-sm font-bold text-gray-900 mb-2">Example 2: Filling the box score matters</h4>
+            <p className="text-sm text-gray-700 leading-relaxed mb-2">
+              Mina and Michael both score 15 points on identical 6-12 FG and 3-4 FT. Same 2 fouls. But the rest of their lines are very different.
+            </p>
+            <div className="text-sm text-gray-700 leading-relaxed ml-2 mb-2">
+              <div className="mb-1"><span className="font-bold">Mina:</span> 15p, 8 rebounds, 4 assists, 2 steals, 1 block</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">GmSc = 15 + 2.4 − 8.4 − 0.4 + 2.4 + 2 + 2.8 + 0.7 − 0.8 = <span className="font-bold text-gray-900">15.7</span></div>
+              <div className="mb-1"><span className="font-bold">Michael:</span> 15p, 2 rebounds, 0 assists, 0 steals, 0 blocks</div>
+              <div className="text-xs text-gray-500 font-mono ml-2">GmSc = 15 + 2.4 − 8.4 − 0.4 + 0.6 + 0 + 0 + 0 − 0.8 = <span className="font-bold text-gray-900">8.4</span></div>
+            </div>
+            <p className="text-sm text-gray-700 leading-relaxed">
+              The scoring lines are identical. What separates them is everything else: rebounds, passing, defense. Mina affected the game in ways that didn't show up in her point total, and Game Score credits that.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-4">
+          <h3 className="text-base font-black text-gray-900 mb-2">AI Score</h3>
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            <span className="font-bold">AI Score is a season-long metric, not a single-game one.</span> Game Score tells you how a player did in one game using just the box score. AI Score looks at a full season and factors in things that a single box score can't see.
+          </p>
+          <p className="text-sm text-gray-700 leading-relaxed mb-3">
             Specifically, AI Score takes into account:
           </p>
-          <ul className="list-disc pl-5 space-y-1 text-xs text-gray-600 leading-relaxed mb-3">
-            <li><span className="font-bold">Shooting efficiency</span> &mdash; compared to the league average that season, so scoring 15 per game on bad shooting is worth less than 15 per game on great shooting</li>
-            <li><span className="font-bold">Durability</span> &mdash; a player who misses half the season can't out-rank someone who showed up every week</li>
-            <li><span className="font-bold">Team success</span> &mdash; championship and Finals teams get a small boost; losing teams take a small hit</li>
-            <li><span className="font-bold">Share of team output</span> &mdash; players who truly carried their team get rewarded, especially if the team won</li>
+          <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700 leading-relaxed mb-3">
+            <li><span className="font-bold">Shooting efficiency</span>, compared to the league average that season, so scoring 15 per game on bad shooting is worth less than 15 per game on great shooting</li>
+            <li><span className="font-bold">Durability</span>, a player who misses half the season can't out-rank someone who showed up every week</li>
+            <li><span className="font-bold">Team success</span>, championship and Finals teams get a small boost, losing teams take a small hit</li>
+            <li><span className="font-bold">Share of team output</span>, players who truly carried their team get rewarded, especially if the team won</li>
           </ul>
-          <p className="text-xs text-gray-600 leading-relaxed mb-3">
-            AI Score is the primary input to the awards system for seasons 2005 through 2023, before player voting was introduced. The full formula is below for anyone curious.
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            AI Score is the primary input to the awards system for seasons 2005 through 2023, before player voting was introduced.
           </p>
-          <div className="bg-gray-50 rounded-lg p-3 text-[11px] font-mono text-gray-700 leading-relaxed mb-3">
+          <p className="text-xs text-gray-500 italic leading-relaxed mb-2">If you don't care about the math, skip the formula below.</p>
+          <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono text-gray-700 leading-relaxed mb-3">
             AI Score = (rawPG × gpFactor × teamMult) + shareBonus
             <br /><br />
             rawPG = PPG + efficiencyBonus + RPG × 1.0 + APG × 1.6 + (SPG + BPG) × 1.8 − foulPenalty
@@ -15202,47 +15251,95 @@ function StatExplainersView() {
             <br />
             &nbsp;&nbsp;only applied if teamShare is at least 20%
           </div>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            Scoring is weighted most heavily. Assists and defensive stats (steals + blocks) are weighted above rebounds. Shooting efficiency is compared against the league average for that season, so putting up points on bad shooting doesn't help you, and efficient scoring is rewarded. Bad shooting hurts 1.5 times as much as good shooting helps, so high-volume inefficient scorers are penalized harder than efficient scorers are rewarded.
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            Scoring is weighted most heavily. Assists and defensive stats (steals + blocks) are weighted above rebounds. Shooting efficiency is compared against the league average for that season, so putting up points on bad shooting doesn't help, and efficient scoring is rewarded. Bad shooting hurts 1.5 times as much as good shooting helps, so high-volume inefficient scorers are penalized harder than efficient scorers are rewarded.
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            The <span className="font-bold">gpFactor</span> adjusts for games played: 8 or more games gets full credit, then it scales down (7g = 0.95, 6g = 0.85, 5g = 0.70, and further reductions below that). This is why a player who misses half the season can't out-rank a player who showed up every week.
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            The <span className="font-bold">gpFactor</span> adjusts for games played: 8 or more games gets full credit, then it scales down (7g = 0.95, 6g = 0.85, 5g = 0.70, further reductions below that).
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
-            The <span className="font-bold">teamMult</span> adjusts for team context: championship teams get +10%, Finals teams get +3%, and teams that missed the playoffs take a 5% hit. A losing record (more losses than wins) stacks an additional 5% penalty.
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            The <span className="font-bold">teamMult</span> adjusts for team context: championship teams get +10%, Finals teams get +3%, and teams that missed the playoffs take a 5% hit. A losing record stacks an additional 5% penalty.
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            The <span className="font-bold">shareBonus</span> rewards players who carried a disproportionate share of their team's Game Score production, weighted by the team's win rate. A player has to be responsible for at least 20% of their team's total Game Score to get any bonus at all. Once past that threshold, the bonus scales with how much of the team's output they drove, and how successful the team was. A dominant player on a winning team gets the biggest bonus. A ball-hog on a losing team gets much less. This is what rewards players who truly were the engine of a competitive team.
+          <p className="text-sm text-gray-700 leading-relaxed mb-3">
+            The <span className="font-bold">shareBonus</span> rewards players who carried a disproportionate share of their team's Game Score production, weighted by the team's win rate. A player has to be responsible for at least 20% of their team's total Game Score to get any bonus at all. A dominant player on a winning team gets the biggest bonus. A ball-hog on a losing team gets much less.
           </p>
+
+          <div className="bg-slate-50 rounded-lg p-3 mt-4">
+            <h4 className="text-sm font-bold text-gray-900 mb-2">Example 1: Team success matters</h4>
+            <p className="text-sm text-gray-700 leading-relaxed mb-2">
+              Mina and Michael both put up 15.0 PPG, 6.0 RPG, 3.0 APG, 1.5 SPG, 0.5 BPG on TS% of 0.480 across 10 games. League average TS% that year was 0.410, so both get a small efficiency bonus. Their <span className="font-mono">rawPG</span> comes out to 29.85.
+            </p>
+            <div className="text-sm text-gray-700 leading-relaxed ml-2 mb-2">
+              <div className="mb-1"><span className="font-bold">Mina's team went 10-2 and won the championship. She accounted for 40% of their Game Score output.</span></div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-1">base = 29.85 × 1.10 (champ mult) = 32.84</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">shareBonus = (0.40 − 0.20) × 10 × (0.5 + 0.833) = 2.67</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">AI Score = 32.84 + 2.67 = <span className="font-bold text-gray-900">35.5</span></div>
+              <div className="mb-1"><span className="font-bold">Michael's team went 2-8 and missed the playoffs. He accounted for 25% of the team's output.</span></div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-1">base = 29.85 × 0.9025 (missed × losing) = 26.94</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">shareBonus = (0.25 − 0.20) × 10 × (0.5 + 0.200) = 0.35</div>
+              <div className="text-xs text-gray-500 font-mono ml-2">AI Score = 26.94 + 0.35 = <span className="font-bold text-gray-900">27.3</span></div>
+            </div>
+            <p className="text-sm text-gray-700 leading-relaxed">
+              Same raw per-game production, but Mina ends up 8.2 points higher because her team won and she carried a bigger share. The engine of a champion gets rewarded.
+            </p>
+          </div>
+
+          <div className="bg-slate-50 rounded-lg p-3 mt-3">
+            <h4 className="text-sm font-bold text-gray-900 mb-2">Example 2: Carry share matters</h4>
+            <p className="text-sm text-gray-700 leading-relaxed mb-2">
+              Mina and Michael both put up 18.0 PPG, 6.0 RPG, 2.0 APG, 1.0 SPG, 0.5 BPG on TS% of 0.510 across 10 games. Both teams went 8-4 and made the semifinals. Their <span className="font-mono">rawPG</span> comes out to 31.25 and their base score is the same.
+            </p>
+            <div className="text-sm text-gray-700 leading-relaxed ml-2 mb-2">
+              <div className="mb-1"><span className="font-bold">Mina carried her team, accounting for 50% of their total Game Score output.</span></div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">shareBonus = (0.50 − 0.20) × 10 × (0.5 + 0.667) = 3.50</div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">AI Score = 31.25 + 3.50 = <span className="font-bold text-gray-900">34.8</span></div>
+              <div className="mb-1"><span className="font-bold">Michael was one of several scorers, accounting for 15% of his team's output.</span></div>
+              <div className="text-xs text-gray-500 font-mono ml-2 mb-2">shareBonus = 0 (below 20% threshold)</div>
+              <div className="text-xs text-gray-500 font-mono ml-2">AI Score = 31.25 + 0 = <span className="font-bold text-gray-900">31.2</span></div>
+            </div>
+            <p className="text-sm text-gray-700 leading-relaxed">
+              Identical per-game stats, same team record, but Mina's AI Score is higher because she was the engine. A player who single-handedly drives a good team beats a player who was one of several contributors on the same team.
+            </p>
+          </div>
         </div>
 
         <div className="rounded-xl border border-gray-100 bg-white p-4">
-          <h3 className="text-sm font-black text-gray-900 mb-2">How awards are determined</h3>
-          <p className="text-xs text-gray-600 leading-relaxed mb-3">
+          <h3 className="text-base font-black text-gray-900 mb-2">How awards are determined</h3>
+          <p className="text-sm text-gray-700 leading-relaxed mb-3">
             For seasons 2005 through 2023, there was no formal voting process, so awards are reconstructed using AI Score combined with specific tiebreaker rules. Starting in 2024, MVP is selected by player vote.
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
             <span className="font-bold">All-PCAL First and Second Team:</span> First Team is filled by the rules below. Second Team consists of the next 5 players by total Game Score after First Team is filled, rewarding durability and high-volume production. A minimum of 5 games played is required for any award.
           </p>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
             <span className="font-bold">First Team selection order:</span> the five First Team spots are filled in this order.
           </p>
-          <ol className="list-decimal pl-5 space-y-1 text-xs text-gray-600 leading-relaxed mb-3">
+          <ol className="list-decimal pl-5 space-y-1 text-sm text-gray-700 leading-relaxed mb-3">
             <li>Highest total Game Score for the season</li>
             <li>Highest average Game Score, minimum 7 games played (if not already picked above)</li>
             <li>Highest AI Score on the best regular-season team (skipped if that player is already picked above)</li>
             <li>Next highest AI Scores, filling to five players</li>
           </ol>
-          <p className="text-xs text-gray-600 leading-relaxed mb-2">
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
             <span className="font-bold">MVP selection (2005 through 2023):</span> the MVP must be a First Team player. Claude chooses from those five using the following rules.
           </p>
-          <ol className="list-decimal pl-5 space-y-1 text-xs text-gray-600 leading-relaxed mb-3">
+          <ol className="list-decimal pl-5 space-y-1 text-sm text-gray-700 leading-relaxed mb-3">
             <li>The MVP must come from a team that either won at least half of its games or made the playoffs. A player on a team that missed the playoffs with a losing record is not eligible.</li>
             <li>Previous MVP wins do not factor into the decision.</li>
             <li>Among eligible First Team players, Claude weighs highest average Game Score (minimum 7 games), highest total Game Score, and outstanding impact when Game Scores are close. Outstanding impact means clear league-wide influence or being the best player on the team that won the championship.</li>
           </ol>
-          <p className="text-xs text-gray-600 leading-relaxed">
+          <p className="text-sm text-gray-700 leading-relaxed">
             <span className="font-bold">MVP selection (2024 and later):</span> chosen by player vote. AI Score is still displayed as a reference but does not determine the award.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-4">
+          <h3 className="text-base font-black text-gray-900 mb-2">A closing note</h3>
+          <p className="text-sm text-gray-700 leading-relaxed mb-2">
+            At the end of the day, these are just stats. It's all the data we have, and both Game Score and AI Score do their best to turn that data into a meaningful number. But neither captures heart, leadership, or the things that win games beyond the box score.
+          </p>
+          <p className="text-sm text-gray-700 leading-relaxed">
+            Starting in 2024, player voting was added for MVP, MIP, DPOY, Rising Star, and Best Teammate. Voting is a better way to capture the things statistics can't see.
           </p>
         </div>
       </div>
