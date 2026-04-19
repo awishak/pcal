@@ -12449,6 +12449,18 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
   const period = (liveState && liveState.period) || "H1";
   const homeName = TEAM_NAMES[home] || home;
   const awayName = TEAM_NAMES[away] || away;
+  const formatScorer = (n) => {
+    if (!n) return null;
+    const p = n.trim().split(/\s+/);
+    if (p.length < 2) return n;
+    // Names stored "LASTNAME Firstname" -> "A. Ishak"
+    const last = p[0];
+    const first = p.slice(1).join(" ");
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    return `${first.charAt(0).toUpperCase()}. ${cap(last)}`;
+  };
+  const homeScorer = formatScorer(liveState && liveState.home_scorer_name);
+  const awayScorer = formatScorer(liveState && liveState.away_scorer_name);
   return (
     <button onClick={onTap}
       className="w-full rounded-xl border-2 border-red-500 bg-white p-3 text-left active:scale-[0.99] transition">
@@ -12464,16 +12476,30 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
         <span className="text-[10px] text-gray-400">Tap to view</span>
       </div>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <TeamLogo team={home} size={32} />
-          <span className="text-base font-black text-gray-900 truncate">{homeName}</span>
-          <span className="text-2xl font-black tabular-nums ml-auto">{homeScore}</span>
+        <div className="flex flex-col flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <TeamLogo team={home} size={32} />
+            <span className="text-base font-black text-gray-900 truncate">{homeName}</span>
+            <span className="text-2xl font-black tabular-nums ml-auto">{homeScore}</span>
+          </div>
+          {homeScorer && (
+            <div className="text-[9px] text-gray-500 mt-0.5 pl-10 truncate">
+              Scored by: <span className="text-gray-700">{homeScorer}</span>
+            </div>
+          )}
         </div>
         <span className="text-gray-300 text-sm">-</span>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-2xl font-black tabular-nums">{awayScore}</span>
-          <span className="text-base font-black text-gray-900 ml-auto truncate">{awayName}</span>
-          <TeamLogo team={away} size={32} />
+        <div className="flex flex-col flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-black tabular-nums">{awayScore}</span>
+            <span className="text-base font-black text-gray-900 ml-auto truncate">{awayName}</span>
+            <TeamLogo team={away} size={32} />
+          </div>
+          {awayScorer && (
+            <div className="text-[9px] text-gray-500 mt-0.5 pr-10 truncate text-right">
+              Scored by: <span className="text-gray-700">{awayScorer}</span>
+            </div>
+          )}
         </div>
       </div>
     </button>
@@ -12499,15 +12525,6 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   const scoringTeam = game.scoring_team;
   const coordFull = scoringTeam ? SCORING_COORDINATORS[scoringTeam] : null;
   const coordShort = coordFull ? shortCoord(coordFull) : null;
-  const homeScorer = liveState && liveState.home_scorer_name ? liveState.home_scorer_name : null;
-  const awayScorer = liveState && liveState.away_scorer_name ? liveState.away_scorer_name : null;
-  const formatScorer = (n) => {
-    if (!n) return "\u2014"; // em dash as placeholder
-    const p = n.trim().split(/\s+/);
-    if (p.length < 2) return n;
-    return `${p[0].charAt(0)}. ${p.slice(1).join(" ")}`;
-  };
-  const liveLine = `${formatScorer(homeScorer)} / ${formatScorer(awayScorer)}`;
 
   // Team row: logo + short code on the left, score on the right (ended only).
   // For not-ended games the right side stays empty so the layout matches.
@@ -12565,10 +12582,6 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
               <span className="text-gray-700">{coordShort}</span>
             </div>
           )}
-          <div className="truncate">
-            <span className="text-gray-400">Live:</span>{" "}
-            <span className="text-gray-700">{liveLine}</span>
-          </div>
         </div>
       )}
     </div>
