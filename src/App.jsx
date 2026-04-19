@@ -12265,6 +12265,30 @@ function computePlayoffRecap(year) {
 }
 
 // ============================================================
+// Scoring coordinator per team. Each team has one person who
+// organizes scoring duties for weeks when that team is assigned
+// as the scoring_team for a game. Rarely changes, so hardcoded.
+// ============================================================
+const SCORING_COORDINATORS = {
+  SJO: "Andrew Abdelmalak",
+  PDF: "George Hanna",
+  MOD: "Andrew Sharkawy",
+  PLE: "Andre Hanna",
+  HAY: "Chris Malek",
+  // SAC: no coordinator assigned yet
+};
+
+// Format a full name as "F. Lastname" (e.g. "Andrew Abdelmalak" -> "A. Abdelmalak").
+function shortCoord(fullName) {
+  if (!fullName) return "";
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length < 2) return fullName;
+  const first = parts[0];
+  const last = parts.slice(1).join(" ");
+  return `${first.charAt(0)}. ${last}`;
+}
+
+// ============================================================
 // LiveHomeCard: shows current week's games on home tab.
 // If a game is live, shows it full-width with pulsing dot and live score.
 // Other 4 games sit below as quarter-width boxes with short codes.
@@ -12472,64 +12496,82 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
     const ampm = h >= 12 ? "p" : "a";
     return `${hour12}${ampm}`;
   })();
-  return (
-    <button onClick={onTap}
-      className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1 ${
-        isEnded
-          ? "bg-white border-2 border-gray-900"
-          : "bg-gray-50 border border-gray-200"
-      }`}>
-      <div className="flex items-center justify-center gap-1">
-        <span className="text-[11px] text-gray-500 font-bold">{timeStr}</span>
-        {isEnded && (
-          <span className="text-[11px] font-black text-gray-900 uppercase tracking-wide">
-            Final
-          </span>
-        )}
+  const scoringTeam = game.scoring_team;
+  const coordFull = scoringTeam ? SCORING_COORDINATORS[scoringTeam] : null;
+  const coordShort = coordFull ? shortCoord(coordFull) : null;
+  const homeScorer = liveState && liveState.home_scorer_name ? liveState.home_scorer_name : null;
+  const awayScorer = liveState && liveState.away_scorer_name ? liveState.away_scorer_name : null;
+  const formatScorer = (n) => {
+    if (!n) return "\u2014"; // em dash as placeholder
+    const p = n.trim().split(/\s+/);
+    if (p.length < 2) return n;
+    return `${p[0].charAt(0)}. ${p.slice(1).join(" ")}`;
+  };
+  const liveLine = `${formatScorer(homeScorer)} / ${formatScorer(awayScorer)}`;
+
+  // Team row: logo + short code on the left, score on the right (ended only).
+  // For not-ended games the right side stays empty so the layout matches.
+  const teamRow = (team, score, won, showScore) => (
+    <div className="flex items-center justify-between gap-1">
+      <div className="flex items-center gap-1">
+        <TeamLogo team={team} size={16} />
+        <span className="text-[10px] font-black text-gray-900">{team}</span>
       </div>
-      {isEnded ? (
-        <div className="flex flex-col gap-0.5 w-full">
-          <div className="flex items-center justify-between gap-1">
-            <div className="flex items-center gap-1">
-              <TeamLogo team={home} size={16} />
-              <span className="text-[10px] font-black text-gray-900">{home}</span>
-            </div>
-            <div className="flex items-center gap-0.5">
-              {homeWon && (
-                <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M0 1 L8 4 L0 7 Z" />
-                </svg>
-              )}
-              <span className={`text-sm font-black tabular-nums ${
-                homeWon ? "text-gray-900" : "text-gray-400"
-              }`}>{homeScore}</span>
-            </div>
-          </div>
-          <div className="flex items-center justify-between gap-1">
-            <div className="flex items-center gap-1">
-              <TeamLogo team={away} size={16} />
-              <span className="text-[10px] font-black text-gray-900">{away}</span>
-            </div>
-            <div className="flex items-center gap-0.5">
-              {awayWon && (
-                <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M0 1 L8 4 L0 7 Z" />
-                </svg>
-              )}
-              <span className={`text-sm font-black tabular-nums ${
-                awayWon ? "text-gray-900" : "text-gray-400"
-              }`}>{awayScore}</span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center justify-center gap-1 w-full">
-          <TeamLogo team={home} size={20} />
-          <span className="text-[9px] text-gray-400">vs</span>
-          <TeamLogo team={away} size={20} />
+      {showScore && (
+        <div className="flex items-center gap-0.5">
+          {won && (
+            <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
+              <path d="M0 1 L8 4 L0 7 Z" />
+            </svg>
+          )}
+          <span className={`text-sm font-black tabular-nums ${
+            won ? "text-gray-900" : "text-gray-400"
+          }`}>{score}</span>
         </div>
       )}
-    </button>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button onClick={onTap}
+        className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1 ${
+          isEnded
+            ? "bg-white border-2 border-gray-900"
+            : "bg-gray-50 border border-gray-200"
+        }`}>
+        <div className="flex items-center justify-center gap-1">
+          <span className="text-[11px] text-gray-500 font-bold">{timeStr}</span>
+          {isEnded && (
+            <span className="text-[11px] font-black text-gray-900 uppercase tracking-wide">
+              Final
+            </span>
+          )}
+        </div>
+        <div className="flex flex-col gap-0.5 w-full">
+          {teamRow(home, homeScore, homeWon, isEnded)}
+          {teamRow(away, awayScore, awayWon, isEnded)}
+        </div>
+      </button>
+      {scoringTeam && (
+        <div className="px-0.5 text-[9px] leading-tight text-gray-500 space-y-0.5">
+          <div>
+            <span className="text-gray-400">Scoring Team:</span>{" "}
+            <span className="font-bold text-gray-700">{scoringTeam}</span>
+          </div>
+          {coordShort && (
+            <div>
+              <span className="text-gray-400">Coord:</span>{" "}
+              <span className="text-gray-700">{coordShort}</span>
+            </div>
+          )}
+          <div className="truncate">
+            <span className="text-gray-400">Live:</span>{" "}
+            <span className="text-gray-700">{liveLine}</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
