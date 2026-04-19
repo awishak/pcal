@@ -10321,6 +10321,7 @@ export default function App() {
   const [searchRandomSeed, setSearchRandomSeed] = useState(0);
   const [fontSize, setFontSize] = useState(14);
   const [showFontControl, setShowFontControl] = useState(false);
+  const [liveInitialGameId, setLiveInitialGameId] = useState(null);
 
   // ===== ADMIN STATE =====
   const ADMIN_PASSWORD = "gumas";
@@ -10359,6 +10360,7 @@ export default function App() {
     registration: "visible",
     stickyLinks: "visible",
     quickLinks: "visible",
+    liveGames: "visible",
     commissionerMessages: "visible",
     weekOneSchedule: "visible",
     whatsLive: "visible",
@@ -11470,6 +11472,7 @@ export default function App() {
             tileStates={tileStates}
             DISPLAY_GROUPS={DISPLAY_GROUPS}
             switchSection={switchSection}
+            openLiveGame={(gameId) => { setLiveInitialGameId(gameId); switchSection("live"); }}
             isAdminView={isAdminView}
           />
         )}
@@ -11576,7 +11579,10 @@ export default function App() {
           <PlayerOfWeekView />
         )}
         {tab === "live" && (
-          <LiveSection />
+          <LiveSection
+            initialGameId={liveInitialGameId}
+            onConsumeInitialGameId={() => setLiveInitialGameId(null)}
+          />
         )}
         {tab === "register" && (
           <RegistrationView onSubmitRegistration={addRegistration} switchSection={switchSection} />
@@ -12258,8 +12264,201 @@ function computePlayoffRecap(year) {
   return out;
 }
 
+// ============================================================
+// LiveHomeCard: shows current week's games on home tab.
+// If a game is live, shows it full-width with pulsing dot and live score.
+// Other 4 games sit below as quarter-width boxes with short codes.
+// Tapping any game opens the Live tab for that specific game.
+// ============================================================
+function LiveHomeCard({ openLiveGame }) {
+  const [games, setGames] = useState([]);
+  const [liveStates, setLiveStates] = useState({}); // game_id -> live_games row
+  const [loaded, setLoaded] = useState(false);
+
+  // Fetch schedule + live_games for the active "current" week.
+  // A game counts as in-window if it's within 96 hours past or any time in the future,
+  // and is not yet approved.
+  const load = useCallback(async () => {
+    try {
+      const nowMs = Date.now();
+      const windowStart = new Date(nowMs - 96 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const { data: sched, error: schedErr } = await supabase
+        .from("schedule")
+        .select("*")
+        .gte("game_date", windowStart)
+        .neq("status", "approved")
+        .order("game_date", { ascending: true })
+        .order("game_time", { ascending: true });
+      if (schedErr) throw schedErr;
+      if (!sched || sched.length === 0) {
+        setGames([]);
+        setLiveStates({});
+        setLoaded(true);
+        return;
+      }
+      // Pick the "current week": the earliest (season, week) present in window
+      const first = sched[0];
+      const weekGames = sched.filter(g => g.season === first.season && g.week === first.week);
+      setGames(weekGames);
+
+      // Fetch any live_games rows for these games
+      const ids = weekGames.map(g => g.game_id);
+      const { data: lg } = await supabase
+        .from("live_games")
+        .select("*")
+        .in("game_id", ids);
+      const map = {};
+      (lg || []).forEach(row => { map[row.game_id] = row; });
+      setLiveStates(map);
+      setLoaded(true);
+    } catch (e) {
+      // If the schedule/live_games tables do not exist yet, fail silently.
+      setGames([]);
+      setLiveStates({});
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 15000);
+    return () => clearInterval(iv);
+  }, [load]);
+
+  if (!loaded || games.length === 0) return null;
+
+  // Identify the live game (if any)
+  const liveGame = games.find(g => g.status === "live");
+  const otherGames = liveGame ? games.filter(g => g.game_id !== liveGame.game_id) : games;
+
+  const fmtTime = (t) => {
+    if (!t) return "";
+    const [hh, mm] = t.split(":");
+    const h = parseInt(hh, 10);
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h >= 12 ? "PM" : "AM";
+    return `${hour12}:${mm} ${ampm}`;
+  };
+
+  const fmtDate = (d) => {
+    if (!d) return "";
+    const dt = new Date(d + "T12:00:00");
+    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const weekMeta = games[0];
+  const weekLabel = weekMeta.week === 0 ? "Preseason" : `Week ${weekMeta.week}`;
+
+  return (
+    <div className="rounded-2xl bg-white border border-gray-200 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Games</p>
+          <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(weekMeta.game_date)}</p>
+          {weekMeta.location && <p className="text-[10px] text-gray-500 mt-0.5">{weekMeta.location}</p>}
+        </div>
+      </div>
+
+      {liveGame && (
+        <LiveGameFullCard
+          game={liveGame}
+          liveState={liveStates[liveGame.game_id]}
+          onTap={() => openLiveGame(liveGame.game_id)}
+        />
+      )}
+
+      {otherGames.length > 0 && (
+        <div className={`grid gap-1.5 ${liveGame ? "mt-3" : ""}`}
+             style={{ gridTemplateColumns: `repeat(${Math.min(otherGames.length, 5)}, minmax(0, 1fr))` }}>
+          {otherGames.map(g => (
+            <OtherGameMiniCard
+              key={g.game_id}
+              game={g}
+              liveState={liveStates[g.game_id]}
+              onTap={() => openLiveGame(g.game_id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Computes live score from live_games fields (home_score, away_score) or derives
+// from a live_events sum if the row isn't filled in yet. For the home card we use
+// the simpler live_games row values and leave events-based computation to LiveSection.
+function LiveGameFullCard({ game, liveState, onTap }) {
+  const home = game.home_team;
+  const away = game.away_team;
+  const homeScore = (liveState && liveState.home_score != null) ? liveState.home_score : 0;
+  const awayScore = (liveState && liveState.away_score != null) ? liveState.away_score : 0;
+  const period = (liveState && liveState.period) || "H1";
+  return (
+    <button onClick={onTap}
+      className="w-full rounded-xl border-2 border-red-500 bg-white p-3 text-left active:scale-[0.99] transition">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+          </span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-red-600">Live</span>
+          <span className="text-[10px] text-gray-400 ml-1">{period}</span>
+        </div>
+        <span className="text-[10px] text-gray-400">Tap to view</span>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <TeamLogo team={home} size={32} />
+          <span className="text-xs font-black text-gray-900">{home}</span>
+          <span className="text-2xl font-black tabular-nums ml-auto">{homeScore}</span>
+        </div>
+        <span className="text-gray-300 text-sm">-</span>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <span className="text-2xl font-black tabular-nums">{awayScore}</span>
+          <span className="text-xs font-black text-gray-900 ml-auto">{away}</span>
+          <TeamLogo team={away} size={32} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function OtherGameMiniCard({ game, liveState, onTap }) {
+  const home = game.home_team;
+  const away = game.away_team;
+  const isEnded = game.status === "ended" || game.status === "approved";
+  const timeStr = (() => {
+    if (!game.game_time) return "";
+    const [hh, mm] = game.game_time.split(":");
+    const h = parseInt(hh, 10);
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h >= 12 ? "p" : "a";
+    return `${hour12}${ampm}`;
+  })();
+  return (
+    <button onClick={onTap}
+      className="rounded-lg bg-gray-50 border border-gray-200 p-2 active:scale-95 transition flex flex-col items-center gap-1">
+      <span className="text-[9px] text-gray-400 font-bold">{timeStr}</span>
+      <div className="flex items-center justify-center gap-1 w-full">
+        <TeamLogo team={home} size={20} />
+        <span className="text-[9px] text-gray-400">vs</span>
+        <TeamLogo team={away} size={20} />
+      </div>
+      {isEnded && liveState && (
+        <span className="text-[9px] font-bold text-gray-600 tabular-nums">
+          {liveState.home_score ?? 0}-{liveState.away_score ?? 0}
+        </span>
+      )}
+    </button>
+  );
+}
+
 function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards,
-                   homeCardVisibility, tileStates, DISPLAY_GROUPS, switchSection, isAdminView }) {
+                   homeCardVisibility, tileStates, DISPLAY_GROUPS, switchSection, openLiveGame, isAdminView }) {
   const [nowMs, setNowMs] = useState(Date.now());
   const [expandedGame, setExpandedGame] = useState(null);
 
@@ -12497,6 +12696,11 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
             ))}
           </div>
         </div>
+      )}
+
+      {/* Live games card */}
+      {isVisible("liveGames") && (
+        <LiveHomeCard openLiveGame={openLiveGame} />
       )}
 
       {/* Registration deadline card */}

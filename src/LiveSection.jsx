@@ -25,7 +25,7 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { supabase } from "./supabase.js";
 
 // ------------------------------------------------------------
-// Team names/colors: keep consistent with main app
+// Team names/colors: match main app TEAM_BADGE_COLORS
 // ------------------------------------------------------------
 const TEAM_NAMES = {
   CIS: "Christ in Sports", CON: "Concord", HAY: "Hayward", MCS: "Modesto+CIS",
@@ -34,10 +34,44 @@ const TEAM_NAMES = {
 };
 
 const TEAM_COLORS = {
-  CIS: "#6366f1", CON: "#dc2626", HAY: "#16a34a", MCS: "#9333ea",
-  MOD: "#ea580c", PDF: "#0284c7", PLE: "#ca8a04", SAC: "#7c3aed",
-  SJK: "#475569", SJO: "#0d9488", SRA: "#be185d",
+  SAC: "#7c3aed",
+  PDF: "#0d9488",
+  MOD: "#dc2626",
+  SJO: "#7f1d1d",
+  HAY: "#2563eb",
+  PLE: "#facc15",
+  CON: "#065f46",
+  SRA: "#b91c1c",
+  CIS: "#16a34a",
+  SJK: "#eab308",
+  NOR: "#065f46",
+  MCS: "#9333ea",
 };
+
+// Text color that reads well on top of TEAM_COLORS[team] background
+const TEAM_TEXT_ON_BG = {
+  PLE: "#000000",
+};
+const textOnTeam = (team) => TEAM_TEXT_ON_BG[team] || "#ffffff";
+
+// Small team badge used where logos would live in the main app.
+// LiveSection doesn't have access to the base64 logo strings baked into App.jsx,
+// so it renders a colored circle with the team code. If logos are later passed
+// in as a prop or via context, swap the inside of this component.
+function TeamLogoLocal({ team, size = 24, className = "" }) {
+  const bg = TEAM_COLORS[team] || "#6b7280";
+  const fg = textOnTeam(team);
+  return (
+    <div
+      className={`rounded-full flex items-center justify-center flex-shrink-0 ${className}`}
+      style={{ width: size, height: size, backgroundColor: bg }}
+    >
+      <span style={{ fontSize: Math.max(7, size * 0.38), color: fg }} className="font-black">
+        {team}
+      </span>
+    </div>
+  );
+}
 
 const CURRENT_SEASON = 2026;
 
@@ -75,6 +109,27 @@ function formatTime(iso) {
   const ap = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
   return `${h}:${String(m).padStart(2, "0")} ${ap}`;
+}
+
+// Format a YYYY-MM-DD date into "Sunday, April 19, 2026"
+function formatGameDate(ymd) {
+  if (!ymd) return "";
+  const d = new Date(ymd + "T12:00:00");
+  if (isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+}
+
+// Format an HH:MM or HH:MM:SS time into "3:00 PM"
+function formatGameTime(hms) {
+  if (!hms) return "";
+  const parts = hms.split(":");
+  let h = parseInt(parts[0], 10);
+  const m = parts[1] || "00";
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${h}:${m} ${ap}`;
 }
 
 function within96Hours(date, time) {
@@ -155,7 +210,7 @@ function computeBoxScore(events) {
 // ------------------------------------------------------------
 // Main Live Section
 // ------------------------------------------------------------
-export default function LiveSection() {
+export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {} } = {}) {
   // Cached login from localStorage
   const [me, setMe] = useState(() => {
     try {
@@ -167,6 +222,17 @@ export default function LiveSection() {
   // View state: 'home' | 'game' | 'review'
   const [view, setView] = useState("home");
   const [activeGameId, setActiveGameId] = useState(null);
+
+  // Consume initialGameId prop once on mount or when it changes to a new value
+  const consumedGameIdRef = useRef(null);
+  useEffect(() => {
+    if (initialGameId && consumedGameIdRef.current !== initialGameId) {
+      consumedGameIdRef.current = initialGameId;
+      setActiveGameId(initialGameId);
+      setView("game");
+      onConsumeInitialGameId();
+    }
+  }, [initialGameId, onConsumeInitialGameId]);
 
   // Login
   const login = (player) => {
@@ -579,6 +645,19 @@ function LiveGameView({ gameId, me, onBack }) {
     <div>
       <BackRow onBack={onBack} />
 
+      {/* Big date/time + matchup header */}
+      <div className="mb-3 text-center">
+        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">
+          Week {game.week === 0 ? "Preseason" : game.week}{game.location ? ` \u00b7 ${game.location}` : ""}
+        </div>
+        <div className="text-xl font-black text-gray-900 leading-tight">
+          {formatGameDate(game.game_date)}
+        </div>
+        <div className="text-lg font-bold text-gray-700 leading-tight mt-0.5">
+          {formatGameTime(game.game_time)}
+        </div>
+      </div>
+
       {/* Scoreboard */}
       <Scoreboard
         game={game}
@@ -660,15 +739,23 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, currentHalf, top
   }, [events]);
 
   return (
-    <div className="rounded-2xl overflow-hidden mb-3 border border-gray-100">
-      <div className="p-4" style={{ background: "linear-gradient(135deg, #0f172a, #1e293b)" }}>
+    <div className="rounded-2xl overflow-hidden mb-3 border border-gray-200 bg-white">
+      <div className="p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] font-bold text-white/60 uppercase tracking-widest">{periodLabel}</div>
-          <div className="text-[10px] font-bold text-white/60 uppercase tracking-widest">
-            {live?.status === "live" ? (<span className="text-red-300">&bull; LIVE</span>) :
-             live?.status === "ended" ? "FINAL" :
-             live?.status === "halftime" ? "HALFTIME" :
-             "SCHEDULED"}
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{periodLabel}</div>
+          <div className="text-[10px] font-bold uppercase tracking-widest">
+            {live?.status === "live" ? (
+              <span className="inline-flex items-center gap-1 text-red-600">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                </span>
+                LIVE
+              </span>
+            ) :
+             live?.status === "ended" ? <span className="text-gray-500">FINAL</span> :
+             live?.status === "halftime" ? <span className="text-gray-500">HALFTIME</span> :
+             <span className="text-gray-400">SCHEDULED</span>}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -680,8 +767,8 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, currentHalf, top
             fouls={homeFouls} timeouts={homeTimeouts} topScorer={topScorerByTeam[home]} />
         </div>
         {lastPlay && (
-          <div className="mt-3 pt-3 border-t border-white/10 text-[11px] text-white/70">
-            <span className="text-white/40 mr-1">Last:</span>
+          <div className="mt-3 pt-3 border-t border-gray-100 text-[11px] text-gray-600">
+            <span className="text-gray-400 mr-1">Last:</span>
             {formatEventText(lastPlay)}
           </div>
         )}
@@ -693,21 +780,21 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, currentHalf, top
 function TeamScorePanel({ team, score, color, fouls, timeouts, topScorer }) {
   const foulRed = fouls >= 10;
   return (
-    <div className="rounded-xl p-3 bg-white/5">
+    <div className="rounded-xl p-3 bg-gray-50 border border-gray-100">
       <div className="flex items-center gap-1.5 mb-1">
-        <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-        <span className="text-sm font-bold text-white">{team}</span>
+        <TeamLogoLocal team={team} size={18} />
+        <span className="text-sm font-bold text-gray-900">{team}</span>
       </div>
-      <div className="text-4xl font-black text-white leading-none tracking-tight">{score}</div>
+      <div className="text-4xl font-black text-gray-900 leading-none tracking-tight">{score}</div>
       <div className="mt-2 flex items-center gap-2 text-[10px]">
-        <span className={`font-bold ${foulRed ? "text-red-400" : "text-white/60"}`}>
+        <span className={`font-bold ${foulRed ? "text-red-600" : "text-gray-500"}`}>
           FOULS {fouls}
         </span>
-        <span className="text-white/30">|</span>
-        <span className="font-bold text-white/60">TO {timeouts}</span>
+        <span className="text-gray-300">|</span>
+        <span className="font-bold text-gray-500">TO {timeouts}</span>
       </div>
       {topScorer && topScorer.pts > 0 && (
-        <div className="mt-1 text-[10px] text-white/50 truncate">
+        <div className="mt-1 text-[10px] text-gray-500 truncate">
           {formatName(topScorer.name)} {topScorer.pts}pts
         </div>
       )}
