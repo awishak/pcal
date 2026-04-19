@@ -12273,6 +12273,7 @@ function computePlayoffRecap(year) {
 function LiveHomeCard({ openLiveGame }) {
   const [games, setGames] = useState([]);
   const [liveStates, setLiveStates] = useState({}); // game_id -> live_games row
+  const [liveScores, setLiveScores] = useState({}); // game_id -> { [team]: points }
   const [loaded, setLoaded] = useState(false);
 
   // Fetch schedule + live_games for the active "current" week.
@@ -12293,6 +12294,7 @@ function LiveHomeCard({ openLiveGame }) {
       if (!sched || sched.length === 0) {
         setGames([]);
         setLiveStates({});
+        setLiveScores({});
         setLoaded(true);
         return;
       }
@@ -12307,14 +12309,37 @@ function LiveHomeCard({ openLiveGame }) {
         .from("live_games")
         .select("*")
         .in("game_id", ids);
-      const map = {};
-      (lg || []).forEach(row => { map[row.game_id] = row; });
-      setLiveStates(map);
+      const stateMap = {};
+      (lg || []).forEach(row => { stateMap[row.game_id] = row; });
+      setLiveStates(stateMap);
+
+      // For any game with a live_games row, fetch scoring events and compute team scores.
+      // live_events has no home_score/away_score column, so we sum made_2/made_3/made_ft.
+      const gameIdsWithState = Object.keys(stateMap).map(id => parseInt(id, 10));
+      if (gameIdsWithState.length > 0) {
+        const { data: evs } = await supabase
+          .from("live_events")
+          .select("game_id, team, stat_type, deleted")
+          .in("game_id", gameIdsWithState)
+          .in("stat_type", ["made_2", "made_3", "made_ft"]);
+        const scoreMap = {};
+        (evs || []).forEach(ev => {
+          if (ev.deleted) return;
+          if (!ev.team) return;
+          if (!scoreMap[ev.game_id]) scoreMap[ev.game_id] = {};
+          const pts = ev.stat_type === "made_3" ? 3 : ev.stat_type === "made_2" ? 2 : 1;
+          scoreMap[ev.game_id][ev.team] = (scoreMap[ev.game_id][ev.team] || 0) + pts;
+        });
+        setLiveScores(scoreMap);
+      } else {
+        setLiveScores({});
+      }
       setLoaded(true);
     } catch (e) {
       // If the schedule/live_games tables do not exist yet, fail silently.
       setGames([]);
       setLiveStates({});
+      setLiveScores({});
       setLoaded(true);
     }
   }, []);
@@ -12366,6 +12391,7 @@ function LiveHomeCard({ openLiveGame }) {
         <LiveGameFullCard
           game={liveGame}
           liveState={liveStates[liveGame.game_id]}
+          scores={liveScores[liveGame.game_id]}
           onTap={() => openLiveGame(liveGame.game_id)}
         />
       )}
@@ -12378,6 +12404,7 @@ function LiveHomeCard({ openLiveGame }) {
               key={g.game_id}
               game={g}
               liveState={liveStates[g.game_id]}
+              scores={liveScores[g.game_id]}
               onTap={() => openLiveGame(g.game_id)}
             />
           ))}
@@ -12387,15 +12414,17 @@ function LiveHomeCard({ openLiveGame }) {
   );
 }
 
-// Computes live score from live_games fields (home_score, away_score) or derives
-// from a live_events sum if the row isn't filled in yet. For the home card we use
-// the simpler live_games row values and leave events-based computation to LiveSection.
-function LiveGameFullCard({ game, liveState, onTap }) {
+// Computes live score from the sum of made_2/made_3/made_ft events for each
+// team (passed in via the `scores` prop). live_games has no score columns;
+// the home and detail views both derive scores from live_events.
+function LiveGameFullCard({ game, liveState, scores, onTap }) {
   const home = game.home_team;
   const away = game.away_team;
-  const homeScore = (liveState && liveState.home_score != null) ? liveState.home_score : 0;
-  const awayScore = (liveState && liveState.away_score != null) ? liveState.away_score : 0;
+  const homeScore = (scores && scores[home]) || 0;
+  const awayScore = (scores && scores[away]) || 0;
   const period = (liveState && liveState.period) || "H1";
+  const homeName = TEAM_NAMES[home] || home;
+  const awayName = TEAM_NAMES[away] || away;
   return (
     <button onClick={onTap}
       className="w-full rounded-xl border-2 border-red-500 bg-white p-3 text-left active:scale-[0.99] transition">
@@ -12413,13 +12442,13 @@ function LiveGameFullCard({ game, liveState, onTap }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <TeamLogo team={home} size={32} />
-          <span className="text-xs font-black text-gray-900">{home}</span>
+          <span className="text-base font-black text-gray-900 truncate">{homeName}</span>
           <span className="text-2xl font-black tabular-nums ml-auto">{homeScore}</span>
         </div>
         <span className="text-gray-300 text-sm">-</span>
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-2xl font-black tabular-nums">{awayScore}</span>
-          <span className="text-xs font-black text-gray-900 ml-auto">{away}</span>
+          <span className="text-base font-black text-gray-900 ml-auto truncate">{awayName}</span>
           <TeamLogo team={away} size={32} />
         </div>
       </div>
@@ -12427,10 +12456,14 @@ function LiveGameFullCard({ game, liveState, onTap }) {
   );
 }
 
-function OtherGameMiniCard({ game, liveState, onTap }) {
+function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   const home = game.home_team;
   const away = game.away_team;
   const isEnded = game.status === "ended" || game.status === "approved";
+  const homeScore = (scores && scores[home]) || 0;
+  const awayScore = (scores && scores[away]) || 0;
+  const homeWon = isEnded && homeScore > awayScore;
+  const awayWon = isEnded && awayScore > homeScore;
   const timeStr = (() => {
     if (!game.game_time) return "";
     const [hh, mm] = game.game_time.split(":");
@@ -12441,17 +12474,60 @@ function OtherGameMiniCard({ game, liveState, onTap }) {
   })();
   return (
     <button onClick={onTap}
-      className="rounded-lg bg-gray-50 border border-gray-200 p-2 active:scale-95 transition flex flex-col items-center gap-1">
-      <span className="text-[9px] text-gray-400 font-bold">{timeStr}</span>
-      <div className="flex items-center justify-center gap-1 w-full">
-        <TeamLogo team={home} size={20} />
-        <span className="text-[9px] text-gray-400">vs</span>
-        <TeamLogo team={away} size={20} />
+      className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1 ${
+        isEnded
+          ? "bg-white border-2 border-gray-900"
+          : "bg-gray-50 border border-gray-200"
+      }`}>
+      <div className="flex items-center justify-center gap-1">
+        <span className="text-[11px] text-gray-500 font-bold">{timeStr}</span>
+        {isEnded && (
+          <span className="text-[11px] font-black text-gray-900 uppercase tracking-wide">
+            Final
+          </span>
+        )}
       </div>
-      {isEnded && liveState && (
-        <span className="text-[9px] font-bold text-gray-600 tabular-nums">
-          {liveState.home_score ?? 0}-{liveState.away_score ?? 0}
-        </span>
+      {isEnded ? (
+        <div className="flex flex-col gap-0.5 w-full">
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1">
+              <TeamLogo team={home} size={16} />
+              <span className="text-[10px] font-black text-gray-900">{home}</span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              {homeWon && (
+                <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
+                  <path d="M0 1 L8 4 L0 7 Z" />
+                </svg>
+              )}
+              <span className={`text-sm font-black tabular-nums ${
+                homeWon ? "text-gray-900" : "text-gray-400"
+              }`}>{homeScore}</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1">
+              <TeamLogo team={away} size={16} />
+              <span className="text-[10px] font-black text-gray-900">{away}</span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              {awayWon && (
+                <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
+                  <path d="M0 1 L8 4 L0 7 Z" />
+                </svg>
+              )}
+              <span className={`text-sm font-black tabular-nums ${
+                awayWon ? "text-gray-900" : "text-gray-400"
+              }`}>{awayScore}</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center gap-1 w-full">
+          <TeamLogo team={home} size={20} />
+          <span className="text-[9px] text-gray-400">vs</span>
+          <TeamLogo team={away} size={20} />
+        </div>
       )}
     </button>
   );
