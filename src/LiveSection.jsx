@@ -7,19 +7,22 @@
 //
 // Integration (brief, see integrate_notes.md for full steps):
 //
-//   import LiveSection from "./LiveSection";
+//   import LiveSection from "./LiveSection.jsx";
 //
 //   // In NAV_ITEMS add:
 //   { key: "live", label: "Live",
 //     icon: "M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" }
 //
-//   // In the main render, after your other section blocks:
-//   {section === "live" && <LiveSection />}
+//   // In the main render block, alongside other {tab === "..."} renders:
+//   {tab === "live" && <LiveSection />}
+//
+// This file imports { supabase } from "./supabase.js" - your existing
+// Supabase client. No new client file needed.
 //
 // ============================================================
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { supabase } from "./supabaseClient";
+import { supabase } from "./supabase.js";
 
 // ------------------------------------------------------------
 // Team names/colors: keep consistent with main app
