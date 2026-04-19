@@ -10490,6 +10490,13 @@ export default function App() {
   }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, adminUnlocked, configLoaded,
       commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards]);
 
+  // Scroll to top whenever the active page changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+  }, [tab, section]);
+
   const addRegistration = (reg) => setRegistrations(rs => [...rs, { ...reg, submittedAt: new Date().toISOString() }]);
   const isAdminView = adminUnlocked && !adminPreviewMode;
 
