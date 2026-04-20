@@ -21,8 +21,14 @@
 //
 // ============================================================
 
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef, createContext, useContext } from "react";
 import { supabase } from "./supabase.js";
+
+// Context carries the base64 team logo map from App.jsx down to
+// components that need to render logos. Falls back to null (colored
+// circle fallback) if LiveSection was instantiated without a logos prop.
+const LogosContext = createContext(null);
+const useLogos = () => useContext(LogosContext);
 
 // ------------------------------------------------------------
 // Team names/colors: match main app TEAM_BADGE_COLORS
@@ -54,11 +60,22 @@ const TEAM_TEXT_ON_BG = {
 };
 const textOnTeam = (team) => TEAM_TEXT_ON_BG[team] || "#ffffff";
 
-// Small team badge used where logos would live in the main app.
-// LiveSection doesn't have access to the base64 logo strings baked into App.jsx,
-// so it renders a colored circle with the team code. If logos are later passed
-// in as a prop or via context, swap the inside of this component.
+// Small team badge. If logos are provided via context (passed from App.jsx
+// which has the base64 logo strings), renders the real logo. Otherwise
+// falls back to a colored circle with the team code.
 function TeamLogoLocal({ team, size = 24, className = "" }) {
+  const logos = useLogos();
+  const logo = logos ? logos[team] : null;
+  if (logo) {
+    return (
+      <img
+        src={logo}
+        alt={team}
+        style={{ width: size, height: size, objectFit: "contain" }}
+        className={`flex-shrink-0 ${className}`}
+      />
+    );
+  }
   const bg = TEAM_COLORS[team] || "#6b7280";
   const fg = textOnTeam(team);
   return (
@@ -217,10 +234,82 @@ function computeBoxScore(events) {
   return { box, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf };
 }
 
+// Map a stat_type to the box-score field name used in computeBoxScore.
+// Used when showing per-player counts in the player-picker.
+const STAT_TO_BOX_FIELD = {
+  made_2: "fgm",
+  made_3: "tpm",
+  made_ft: "ftm",
+  missed_2: "fga",   // misses shown against attempts
+  missed_3: "tpa",
+  missed_ft: "fta",
+  reb: "reb",
+  stl: "stl",
+  blk: "blk",
+  foul: "foul",
+  ast: "ast",
+};
+
+// For a given stat key, what count should be shown for a player?
+// Rebounds show total rebounds; fouls show total fouls; makes show
+// that specific make count; misses show misses (attempts - makes).
+function statCountForPlayer(statKey, boxEntry) {
+  if (!boxEntry) return 0;
+  if (statKey === "missed_2") return (boxEntry.fga || 0) - (boxEntry.fgm || 0) - ((boxEntry.tpa || 0) - (boxEntry.tpm || 0));
+  if (statKey === "missed_3") return (boxEntry.tpa || 0) - (boxEntry.tpm || 0);
+  if (statKey === "missed_ft") return (boxEntry.fta || 0) - (boxEntry.ftm || 0);
+  const field = STAT_TO_BOX_FIELD[statKey];
+  return field ? (boxEntry[field] || 0) : 0;
+}
+
+// Given the events list and a player name, is that player currently on
+// a hot streak of 3+ made shots in a row (no misses in between, not
+// counting FTs)? Returns true/false. Use on the last shot event for a
+// player to decide whether to show the fire icon.
+function isOnHotStreak(events, playerName) {
+  if (!playerName) return false;
+  let streak = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.deleted) continue;
+    if (e.player_name !== playerName) continue;
+    // Ignore non-field-goal shots
+    if (e.stat_type === "made_ft" || e.stat_type === "missed_ft") continue;
+    if (e.stat_type === "made_2" || e.stat_type === "made_3") {
+      streak += 1;
+      if (streak >= 3) return true;
+    } else if (e.stat_type === "missed_2" || e.stat_type === "missed_3") {
+      return false;
+    }
+  }
+  return streak >= 3;
+}
+
+// Last-name sort helper for roster arrays.
+function byLastName(a, b) {
+  return (a.player_name || "").localeCompare(b.player_name || "");
+}
+
+// Sort a roster for the player-picker: players who have recorded this
+// stat come first (by last name), then a divider, then players who
+// have not (by last name). Returns { withStat: [...], withoutStat: [...] }.
+function partitionRosterByStat(roster, box, statKey) {
+  const withStat = [];
+  const withoutStat = [];
+  for (const p of roster) {
+    const count = statCountForPlayer(statKey, box[p.player_name]);
+    if (count > 0) withStat.push(p);
+    else withoutStat.push(p);
+  }
+  withStat.sort(byLastName);
+  withoutStat.sort(byLastName);
+  return { withStat, withoutStat };
+}
+
 // ------------------------------------------------------------
 // Main Live Section
 // ------------------------------------------------------------
-export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {} } = {}) {
+export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null } = {}) {
   // Cached login from localStorage
   const [me, setMe] = useState(() => {
     try {
@@ -261,17 +350,19 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
   };
 
   return (
-    <div>
-      {view === "home" && (
-        <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} />
-      )}
-      {view === "game" && activeGameId && (
-        <LiveGameView gameId={activeGameId} me={me} onBack={() => { setView("home"); setActiveGameId(null); }} />
-      )}
-      {view === "review" && (
-        <ReviewQueue onBack={() => setView("home")} onOpen={openGame} />
-      )}
-    </div>
+    <LogosContext.Provider value={logos}>
+      <div>
+        {view === "home" && (
+          <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} />
+        )}
+        {view === "game" && activeGameId && (
+          <LiveGameView gameId={activeGameId} me={me} onBack={() => { setView("home"); setActiveGameId(null); }} />
+        )}
+        {view === "review" && (
+          <ReviewQueue onBack={() => setView("home")} onOpen={openGame} />
+        )}
+      </div>
+    </LogosContext.Provider>
   );
 }
 
@@ -668,6 +759,22 @@ function LiveGameView({ gameId, me, onBack }) {
         </div>
       </div>
 
+      {/* Game control bar (period + timeouts). Only shown to scorers
+          and only on the Live Score Mode tab. Lives ABOVE the scoreboard
+          so the scorer sees period/timeout actions without scrolling. */}
+      {mode === "score" && (myRole === "home_scorer" || myRole === "away_scorer") && (
+        <GameControlBar
+          game={game}
+          live={live}
+          me={me}
+          myRole={myRole}
+          events={events}
+          currentHalf={currentHalf}
+          teamTimeoutsThisHalf={teamTimeoutsThisHalf}
+          teamScore={teamScore}
+        />
+      )}
+
       {/* Scoreboard */}
       <Scoreboard
         game={game}
@@ -685,7 +792,7 @@ function LiveGameView({ gameId, me, onBack }) {
         {["score","box","log"].map(m => (
           <button key={m} onClick={() => setMode(m)}
             className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${mode === m ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
-            {m === "score" ? "Scoreboard" : m === "box" ? "Box Score" : "Play-by-play"}
+            {m === "score" ? "Live Score Mode" : m === "box" ? "Box Score" : "Play-by-play"}
           </button>
         ))}
       </div>
@@ -703,6 +810,7 @@ function LiveGameView({ gameId, me, onBack }) {
           teamFoulsThisHalf={teamFoulsThisHalf}
           teamTimeoutsThisHalf={teamTimeoutsThisHalf}
           teamScore={teamScore}
+          box={box}
         />
       )}
       {mode === "box" && <BoxScoreView game={game} box={box} rosters={rosters} />}
@@ -738,29 +846,37 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
 
   const [logExpanded, setLogExpanded] = useState(false);
 
-  // Last play (for collapsed state)
+  // Last event (any kind except game_end / reopen). Covers made/missed/reb/ast/
+  // stl/blk/foul/timeout/period_change/game_start.
   const lastPlay = useMemo(() => {
+    const EXCLUDE = new Set(["game_end", "reopen"]);
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
       if (e.deleted) continue;
-      if (["made_2","made_3","made_ft","stl","blk","foul","timeout"].includes(e.stat_type)) return e;
+      if (EXCLUDE.has(e.stat_type)) continue;
+      return e;
     }
     return null;
   }, [events]);
 
   // Build last-10 plays with running team scores attached to each scoring event.
-  // We walk forward to accumulate running totals, then take the last 10 scoring
-  // or notable events (made/missed/stl/blk/foul/timeout).
+  // Includes period_change and game_start so the Last line can show them too.
+  // Excludes game_end and reopen. Scoring events carry running_home/running_away
+  // for the inline score tag.
   const last10 = useMemo(() => {
     const running = { [home]: 0, [away]: 0 };
     const out = [];
+    const NOTABLE = new Set([
+      "made_2","made_3","made_ft","missed_2","missed_3","missed_ft",
+      "reb","reb_other_team","ast","stl","blk","foul","timeout",
+      "period_change","game_start",
+    ]);
     for (const e of events) {
       if (e.deleted) continue;
-      // update running score before we capture this event
       if (e.team && e.stat_type === "made_2" && running[e.team] != null) running[e.team] += 2;
       if (e.team && e.stat_type === "made_3" && running[e.team] != null) running[e.team] += 3;
       if (e.team && e.stat_type === "made_ft" && running[e.team] != null) running[e.team] += 1;
-      if (["made_2","made_3","made_ft","missed_2","missed_3","missed_ft","stl","blk","foul","timeout"].includes(e.stat_type)) {
+      if (NOTABLE.has(e.stat_type)) {
         out.push({
           ...e,
           running_home: running[home],
@@ -771,10 +887,91 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
     return out.slice(-10).reverse();
   }, [events, home, away]);
 
+  // Quarter-scores summary. Pulls score snapshots off period_change events
+  // (the insert path writes snap_home/snap_away into score_snapshot, or we
+  // fall back to the event's own running totals).
+  const quarterScores = useMemo(() => {
+    const running = { [home]: 0, [away]: 0 };
+    const snapshots = []; // [{ label, home, away }]
+    for (const e of events) {
+      if (e.deleted) continue;
+      if (e.team === home && e.stat_type === "made_2") running[home] += 2;
+      if (e.team === home && e.stat_type === "made_3") running[home] += 3;
+      if (e.team === home && e.stat_type === "made_ft") running[home] += 1;
+      if (e.team === away && e.stat_type === "made_2") running[away] += 2;
+      if (e.team === away && e.stat_type === "made_3") running[away] += 3;
+      if (e.team === away && e.stat_type === "made_ft") running[away] += 1;
+      if (e.stat_type === "period_change") {
+        const label = e.player_name || "";
+        // The event label is the NEW period (e.g. "H2" means H1 just ended).
+        // Record the snapshot under the period that just ended.
+        const endingLabel = label === "H2" ? "H1" :
+          label?.startsWith("OT") && label !== "OT1" ? `OT${parseInt(label.slice(2)) - 1}` :
+          label === "OT1" ? "H2" : label;
+        if (endingLabel) {
+          snapshots.push({ label: endingLabel, home: running[home], away: running[away] });
+        }
+      }
+      if (e.stat_type === "game_end") {
+        snapshots.push({ label: "Final", home: running[home], away: running[away] });
+      }
+    }
+    return snapshots;
+  }, [events, home, away]);
+
+  // Halftime / 2nd-half banner text. If the most recent period_change was H2,
+  // show "Halftime" for up to 5 minutes OR until a stat event has fired after
+  // the period_change. After that, show "2nd half started N min ago".
+  const halftimeBanner = useMemo(() => {
+    const periodChanges = events
+      .filter(e => !e.deleted && e.stat_type === "period_change" && e.player_name === "H2");
+    if (periodChanges.length === 0) return null;
+    const pc = periodChanges[periodChanges.length - 1];
+    const pcTs = pc.event_ts ? new Date(pc.event_ts).getTime() : null;
+    if (!pcTs) return null;
+    // Was there a stat event after this period_change?
+    const STAT_KINDS = new Set([
+      "made_2","made_3","made_ft","missed_2","missed_3","missed_ft",
+      "reb","reb_other_team","ast","stl","blk","foul",
+    ]);
+    const hasPlayAfter = events.some(e =>
+      !e.deleted
+      && STAT_KINDS.has(e.stat_type)
+      && e.event_ts
+      && new Date(e.event_ts).getTime() > pcTs
+    );
+    const ageMs = Date.now() - pcTs;
+    const ageMin = Math.floor(ageMs / 60000);
+    if (!hasPlayAfter && ageMin < 5) {
+      return { kind: "halftime" };
+    }
+    return { kind: "h2_ago", minutes: Math.max(0, ageMin) };
+  }, [events]);
+
+  // Which player was on the mic for the last shot event? Used to attach a fire
+  // icon to the last play if they're now on a 3-in-a-row hot streak (FG only).
+  const lastPlayOnStreak = useMemo(() => {
+    if (!lastPlay) return false;
+    if (!["made_2","made_3"].includes(lastPlay.stat_type)) return false;
+    return isOnHotStreak(events, lastPlay.player_name);
+  }, [lastPlay, events]);
+
   return (
     <div className="rounded-2xl overflow-hidden mb-3 border border-gray-200 bg-white">
       <div className="p-4">
-        <div className="flex items-center justify-end mb-3">
+        <div className="flex items-center justify-between mb-3">
+          {/* Halftime / H2 age banner on the left */}
+          <div className="text-[10px] font-bold uppercase tracking-widest">
+            {halftimeBanner?.kind === "halftime" && (
+              <span className="text-gray-600">Halftime</span>
+            )}
+            {halftimeBanner?.kind === "h2_ago" && halftimeBanner.minutes > 0 && (
+              <span className="text-gray-400 normal-case tracking-normal font-normal">
+                2nd half started {halftimeBanner.minutes} min ago
+              </span>
+            )}
+          </div>
+          {/* Status on the right */}
           <div className="text-[10px] font-bold uppercase tracking-widest">
             {live?.status === "live" ? (
               <span className="inline-flex items-center gap-1 text-red-600">
@@ -798,9 +995,22 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
             fouls={homeFouls} topScorer={topScorerByTeam[home]} />
         </div>
 
+        {/* Quarter scores summary */}
+        {quarterScores.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-100 text-[11px] text-gray-500 text-center tabular-nums">
+            {quarterScores.map((q, i) => (
+              <span key={i}>
+                {i > 0 && <span className="text-gray-300 mx-1.5">&middot;</span>}
+                <span className="font-bold text-gray-400 uppercase tracking-wide">{q.label}</span>
+                <span className="ml-1">{q.away}-{q.home}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Last play / tappable expand to last 10 */}
         {lastPlay && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
+          <div className={`${quarterScores.length > 0 ? "mt-2 pt-2" : "mt-3 pt-3 border-t border-gray-100"}`}>
             <button
               onClick={() => setLogExpanded(v => !v)}
               className="w-full text-left text-[11px] text-gray-600 flex items-center justify-between active:opacity-60"
@@ -808,6 +1018,11 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
               <span>
                 <span className="text-gray-400 mr-1">Last:</span>
                 {formatEventText(lastPlay)}
+                {lastPlayOnStreak && (
+                  <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-orange-500 text-white tracking-wider align-middle">
+                    HOT
+                  </span>
+                )}
               </span>
               <span className="text-gray-400 text-[10px] ml-2">{logExpanded ? "\u25B4 hide" : "\u25BE last 10"}</span>
             </button>
@@ -819,16 +1034,24 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
                   last10.map((e) => {
                     const isAway = e.team === away;
                     const isScoring = ["made_2","made_3","made_ft"].includes(e.stat_type);
+                    const isPeriodOrStart = e.stat_type === "period_change" || e.stat_type === "game_start";
                     const scoreTag = isScoring
                       ? ` \u00b7 ${away} ${e.running_away} - ${e.running_home} ${home}`
                       : "";
+                    const showFire = ["made_2","made_3"].includes(e.stat_type)
+                      && isOnHotStreakAtIndex(events, e);
                     return (
                       <div
                         key={e.event_id || Math.random()}
-                        className={`text-[11px] ${isAway ? "text-right" : "text-left"}`}
+                        className={`text-[11px] ${isPeriodOrStart ? "text-center text-gray-400 font-semibold" : isAway ? "text-right" : "text-left"}`}
                       >
                         <span className={`${isScoring ? "font-bold text-gray-900" : "text-gray-700"}`}>
                           {formatEventText(e)}
+                          {showFire && (
+                            <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-orange-500 text-white tracking-wider align-middle">
+                              HOT
+                            </span>
+                          )}
                         </span>
                         {isScoring && (
                           <span className="text-gray-400">{scoreTag}</span>
@@ -844,6 +1067,30 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
       </div>
     </div>
   );
+}
+
+// For play-by-play fire icon: was this event part of a 3-in-a-row (FGs only)
+// for the shooter at the time it was made? Walks back from this event in the
+// non-deleted event stream and counts the 3 most recent FG attempts by the
+// same player.
+function isOnHotStreakAtIndex(events, target) {
+  if (!target || !target.player_name) return false;
+  const idx = events.findIndex(e => e.event_id === target.event_id);
+  if (idx < 0) return false;
+  let streak = 0;
+  for (let i = idx; i >= 0; i--) {
+    const e = events[i];
+    if (e.deleted) continue;
+    if (e.player_name !== target.player_name) continue;
+    if (e.stat_type === "made_ft" || e.stat_type === "missed_ft") continue;
+    if (e.stat_type === "made_2" || e.stat_type === "made_3") {
+      streak += 1;
+      if (streak >= 3) return true;
+    } else if (e.stat_type === "missed_2" || e.stat_type === "missed_3") {
+      return false;
+    }
+  }
+  return streak >= 3;
 }
 
 function TeamScorePanel({ team, score, color, fouls, topScorer }) {
@@ -869,10 +1116,186 @@ function TeamScorePanel({ team, score, color, fouls, topScorer }) {
 }
 
 // ============================================================
+// Game control bar: period + end-half/end-game + timeouts per team.
+// Rendered ABOVE the scoreboard for scorers on the Live Score Mode tab.
+// Each scorer can only tap their own team's timeout pills, but sees
+// both teams' pill states. Pills display remaining timeouts with the
+// numbers renumbered from 1 as timeouts are used.
+// ============================================================
+function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeoutsThisHalf, teamScore }) {
+  const period = live?.period || "H1";
+  const homeTeam = game.home_team;
+  const awayTeam = game.away_team;
+  const myTeamCode = myRole === "home_scorer" ? homeTeam : myRole === "away_scorer" ? awayTeam : null;
+  const homeTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[homeTeam] || 0;
+  const awayTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[awayTeam] || 0;
+  const inRegulation = period === "H1" || period === "H2" || period?.startsWith("OT");
+  const gameIsOver = live?.status === "ended" || live?.status === "approved";
+
+  const endFirstHalf = async () => {
+    if (!confirm("End 1st half and begin 2nd half?")) return;
+    await supabase.from("live_games").update({
+      period: "H2", status: "live",
+      home_timeouts_remaining: 3, away_timeouts_remaining: 3,
+      updated_at: new Date().toISOString(),
+    }).eq("game_id", game.game_id);
+    await supabase.from("live_events").insert({
+      game_id: game.game_id, period: "H2", stat_type: "period_change",
+      player_name: "H2", scorer_pin: me.pin, scorer_name: me.name,
+    });
+  };
+
+  const endGameOrStartOT = async () => {
+    const homeScore = teamScore?.[homeTeam] || 0;
+    const awayScore = teamScore?.[awayTeam] || 0;
+    if (homeScore === awayScore) {
+      if (!confirm("Scores are tied. Start overtime?")) return;
+      const curPeriod = live?.period || "H2";
+      const nextOT = curPeriod === "H2" ? "OT1" :
+        curPeriod.startsWith("OT") ? `OT${parseInt(curPeriod.slice(2)) + 1}` : "OT1";
+      await supabase.from("live_games").update({
+        period: nextOT, status: "live",
+        home_timeouts_remaining: 1, away_timeouts_remaining: 1,
+        updated_at: new Date().toISOString(),
+      }).eq("game_id", game.game_id);
+      await supabase.from("live_events").insert({
+        game_id: game.game_id, period: nextOT, stat_type: "period_change",
+        player_name: nextOT, scorer_pin: me.pin, scorer_name: me.name,
+      });
+    } else {
+      if (!confirm(`End game? Final: ${awayTeam} ${awayScore} - ${homeTeam} ${homeScore}`)) return;
+      await supabase.from("live_games").update({
+        status: "ended", period: "Final",
+        ended_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }).eq("game_id", game.game_id);
+      await supabase.from("schedule").update({ status: "ended" }).eq("game_id", game.game_id);
+      await supabase.from("live_events").insert({
+        game_id: game.game_id, period: "Final", stat_type: "game_end",
+        scorer_pin: me.pin, scorer_name: me.name,
+      });
+    }
+  };
+
+  const callTimeout = async (teamCode) => {
+    const used = teamTimeoutsThisHalf?.[currentHalf]?.[teamCode] || 0;
+    if (used >= 3) return;
+    await supabase.from("live_events").insert({
+      game_id: game.game_id,
+      period: live?.period || "H1",
+      team: teamCode,
+      player_name: null,
+      stat_type: "timeout",
+      scorer_pin: me.pin,
+      scorer_name: me.name,
+    });
+  };
+
+  // Render 3 numbered rectangles. Used slots are X'ed out and gray on the
+  // LEFT. Remaining green pills renumber from 1 on the right so the scorer
+  // can easily tell how many timeouts remain. When all 3 are used, a red
+  // message renders below instead of any pills.
+  const renderTimeoutPills = (teamCode, usedCount) => {
+    const iCanTap = teamCode === myTeamCode && inRegulation && !gameIsOver;
+    if (usedCount >= 3) {
+      return (
+        <span className="text-[11px] font-bold text-red-600">
+          No timeouts left
+        </span>
+      );
+    }
+    const remaining = 3 - usedCount;
+    const pills = [];
+    // Used pills on the left
+    for (let i = 0; i < usedCount; i++) {
+      pills.push(
+        <div key={`u${i}`}
+          className="relative w-8 h-7 rounded-md bg-gray-200 border border-gray-300 flex items-center justify-center flex-shrink-0"
+          title="Used"
+        >
+          <svg viewBox="0 0 20 20" className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="5" y1="5" x2="15" y2="15" />
+            <line x1="15" y1="5" x2="5" y2="15" />
+          </svg>
+        </div>
+      );
+    }
+    // Remaining green pills, renumbered 1..remaining
+    for (let i = 0; i < remaining; i++) {
+      const label = i + 1;
+      // Only the first remaining pill is tappable so a double-tap doesn't
+      // accidentally burn two timeouts.
+      const isNext = i === 0;
+      pills.push(
+        <button key={`r${i}`}
+          onClick={() => isNext && iCanTap && callTimeout(teamCode)}
+          disabled={!isNext || !iCanTap}
+          className={`w-8 h-7 rounded-md text-xs font-black flex items-center justify-center flex-shrink-0 transition-all ${
+            isNext && iCanTap
+              ? "bg-green-500 text-white border-2 border-green-600 active:bg-green-600"
+              : "bg-green-100 text-green-700 border border-green-200"
+          } disabled:cursor-default`}
+          title={iCanTap && isNext ? `Call timeout for ${teamCode}` : ""}
+        >
+          {label}
+        </button>
+      );
+    }
+    return <div className="flex gap-1">{pills}</div>;
+  };
+
+  if (!inRegulation || gameIsOver) {
+    // Still show a thin period indicator if the game is in a terminal state.
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-2 mb-3 flex items-center justify-center">
+        <span className="text-sm font-black text-gray-700">{period || "Final"}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-3 mb-3 space-y-2">
+      {/* Row 1: period + action button */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xl font-black text-gray-900">{period}</div>
+        <div className="flex gap-1.5">
+          {period === "H1" && (
+            <button onClick={endFirstHalf}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800">
+              End 1st half
+            </button>
+          )}
+          {(period === "H2" || period?.startsWith("OT")) && (
+            <button onClick={endGameOrStartOT}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700">
+              End game
+            </button>
+          )}
+        </div>
+      </div>
+      {/* Row 2: timeouts, one line per team */}
+      <div className="pt-2 border-t border-gray-100 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            {awayTeam} timeouts
+          </span>
+          {renderTimeoutPills(awayTeam, awayTOUsed)}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            {homeTeam} timeouts
+          </span>
+          {renderTimeoutPills(homeTeam, homeTOUsed)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // Scorer controls: team claim, stat entry with rebound/assist
 // prompts, undo, game state buttons
 // ============================================================
-function ScorerControls({ game, live, events, rosters, me, myRole, onReload, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore }) {
+function ScorerControls({ game, live, events, rosters, me, myRole, onReload, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore, box }) {
   const [showAdminForTakeover, setShowAdminForTakeover] = useState(null); // target team code
   const [pendingStat, setPendingStat] = useState(null); // {stat, player}
   const [promptMode, setPromptMode] = useState(null);   // rebound | assist
@@ -918,6 +1341,51 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
     if (!me) { alert("Sign in with your PIN first."); return; }
     if (!confirm(`Take over scoring for ${teamCode}? The current scorer will be kicked.`)) return;
     setShowAdminForTakeover(teamCode);
+  };
+
+  // When a scorer has been silent for 10+ minutes, anyone can claim their
+  // slot without the admin password. Returns true if the slot is stale.
+  const STALE_MS = 10 * 60 * 1000;
+  const scorerIsStale = (teamCode) => {
+    const col = teamCode === game.home_team ? "home" : "away";
+    const pin = live?.[`${col}_scorer_pin`];
+    if (!pin) return false;
+    let latest = 0;
+    for (const e of events) {
+      if (e.deleted) continue;
+      if (e.scorer_pin !== pin) continue;
+      if (!e.event_ts) continue;
+      const ts = new Date(e.event_ts).getTime();
+      if (ts > latest) latest = ts;
+    }
+    // If they've never entered an event, fall back to started_at on live_games
+    if (!latest && live?.started_at) latest = new Date(live.started_at).getTime();
+    if (!latest) return false;
+    return (Date.now() - latest) >= STALE_MS;
+  };
+
+  // Claim a stale slot: same as claimTeam but logs a different audit action
+  // and shows a notice message about the auto-release.
+  const claimStaleSlot = async (teamCode) => {
+    if (!me) { alert("Sign in with your PIN first."); return; }
+    if (!confirm(`The current scorer has been inactive for 10+ minutes. Claim ${teamCode}?`)) return;
+    setBusy(true);
+    const col = teamCode === game.home_team ? "home" : "away";
+    const prev = { pin: live?.[`${col}_scorer_pin`], name: live?.[`${col}_scorer_name`] };
+    const { error } = await supabase.from("live_games").update({
+      [`${col}_scorer_pin`]: me.pin,
+      [`${col}_scorer_name`]: me.name,
+      updated_at: new Date().toISOString(),
+    }).eq("game_id", game.game_id);
+    if (error) { alert("Error: " + error.message); setBusy(false); return; }
+    await supabase.from("audit_log").insert({
+      game_id: game.game_id, actor_pin: me.pin, actor_name: me.name,
+      action: "claim_stale",
+      before_value: prev,
+      after_value: { team: teamCode, new_pin: me.pin, new_name: me.name },
+    });
+    setBusy(false);
+    onReload();
   };
 
   const executeTakeover = async (teamCode) => {
@@ -992,6 +1460,32 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
     setPromptMode(null);
   };
 
+  // Technical / Spiritual foul: user tapped one of those buttons in the
+  // foul player-picker INSTEAD of tapping a player. We drop into a second
+  // prompt that collects (a) the offender and (b) an optional explanation.
+  const startFoulSubtype = (subtype) => {
+    setPendingStat(prev => ({ ...prev, foulSubtype: subtype, foulNote: "" }));
+    setPromptMode("foul_subtype_player");
+  };
+
+  const chooseFoulSubtypePlayer = (player) => {
+    setPendingStat(prev => ({ ...prev, foulPlayer: player }));
+    setPromptMode("foul_subtype_note");
+  };
+
+  const saveFoulSubtype = async () => {
+    const player = pendingStat?.foulPlayer;
+    const subtype = pendingStat?.foulSubtype;
+    const note = (pendingStat?.foulNote || "").trim();
+    if (!player || !subtype) { cancelPrompt(); return; }
+    await insertEvent("foul", player.player_name, {
+      foul_subtype: subtype,
+      foul_note: note ? note.slice(0, 200) : null,
+    });
+    setPendingStat(null);
+    setPromptMode(null);
+  };
+
   const chooseRebound = async (choice) => {
     if (choice === "own") {
       // Need to pick a player - keep the prompt open but in "own-reb-player" sub-mode
@@ -1022,11 +1516,40 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
 
   const cancelPrompt = () => { setPendingStat(null); setPromptMode(null); };
 
-  // ---- Undo last (own events only) ----
+  // ---- Undo helpers ----
+  // "My events" for undo/history includes period_change entries so scorers
+  // can back out an accidental "end half" tap. Excludes game_start/game_end/
+  // reopen (those are locked and require admin tools).
+  const myUndoableEvents = useMemo(() => {
+    const EXCLUDE = new Set(["game_start", "game_end", "reopen"]);
+    return events.filter(e =>
+      !e.deleted
+      && e.scorer_pin === me?.pin
+      && !EXCLUDE.has(e.stat_type)
+    );
+  }, [events, me?.pin]);
+
+  // Undo the most recent event by this scorer. If the last event was a
+  // period_change, ask for confirmation and also reset the live_games
+  // period back to the prior period (so the UI doesn't stay in H2 while
+  // the event was deleted).
   const undoLast = async () => {
-    const mine = events.filter(e => !e.deleted && e.scorer_pin === me?.pin && e.stat_type !== "period_change" && e.stat_type !== "game_start" && e.stat_type !== "game_end");
-    if (mine.length === 0) return;
-    const last = mine[mine.length - 1];
+    if (myUndoableEvents.length === 0) return;
+    const last = myUndoableEvents[myUndoableEvents.length - 1];
+    if (last.stat_type === "period_change") {
+      if (!confirm(`Undo end-of-half and go back to the previous period?`)) return;
+      // Find the period before this period_change
+      const prior = [...events]
+        .filter(e => !e.deleted && e.stat_type === "period_change")
+        .filter(e => e.event_id !== last.event_id);
+      const priorPeriod = prior.length > 0
+        ? prior[prior.length - 1].player_name
+        : "H1";
+      await supabase.from("live_games").update({
+        period: priorPeriod, status: "live",
+        updated_at: new Date().toISOString(),
+      }).eq("game_id", game.game_id);
+    }
     const { error } = await supabase.from("live_events").update({
       deleted: true, edited_at: new Date().toISOString(), edited_by: me.name,
     }).eq("event_id", last.event_id);
@@ -1035,6 +1558,53 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
       game_id: game.game_id, actor_pin: me.pin, actor_name: me.name,
       action: "undo", event_id: last.event_id, before_value: last,
     });
+  };
+
+  // Undo a specific event id (used by last-3 history panel).
+  const undoSpecific = async (ev) => {
+    if (!ev) return;
+    if (ev.stat_type === "period_change") {
+      if (!confirm(`Undo this period change?`)) return;
+      const prior = [...events]
+        .filter(e => !e.deleted && e.stat_type === "period_change")
+        .filter(e => e.event_id !== ev.event_id);
+      const priorPeriod = prior.length > 0
+        ? prior[prior.length - 1].player_name
+        : "H1";
+      await supabase.from("live_games").update({
+        period: priorPeriod, status: "live",
+        updated_at: new Date().toISOString(),
+      }).eq("game_id", game.game_id);
+    } else {
+      if (!confirm(`Delete this event?`)) return;
+    }
+    const { error } = await supabase.from("live_events").update({
+      deleted: true, edited_at: new Date().toISOString(), edited_by: me.name,
+    }).eq("event_id", ev.event_id);
+    if (error) { alert(error.message); return; }
+    await supabase.from("audit_log").insert({
+      game_id: game.game_id, actor_pin: me.pin, actor_name: me.name,
+      action: "undo", event_id: ev.event_id, before_value: ev,
+    });
+  };
+
+  // ---- Release scoring slot ----
+  // Scorer voluntarily relinquishes their slot. Someone else can then
+  // claim without the admin-takeover flow. Logs an audit entry.
+  const releaseSlot = async () => {
+    if (!confirm("Release scorer slot? You won't be scoring this game anymore.")) return;
+    const col = myRole === "home_scorer" ? "home" : "away";
+    await supabase.from("live_games").update({
+      [`${col}_scorer_pin`]: null,
+      [`${col}_scorer_name`]: null,
+      updated_at: new Date().toISOString(),
+    }).eq("game_id", game.game_id);
+    await supabase.from("audit_log").insert({
+      game_id: game.game_id, actor_pin: me.pin, actor_name: me.name,
+      action: "release_scorer",
+      before_value: { team: myTeamCode, pin: me.pin, name: me.name },
+    });
+    onReload();
   };
 
   // ---- Period/state controls ----
@@ -1150,21 +1720,38 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
         {[[game.away_team, "away"], [game.home_team, "home"]].map(([t, side]) => {
           const taken = side === "home" ? homeTaken : awayTaken;
           const takenBy = side === "home" ? live.home_scorer_name : live.away_scorer_name;
+          const stale = taken && scorerIsStale(t);
           return (
             <div key={t} className="flex items-center gap-2 py-2">
               <div className="flex-1">
                 <div className="text-sm font-bold" style={{ color: TEAM_COLORS[t] || "#111827" }}>{t}</div>
-                <div className="text-[11px] text-gray-500">{taken ? formatName(takenBy) : "Unclaimed"}</div>
+                <div className="text-[11px] text-gray-500">
+                  {taken ? (
+                    <>
+                      {formatName(takenBy)}
+                      {stale && (
+                        <span className="ml-1 text-orange-600 font-semibold">
+                          (inactive 10+ min)
+                        </span>
+                      )}
+                    </>
+                  ) : "Unclaimed"}
+                </div>
               </div>
-              {taken ? (
-                <button onClick={() => requestTakeover(t)}
-                  className="text-[11px] font-bold text-red-700 px-2 py-1 rounded bg-red-50 active:bg-red-100 border border-red-200">
-                  Take over
-                </button>
-              ) : (
+              {!taken ? (
                 <button onClick={() => claimTeam(t)}
                   className="text-[11px] font-bold text-white px-2 py-1 rounded bg-gray-900 active:bg-gray-800">
                   Claim
+                </button>
+              ) : stale ? (
+                <button onClick={() => claimStaleSlot(t)}
+                  className="text-[11px] font-bold text-white px-2 py-1 rounded bg-orange-600 active:bg-orange-700">
+                  Claim (inactive)
+                </button>
+              ) : (
+                <button onClick={() => requestTakeover(t)}
+                  className="text-[11px] font-bold text-red-700 px-2 py-1 rounded bg-red-50 active:bg-red-100 border border-red-200">
+                  Take over
                 </button>
               )}
             </div>
@@ -1186,87 +1773,83 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
   // If I am a scorer, show stat grid + roster + controls
   if (myRole === "home_scorer" || myRole === "away_scorer") {
     const period = live.period || "H1";
-    const homeTeam = game.home_team;
-    const awayTeam = game.away_team;
-    const homeTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[homeTeam] || 0;
-    const awayTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[awayTeam] || 0;
-    const inRegulation = period === "H1" || period === "H2" || period?.startsWith("OT");
 
-    // Timeout pill: filled if available, crossed out if used. Tapping the leftmost
-    // available pill records a timeout for that team.
-    const renderTimeoutPills = (teamCode, usedCount) => {
-      const pills = [];
-      for (let i = 0; i < 3; i++) {
-        const used = i < usedCount;
-        pills.push(
-          <button
-            key={i}
-            onClick={() => !used && callTimeout(teamCode)}
-            disabled={used || !inRegulation}
-            className={`relative w-5 h-5 rounded-full border transition-all ${
-              used
-                ? "bg-gray-200 border-gray-300"
-                : "bg-white border-gray-400 active:bg-gray-100"
-            } disabled:cursor-not-allowed`}
-            title={used ? "Used" : `Call timeout for ${teamCode}`}
-          >
-            {used && (
-              <svg viewBox="0 0 20 20" className="absolute inset-0 w-full h-full text-gray-400" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <line x1="5" y1="5" x2="15" y2="15" />
-                <line x1="15" y1="5" x2="5" y2="15" />
-              </svg>
-            )}
-          </button>
-        );
-      }
-      return pills;
-    };
-
-    // Stat label for the player-select banner
+    // Stat meta for the current pending stat (for banner coloring and labels)
     const pendingLabel = pendingStat?.meta?.label || "";
     const pendingIsGreen = pendingStat?.meta?.color?.includes("green");
     const pendingIsRed = pendingStat?.meta?.color?.includes("red");
 
+    // Stat grid rows. Row 1 and row 2 are 3 buttons each, row 3 is 4.
+    const row1Keys = ["made_2", "made_3", "made_ft"];
+    const row2Keys = ["missed_2", "missed_3", "missed_ft"];
+    const row3Keys = ["reb", "stl", "blk", "foul"];
+    const statByKey = Object.fromEntries(STAT_BUTTONS.map(s => [s.key, s]));
+
+    const renderStatButton = (key) => {
+      const s = statByKey[key];
+      if (!s) return null;
+      const active = pendingStat?.key === key;
+      return (
+        <button key={key} onClick={() => tapStat(key)}
+          className={`py-3 rounded-xl text-sm font-black transition-all border-2 ${
+            active
+              ? `${s.color} border-gray-900 ring-4 ${s.activeRing}`
+              : `${s.color} border-transparent opacity-90 active:opacity-100`
+          }`}>
+          {s.label}
+        </button>
+      );
+    };
+
+    // Partition the roster for the current stat (with-stat first, without
+    // second, sorted by last name). For rebound/assist prompts we partition
+    // on the relevant secondary stat instead.
+    const partitionStatKey = (() => {
+      if (promptMode === "rebound_own_player") return "reb";
+      if (promptMode === "assist") return "ast";
+      if (promptMode === "foul_subtype_player") return "foul";
+      return pendingStat?.key || null;
+    })();
+    const partitioned = partitionStatKey
+      ? partitionRosterByStat(myRoster, box, partitionStatKey)
+      : null;
+
+    // Renders a single player card in the box picker: big last name, jersey #
+    // placeholder, and the per-stat count as a small chip in the corner.
+    const renderPlayerCard = (p, opts = {}) => {
+      const { onClick, disabled, showCount = true } = opts;
+      const name = p.player_name || "";
+      const parts = name.trim().split(/\s+/);
+      const lastName = (parts[0] || "").replace(/^./, c => c.toUpperCase()).toLowerCase();
+      const displayLast = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase() : name;
+      const firstInitial = parts[1] ? parts[1].charAt(0).toUpperCase() + "." : "";
+      const count = showCount && partitionStatKey
+        ? statCountForPlayer(partitionStatKey, box[name])
+        : 0;
+      return (
+        <button key={p.roster_id}
+          onClick={onClick}
+          disabled={disabled}
+          className="relative py-4 px-2 rounded-xl bg-white border-2 border-gray-200 text-center active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
+          <div className="absolute top-1 left-2 text-[10px] font-bold text-gray-300">#</div>
+          {showCount && count > 0 && (
+            <div className="absolute top-1 right-2 text-[10px] font-black text-gray-500 tabular-nums">
+              {count}
+            </div>
+          )}
+          <div className="text-base font-black text-gray-900 truncate leading-tight">{displayLast}</div>
+          {firstInitial && (
+            <div className="text-[10px] text-gray-400 truncate">{firstInitial}</div>
+          )}
+        </button>
+      );
+    };
+
+    // Scorer's last 3 events for the history panel (includes period_change).
+    const lastThree = myUndoableEvents.slice(-3).reverse();
+
     return (
       <div className="space-y-3">
-        {/* Top bar: period + end-half + timeouts per team */}
-        {inRegulation && !gameIsOver && (
-          <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-black text-gray-900">{period}</span>
-                {period === "H1" && (
-                  <button onClick={endFirstHalf}
-                    className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800">
-                    End 1st half
-                  </button>
-                )}
-                {(period === "H2" || period?.startsWith("OT")) && (
-                  <button onClick={endGameOrStartOT}
-                    className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700">
-                    End game
-                  </button>
-                )}
-              </div>
-              <button onClick={undoLast}
-                className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
-                Undo last
-              </button>
-            </div>
-            {/* Timeout rows, one per team */}
-            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-gray-100">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{awayTeam} TO</span>
-                <div className="flex gap-1">{renderTimeoutPills(awayTeam, awayTOUsed)}</div>
-              </div>
-              <div className="flex items-center gap-2 justify-end">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{homeTeam} TO</span>
-                <div className="flex gap-1">{renderTimeoutPills(homeTeam, homeTOUsed)}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {gameIsOver && (
           <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 flex items-center justify-between">
             <div className="text-[11px] text-gray-500">
@@ -1279,81 +1862,165 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
           </div>
         )}
 
-        {/* Stat buttons + roster */}
+        {/* Stat buttons: Row 1 makes (green), Row 2 misses (red), Row 3 REB/STL/BLK/FOUL */}
         {!gameIsOver && (
-          <>
-            <div>
-              <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">
-                1. Tap stat &middot; {myTeamCode}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
+                Tap stat &middot; {myTeamCode}
+              </div>
+              <button onClick={undoLast}
+                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
+                Undo last
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
+                {row1Keys.map(renderStatButton)}
               </div>
               <div className="grid grid-cols-3 gap-1.5">
-                {STAT_BUTTONS.map(s => {
-                  const active = pendingStat?.key === s.key;
-                  return (
-                    <button key={s.key} onClick={() => tapStat(s.key)}
-                      className={`py-3 rounded-xl text-sm font-bold transition-all border-2 ${
-                        active
-                          ? `${s.color} border-gray-900 ring-4 ${s.activeRing}`
-                          : `${s.color} border-transparent opacity-90 active:opacity-100`
-                      }`}>
-                      {s.label}
-                    </button>
-                  );
-                })}
+                {row2Keys.map(renderStatButton)}
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {row3Keys.map(renderStatButton)}
               </div>
             </div>
-
-            {/* Player-select banner + roster */}
-            <div>
-              {pendingStat ? (
-                <div
-                  className={`mb-2 rounded-xl p-3 text-center border-2 animate-pulse ${
-                    pendingIsGreen ? "bg-green-50 border-green-500" :
-                    pendingIsRed ? "bg-red-50 border-red-500" :
-                    "bg-gray-50 border-gray-900"
-                  }`}
-                >
-                  <div className={`text-xs font-black uppercase tracking-widest ${
-                    pendingIsGreen ? "text-green-700" :
-                    pendingIsRed ? "text-red-700" :
-                    "text-gray-900"
-                  }`}>
-                    Tap a player for
-                  </div>
-                  <div className="text-xl font-black text-gray-900 mt-0.5">{pendingLabel}</div>
-                </div>
-              ) : (
-                <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">
-                  2. Tap player
-                </div>
-              )}
-              <div className={`grid grid-cols-2 gap-1.5 rounded-xl p-1 ${
-                pendingStat && !promptMode
-                  ? pendingIsGreen ? "ring-2 ring-green-400 ring-offset-1" :
-                    pendingIsRed ? "ring-2 ring-red-400 ring-offset-1" :
-                    "ring-2 ring-gray-400 ring-offset-1"
-                  : ""
-              }`}>
-                {myRoster.map(p => (
-                  <button key={p.roster_id}
-                    disabled={!pendingStat || promptMode}
-                    onClick={() => tapPlayerForStat(p)}
-                    className="py-4 px-2 rounded-xl bg-white border border-gray-200 text-center active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
-                    <div className="text-base font-black text-gray-900 truncate">{formatName(p.player_name)}</div>
-                  </button>
-                ))}
-              </div>
-              {pendingStat && (
-                <button onClick={cancelPrompt}
-                  className="mt-2 w-full py-2 rounded-lg bg-gray-50 border border-gray-200 text-[11px] font-bold text-gray-600 active:bg-gray-100">
-                  Cancel
-                </button>
-              )}
-            </div>
-          </>
+          </div>
         )}
 
-        {/* Rebound/assist prompt overlay */}
+        {/* Last-3 history panel (collapsible under the stat grid) */}
+        {!gameIsOver && lastThree.length > 0 && (
+          <LastThreePanel events={lastThree} onUndo={undoSpecific} />
+        )}
+
+        {/* Release scorer button (bottom of scoring UI, subtle) */}
+        {!gameIsOver && (
+          <div className="pt-2">
+            <button onClick={releaseSlot}
+              className="w-full py-2 rounded-lg text-[11px] font-semibold text-gray-400 border border-dashed border-gray-200 active:bg-gray-50 active:text-gray-600">
+              Release scoring responsibility
+            </button>
+          </div>
+        )}
+
+        {/* Primary stat box picker (opens whenever a stat is tapped) */}
+        {pendingStat && !promptMode && (
+          <ModalShell
+            title={
+              <span className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${
+                  pendingIsGreen ? "bg-green-500" :
+                  pendingIsRed ? "bg-red-500" :
+                  "bg-gray-700"
+                }`} />
+                <span>Tap player for <span className="font-black">{pendingLabel}</span></span>
+              </span>
+            }
+            onClose={cancelPrompt}
+          >
+            <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto">
+              {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => tapPlayerForStat(p) }))}
+              {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
+                <div className="col-span-2 my-1 flex items-center gap-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    {partitionStatKey === "reb" ? "No rebounds yet" :
+                     partitionStatKey === "foul" ? "No fouls yet" :
+                     partitionStatKey === "stl" ? "No steals yet" :
+                     partitionStatKey === "blk" ? "No blocks yet" :
+                     "No stat yet"}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+              {partitioned?.withoutStat.map(p => renderPlayerCard(p, { onClick: () => tapPlayerForStat(p) }))}
+            </div>
+            {/* For fouls, add Technical/Spiritual buttons at the bottom */}
+            {pendingStat?.key === "foul" && (
+              <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">
+                  Or mark as
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => startFoulSubtype("technical")}
+                    className="py-3 rounded-xl bg-orange-500 text-white font-black text-sm active:bg-orange-600">
+                    Technical Foul
+                  </button>
+                  <button onClick={() => startFoulSubtype("spiritual")}
+                    className="py-3 rounded-xl bg-purple-600 text-white font-black text-sm active:bg-purple-700">
+                    Spiritual Foul
+                  </button>
+                </div>
+              </div>
+            )}
+          </ModalShell>
+        )}
+
+        {/* Technical / Spiritual foul: pick player */}
+        {promptMode === "foul_subtype_player" && (
+          <ModalShell
+            title={
+              <span>
+                {pendingStat?.foulSubtype === "technical" ? "Technical foul" : "Spiritual foul"}
+                <span className="text-gray-500 font-normal"> &middot; tap player</span>
+              </span>
+            }
+            onClose={cancelPrompt}
+          >
+            <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto">
+              {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseFoulSubtypePlayer(p) }))}
+              {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
+                <div className="col-span-2 my-1 flex items-center gap-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">No fouls yet</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+              {partitioned?.withoutStat.map(p => renderPlayerCard(p, { onClick: () => chooseFoulSubtypePlayer(p) }))}
+            </div>
+          </ModalShell>
+        )}
+
+        {/* Technical / Spiritual foul: optional explanation note */}
+        {promptMode === "foul_subtype_note" && (
+          <ModalShell
+            title={
+              <span>
+                {pendingStat?.foulSubtype === "technical" ? "Technical foul" : "Spiritual foul"}
+                <span className="text-gray-500 font-normal">
+                  {" "}on {formatName(pendingStat?.foulPlayer?.player_name)}
+                </span>
+              </span>
+            }
+            onClose={cancelPrompt}
+          >
+            <div className="space-y-3">
+              <div className="text-[12px] text-gray-600 leading-snug">
+                Please explain what happened in less than 20 words, if possible. Feel free to use ref explanation.
+              </div>
+              <textarea
+                value={pendingStat?.foulNote || ""}
+                onChange={(e) => setPendingStat(prev => ({ ...prev, foulNote: e.target.value }))}
+                maxLength={200}
+                placeholder="(optional)"
+                rows={3}
+                className="w-full rounded-lg border border-gray-200 p-2 text-sm focus:outline-none focus:border-gray-400"
+              />
+              <div className="flex gap-2">
+                <button onClick={cancelPrompt}
+                  className="flex-1 py-2.5 rounded-lg bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
+                  Cancel
+                </button>
+                <button onClick={saveFoulSubtype}
+                  className="flex-1 py-2.5 rounded-lg bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
+                  Save
+                </button>
+              </div>
+            </div>
+          </ModalShell>
+        )}
+
+        {/* Rebound prompt overlay (after a missed shot) */}
         {promptMode === "rebound" && (
           <ModalShell title="Rebound?" onClose={cancelPrompt}>
             <div className="space-y-2">
@@ -1376,12 +2043,15 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
         {promptMode === "rebound_own_player" && (
           <ModalShell title="Who got the rebound?" onClose={cancelPrompt}>
             <div className="grid grid-cols-2 gap-1.5 max-h-96 overflow-y-auto">
-              {myRoster.map(p => (
-                <button key={p.roster_id} onClick={() => chooseReboundPlayer(p)}
-                  className="py-3 px-2 rounded-xl bg-white border border-gray-200 text-left active:bg-gray-50">
-                  <div className="text-xs font-bold text-gray-900 truncate">{formatName(p.player_name)}</div>
-                </button>
-              ))}
+              {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseReboundPlayer(p) }))}
+              {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
+                <div className="col-span-2 my-1 flex items-center gap-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">No rebounds yet</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+              {partitioned?.withoutStat.map(p => renderPlayerCard(p, { onClick: () => chooseReboundPlayer(p) }))}
             </div>
           </ModalShell>
         )}
@@ -1389,14 +2059,19 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
         {promptMode === "assist" && (
           <ModalShell title="Assisted by?" onClose={cancelPrompt}>
             <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto">
-              {myRoster
+              {partitioned?.withStat
                 .filter(p => p.player_name !== pendingStat?.shooter?.player_name)
-                .map(p => (
-                  <button key={p.roster_id} onClick={() => chooseAssist("player", p)}
-                    className="py-3 px-2 rounded-xl bg-white border border-gray-200 text-left active:bg-gray-50">
-                    <div className="text-xs font-bold text-gray-900 truncate">{formatName(p.player_name)}</div>
-                  </button>
-                ))}
+                .map(p => renderPlayerCard(p, { onClick: () => chooseAssist("player", p) }))}
+              {partitioned?.withStat.filter(p => p.player_name !== pendingStat?.shooter?.player_name).length > 0 && (
+                <div className="col-span-2 my-1 flex items-center gap-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">No assists yet</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+              {partitioned?.withoutStat
+                .filter(p => p.player_name !== pendingStat?.shooter?.player_name)
+                .map(p => renderPlayerCard(p, { onClick: () => chooseAssist("player", p) }))}
             </div>
             <button onClick={() => chooseAssist("none")}
               className="w-full mt-2 py-3 rounded-xl bg-gray-50 text-gray-500 font-bold text-sm active:bg-gray-100 border border-gray-200">
@@ -1421,6 +2096,40 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
   return (
     <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
       <div className="text-sm text-gray-700">Game ended. See box score or play-by-play.</div>
+    </div>
+  );
+}
+
+// Collapsible panel showing the scorer's last 3 events, with a per-item
+// undo X. Included because "Undo last" alone forces scorers to undo good
+// entries just to reach a bad one.
+function LastThreePanel({ events, onUndo }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50">
+      <button onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-left">
+        <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">
+          My last {events.length}
+        </span>
+        <span className="text-[10px] text-gray-400">{open ? "\u25B4 hide" : "\u25BE show"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2 space-y-1">
+          {events.map(e => (
+            <div key={e.event_id || Math.random()}
+              className="flex items-center justify-between gap-2 py-1.5 border-t border-gray-100">
+              <span className="text-[11px] text-gray-700 flex-1 truncate">
+                {formatEventText(e)}
+              </span>
+              <button onClick={() => onUndo(e)}
+                className="text-[10px] font-bold text-red-600 px-2 py-1 rounded bg-red-50 active:bg-red-100 border border-red-200">
+                Undo
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1502,6 +2211,17 @@ function BoxScoreView({ game, box, rosters }) {
 // ============================================================
 function formatEventText(e) {
   const name = e.player_name ? formatName(e.player_name) : "";
+  // Fouls: prefix with subtype so scorers and viewers see Technical/Spiritual.
+  const foulLabel = e.foul_subtype === "technical"
+    ? `${name} technical foul`
+    : e.foul_subtype === "spiritual"
+      ? `${name} spiritual foul`
+      : `${name} foul`;
+  const periodLabel = e.player_name === "H2" ? "End of 1st half"
+    : e.player_name === "OT1" ? "Start of OT"
+    : e.player_name === "Halftime" ? "Halftime"
+    : e.player_name?.startsWith("OT") ? `Start of ${e.player_name}`
+    : `${e.player_name}`;
   const map = {
     made_2: `${name} made 2`,
     missed_2: `${name} missed 2`,
@@ -1514,16 +2234,20 @@ function formatEventText(e) {
     ast: `${name} assist`,
     stl: `${name} steal`,
     blk: `${name} block`,
-    foul: `${name} foul`,
-    period_change: `-- ${e.player_name} --`,
+    foul: foulLabel,
+    period_change: periodLabel,
     game_start: "Game started",
     game_end: "Game ended",
     reopen: "Game reopened",
     timeout: `${e.team} timeout`,
   };
   const base = map[e.stat_type] || e.stat_type;
-  const teamTag = e.team ? `(${e.team})` : "";
-  return `${base} ${teamTag}`.trim();
+  // period_change and timeout already carry the team in their label (or none),
+  // so don't double-tag. For shots/defensive events, add a team tag.
+  const teamTag = (e.team && e.stat_type !== "period_change" && e.stat_type !== "timeout")
+    ? `(${e.team})`
+    : "";
+  return `${base}${teamTag ? " " + teamTag : ""}`.trim();
 }
 
 function PlayByPlay({ events, me, myRole, game }) {

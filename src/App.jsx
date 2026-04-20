@@ -11428,14 +11428,18 @@ export default function App() {
               <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
-          <div className="flex-1">
+          <div className="flex-1 flex items-center gap-2">
+            <img src="/favicon.ico" alt="" width="24" height="24" className="flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">PCAL</h1>
           </div>
           <button onClick={() => setShowFontControl(!showFontControl)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="Font size">
             <span className="text-sm font-bold text-gray-500">Aa</span>
           </button>
+          <button onClick={() => window.location.reload()} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="Refresh">
+            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992V4.356m-.102 4.992a8.25 8.25 0 10.035 5.304m-.035-5.304a8.287 8.287 0 01-16.547-.348" /></svg>
+          </button>
           <button onClick={randomPlayer} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="Random player">
-            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5h4l10 14h4m0-14l-4 4m4-4h-4M4 19h4l2-3m4-5l2-3" /></svg>
           </button>
         </div>
         {showFontControl && (
@@ -11582,6 +11586,7 @@ export default function App() {
           <LiveSection
             initialGameId={liveInitialGameId}
             onConsumeInitialGameId={() => setLiveInitialGameId(null)}
+            logos={TEAM_LOGOS_CURRENT}
           />
         )}
         {tab === "register" && (
@@ -12482,11 +12487,14 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
             <span className="text-base font-black text-gray-900 truncate">{homeName}</span>
             <span className="text-2xl font-black tabular-nums ml-auto">{homeScore}</span>
           </div>
-          {homeScorer && (
-            <div className="text-[9px] text-gray-500 mt-0.5 pl-10 truncate">
-              Scored by: <span className="text-gray-700">{homeScorer}</span>
-            </div>
-          )}
+          {/* Always render the scorer line so both sides stay vertically aligned */}
+          <div className="text-[9px] text-gray-500 mt-0.5 pl-10 truncate">
+            {homeScorer ? (
+              <>Scored by: <span className="text-gray-700">{homeScorer}</span></>
+            ) : (
+              <span className="text-gray-300">No scorer yet</span>
+            )}
+          </div>
         </div>
         <span className="text-gray-300 text-sm">-</span>
         <div className="flex flex-col flex-1 min-w-0">
@@ -12495,11 +12503,13 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
             <span className="text-base font-black text-gray-900 ml-auto truncate">{awayName}</span>
             <TeamLogo team={away} size={32} />
           </div>
-          {awayScorer && (
-            <div className="text-[9px] text-gray-500 mt-0.5 pr-10 truncate text-right">
-              Scored by: <span className="text-gray-700">{awayScorer}</span>
-            </div>
-          )}
+          <div className="text-[9px] text-gray-500 mt-0.5 pr-10 truncate text-right">
+            {awayScorer ? (
+              <>Scored by: <span className="text-gray-700">{awayScorer}</span></>
+            ) : (
+              <span className="text-gray-300">No scorer yet</span>
+            )}
+          </div>
         </div>
       </div>
     </button>
