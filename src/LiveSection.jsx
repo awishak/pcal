@@ -98,6 +98,44 @@ function TeamLogoLocal({ team, size = 24, className = "" }) {
 
 const CURRENT_SEASON = 2026;
 
+// PCAL Game Score formula. Derived from historical data by matching the
+// stored `gmsc` value across 21 seasons of game_log rows. Equals Hollinger's
+// standard GmSc with two notable differences: (a) rebound weight is 0.5 (no
+// ORB/DRB split since we only track total REB), and (b) missed free throws
+// ADD 0.4 rather than subtract, which is non-standard but is how every
+// historical PCAL row was computed.
+//
+//   GmSc = PTS + 0.4*FGM - 0.7*FGA + 0.4*(FTA-FTM)
+//        + 0.5*REB + STL + 0.7*AST + 0.7*BLK - 0.4*PF
+//
+// Returns a number rounded to one decimal place, matching the stored format.
+function computeGmSc(s) {
+  const v = (
+    (s.pts || 0)
+    + 0.4 * (s.fgm || 0)
+    - 0.7 * (s.fga || 0)
+    + 0.4 * ((s.fta || 0) - (s.ftm || 0))
+    + 0.5 * (s.reb || 0)
+    + (s.stl || 0)
+    + 0.7 * (s.ast || 0)
+    + 0.7 * (s.blk || 0)
+    - 0.4 * (s.foul || 0)
+  );
+  return Math.round(v * 10) / 10;
+}
+
+// Convert a Supabase DATE string ("2026-06-15") to the short M/D format
+// that historical game_log rows use ("6/15"). No zero-padding on month or
+// day, matching the existing data shape.
+function formatGameDateShort(isoDate) {
+  if (!isoDate) return "";
+  const parts = String(isoDate).split("-");
+  if (parts.length !== 3) return isoDate;
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  return `${month}/${day}`;
+}
+
 // ------------------------------------------------------------
 // Stat type definitions: all events we can enter during a game.
 // Grid is 3x4 (rows of 3,3,4), row-major. Row 1: makes (green).
@@ -2596,16 +2634,23 @@ function ApproveModal({ game, onClose, onDone }) {
   }, [game.game_id]);
 
   const approve = async () => {
-    // Compute box score from events -> insert rows into game_log table
+    // Compute box score from events -> insert rows into game_log table.
+    // GmSc is computed per player using the PCAL formula so new games are
+    // consistent with 21 seasons of historical data.
     const { box } = computeBoxScore(events);
     const rows = Object.entries(box).map(([player, s]) => ({
-      player, team: s.team,
+      player,
+      team: s.team,
       opp: s.team === game.schedule.home_team ? game.schedule.away_team : game.schedule.home_team,
-      week: game.schedule.week, date: game.schedule.game_date,
-      game_type: "R", g: 1,
+      week: game.schedule.week,
+      date: formatGameDateShort(game.schedule.game_date),
+      game_type: "R",
+      g: 1,
       pts: s.pts, reb: s.reb, stl: s.stl, ast: s.ast, blk: s.blk,
       fgm: s.fgm, fga: s.fga, ftm: s.ftm, fta: s.fta, tpm: s.tpm, tpa: s.tpa,
-      foul: s.foul, gmsc: 0, year: game.schedule.season,
+      foul: s.foul,
+      gmsc: computeGmSc(s),
+      year: game.schedule.season,
     }));
     const { error } = await supabase.from("game_log").insert(rows);
     if (error) {
