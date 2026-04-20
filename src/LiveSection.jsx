@@ -2566,18 +2566,25 @@ function ReviewQueue({ onBack, onOpen }) {
   const [loading, setLoading] = useState(true);
   const [needPw, setNeedPw] = useState(true);
   const [approving, setApproving] = useState(null);
+  const [reversing, setReversing] = useState(null);
+
+  const reload = async () => {
+    setLoading(true);
+    // Show both games waiting for approval ('ended') and already-approved
+    // ones. Approved games can be reversed, which undoes the game_log
+    // writes and flips the game back to 'ended' for re-approval.
+    const { data } = await supabase
+      .from("live_games")
+      .select("*, schedule!inner(*)")
+      .in("status", ["ended", "approved"])
+      .order("updated_at", { ascending: false });
+    setGames(data || []);
+    setLoading(false);
+  };
 
   useEffect(() => {
     if (needPw) return;
-    (async () => {
-      setLoading(true);
-      const { data: ended } = await supabase
-        .from("live_games")
-        .select("*, schedule!inner(*)")
-        .eq("status", "ended");
-      setGames(ended || []);
-      setLoading(false);
-    })();
+    reload();
   }, [needPw]);
 
   if (needPw) {
@@ -2590,6 +2597,84 @@ function ReviewQueue({ onBack, onOpen }) {
     );
   }
 
+  // Reverse an already-approved game. Deletes the game_log rows that were
+  // written on approval (matched by year+week+date+team combinations derived
+  // from the game's schedule), flips schedule and live_games back to
+  // 'ended', and writes an audit entry. The user can then re-approve with
+  // edits if needed.
+  const reverseApproval = async (g) => {
+    const homeTeam = g.schedule.home_team;
+    const awayTeam = g.schedule.away_team;
+    const season = g.schedule.season;
+    const week = g.schedule.week;
+    const shortDate = formatGameDateShort(g.schedule.game_date);
+
+    const confirmed = confirm(
+      `Reverse approval for ${awayTeam} at ${homeTeam}, Week ${week}?\n\n`
+      + `This will:\n`
+      + `  - Delete all game_log rows for this game (week ${week}, ${shortDate}, `
+      + `teams ${homeTeam}/${awayTeam}, season ${season})\n`
+      + `  - Set the game back to "ended" state\n`
+      + `  - Allow re-approval with corrections\n\n`
+      + `Game stats (live_events) stay intact. Continue?`
+    );
+    if (!confirmed) return;
+
+    // Delete matching rows from game_log. Match on year + week + date +
+    // (team in (home, away)). This is our best proxy since game_log
+    // doesn't have a game_id foreign key.
+    const { data: toDelete, error: fetchErr } = await supabase
+      .from("game_log")
+      .select("*")
+      .eq("year", season)
+      .eq("week", week)
+      .eq("date", shortDate)
+      .in("team", [homeTeam, awayTeam]);
+    if (fetchErr) {
+      alert("Error fetching rows to delete: " + fetchErr.message);
+      return;
+    }
+    const rowCount = (toDelete || []).length;
+    if (rowCount === 0) {
+      const proceedEmpty = confirm(
+        `No game_log rows matched. The game may already have been reverted, or the matching criteria (year/week/date/team) don't match what was written.\n\nFlip status back to 'ended' anyway?`
+      );
+      if (!proceedEmpty) return;
+    } else {
+      const reallyDelete = confirm(`Found ${rowCount} game_log rows to delete. Proceed?`);
+      if (!reallyDelete) return;
+    }
+
+    const { error: delErr } = await supabase
+      .from("game_log")
+      .delete()
+      .eq("year", season)
+      .eq("week", week)
+      .eq("date", shortDate)
+      .in("team", [homeTeam, awayTeam]);
+    if (delErr) {
+      alert("Error deleting from game_log: " + delErr.message);
+      return;
+    }
+
+    await supabase.from("live_games").update({
+      status: "ended",
+      approved_at: null,
+      approved_by: null,
+      updated_at: new Date().toISOString(),
+    }).eq("game_id", g.game_id);
+    await supabase.from("schedule").update({ status: "ended" }).eq("game_id", g.game_id);
+    await supabase.from("audit_log").insert({
+      game_id: g.game_id,
+      action: "reverse_approval",
+      after_value: { rows_deleted: rowCount },
+    });
+
+    alert(`Reversal complete. ${rowCount} rows removed from game_log. The game is back in the queue for re-approval.`);
+    setReversing(null);
+    reload();
+  };
+
   return (
     <div>
       <BackRow onBack={onBack} />
@@ -2597,89 +2682,463 @@ function ReviewQueue({ onBack, onOpen }) {
       {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading...</div>}
       {!loading && games.length === 0 && (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
-          No games waiting for approval.
+          No games to review.
         </div>
       )}
-      {games.map(g => (
-        <div key={g.game_id} className="rounded-2xl border border-gray-100 bg-white p-3 mb-2 flex items-center gap-2">
-          <div className="flex-1">
-            <div className="text-[10px] text-gray-400 uppercase tracking-wide">Week {g.schedule.week} &middot; {g.schedule.game_date}</div>
-            <div className="text-sm font-bold text-gray-900">{g.schedule.away_team} at {g.schedule.home_team}</div>
+      {games.map(g => {
+        const isApproved = g.status === "approved";
+        return (
+          <div key={g.game_id} className="rounded-2xl border border-gray-100 bg-white p-3 mb-2">
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide flex items-center gap-2">
+                  <span>Week {g.schedule.week} &middot; {g.schedule.game_date}</span>
+                  {isApproved && (
+                    <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[9px] font-bold">
+                      APPROVED
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm font-bold text-gray-900">{g.schedule.away_team} at {g.schedule.home_team}</div>
+              </div>
+              <button onClick={() => onOpen(g.game_id)} className="text-[11px] font-bold text-white px-3 py-1.5 rounded-lg bg-gray-900 active:bg-gray-800">Open</button>
+              {isApproved ? (
+                <button
+                  onClick={() => reverseApproval(g)}
+                  className="text-[11px] font-bold text-red-700 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 active:bg-red-100">
+                  Reverse
+                </button>
+              ) : (
+                <button onClick={() => setApproving(g)} className="text-[11px] font-bold text-green-700 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 active:bg-green-100">
+                  Approve
+                </button>
+              )}
+            </div>
           </div>
-          <button onClick={() => onOpen(g.game_id)} className="text-[11px] font-bold text-white px-3 py-1.5 rounded-lg bg-gray-900 active:bg-gray-800">Open</button>
-          <button onClick={() => setApproving(g)} className="text-[11px] font-bold text-green-700 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 active:bg-green-100">Approve</button>
-        </div>
-      ))}
+        );
+      })}
       {approving && (
-        <ApproveModal game={approving} onClose={() => setApproving(null)} onDone={() => { setApproving(null); setNeedPw(true); }} />
+        <ApproveModal game={approving} onClose={() => setApproving(null)} onDone={() => { setApproving(null); reload(); }} />
       )}
     </div>
   );
 }
 
+// Approval modal: shows the computed box score as an editable grid, one
+// row per player per team. Admin can edit any stat cell, delete a row,
+// reassign stats to a different player, merge two rows together, add a
+// missing player, and pick a game type. GmSc recomputes live. Validation
+// blocks impossible stat lines and warns on inconsistent ones.
 function ApproveModal({ game, onClose, onDone }) {
   const [events, setEvents] = useState([]);
+  const [rosters, setRosters] = useState({ home: [], away: [] });
   const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);              // editable copy of box-score rows
+  const [gameType, setGameType] = useState(game.schedule.game_type || "R");
+  const [week, setWeek] = useState(game.schedule.week || 1);
+  const [gameDate, setGameDate] = useState(formatGameDateShort(game.schedule.game_date));
+  const [mergeSource, setMergeSource] = useState(null); // index of source row being merged
+  const [adding, setAdding] = useState(null);           // team code if "add player" picker is open
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from("live_events")
-        .select("*")
-        .eq("game_id", game.game_id)
-        .order("event_ts", { ascending: true });
-      setEvents(data || []);
+      const [{ data: evs }, { data: rosterRows }] = await Promise.all([
+        supabase.from("live_events").select("*").eq("game_id", game.game_id).order("event_ts", { ascending: true }),
+        supabase.from("rosters").select("*")
+          .eq("season", game.schedule.season)
+          .in("team", [game.schedule.home_team, game.schedule.away_team])
+          .eq("active", true)
+          .order("player_name", { ascending: true }),
+      ]);
+      const { box } = computeBoxScore(evs || []);
+      const initialRows = Object.entries(box).map(([player, s]) => ({
+        id: `${player}-${s.team}`,
+        player,
+        team: s.team,
+        pts: s.pts || 0, reb: s.reb || 0, ast: s.ast || 0, stl: s.stl || 0, blk: s.blk || 0,
+        fgm: s.fgm || 0, fga: s.fga || 0, ftm: s.ftm || 0, fta: s.fta || 0,
+        tpm: s.tpm || 0, tpa: s.tpa || 0, foul: s.foul || 0,
+      }));
+      // Sort: home team first then away, then by pts desc
+      initialRows.sort((a, b) => {
+        if (a.team !== b.team) return a.team === game.schedule.home_team ? -1 : 1;
+        return (b.pts || 0) - (a.pts || 0);
+      });
+      setEvents(evs || []);
+      setRosters({
+        home: (rosterRows || []).filter(r => r.team === game.schedule.home_team),
+        away: (rosterRows || []).filter(r => r.team === game.schedule.away_team),
+      });
+      setRows(initialRows);
       setLoading(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.game_id]);
 
+  // Edit a single cell. Numeric fields get coerced to int.
+  const editCell = (idx, field, value) => {
+    setRows(prev => prev.map((r, i) => {
+      if (i !== idx) return r;
+      if (field === "player" || field === "team") {
+        return { ...r, [field]: value };
+      }
+      const n = parseInt(value, 10);
+      return { ...r, [field]: isNaN(n) ? 0 : n };
+    }));
+  };
+
+  const deleteRow = (idx) => {
+    if (!confirm(`Remove ${formatName(rows[idx].player)} from this game?`)) return;
+    setRows(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // Merge source row into target row: sum all stats, remove source.
+  const mergeRows = (targetIdx) => {
+    if (mergeSource == null) return;
+    const srcIdx = mergeSource;
+    if (srcIdx === targetIdx) { setMergeSource(null); return; }
+    setRows(prev => {
+      const src = prev[srcIdx];
+      const tgt = prev[targetIdx];
+      const merged = { ...tgt };
+      for (const f of ["pts","reb","ast","stl","blk","fgm","fga","ftm","fta","tpm","tpa","foul"]) {
+        merged[f] = (tgt[f] || 0) + (src[f] || 0);
+      }
+      return prev.filter((_, i) => i !== srcIdx).map((r, i) => {
+        // After filtering src out, target's new index changes if srcIdx < targetIdx
+        const adjustedTargetIdx = srcIdx < targetIdx ? targetIdx - 1 : targetIdx;
+        return i === adjustedTargetIdx ? merged : r;
+      });
+    });
+    setMergeSource(null);
+  };
+
+  // Add a player row from the roster. New row starts with all zeros.
+  const addPlayerFromRoster = (rosterEntry) => {
+    setRows(prev => [
+      ...prev,
+      {
+        id: `${rosterEntry.player_name}-${rosterEntry.team}-${Date.now()}`,
+        player: rosterEntry.player_name,
+        team: rosterEntry.team,
+        pts: 0, reb: 0, ast: 0, stl: 0, blk: 0,
+        fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0, foul: 0,
+      },
+    ]);
+    setAdding(null);
+  };
+
+  // Validation: returns { blocking: [], warnings: [] }
+  const validation = (() => {
+    const blocking = [];
+    const warnings = [];
+    rows.forEach((r, idx) => {
+      const label = `${formatName(r.player)} (${r.team})`;
+      if (r.fgm > r.fga) blocking.push(`${label}: FGM (${r.fgm}) > FGA (${r.fga})`);
+      if (r.ftm > r.fta) blocking.push(`${label}: FTM (${r.ftm}) > FTA (${r.fta})`);
+      if (r.tpm > r.tpa) blocking.push(`${label}: 3PM (${r.tpm}) > 3PA (${r.tpa})`);
+      if (r.tpm > r.fgm) blocking.push(`${label}: 3PM (${r.tpm}) > FGM (${r.fgm})`);
+      if (r.tpa > r.fga) blocking.push(`${label}: 3PA (${r.tpa}) > FGA (${r.fga})`);
+      const expectedPts = 2 * (r.fgm - r.tpm) + 3 * r.tpm + r.ftm;
+      if (r.pts !== expectedPts && (r.fgm > 0 || r.ftm > 0)) {
+        warnings.push(`${label}: PTS=${r.pts}, but 2*(FGM-3PM) + 3*3PM + FTM = ${expectedPts}`);
+      }
+    });
+    return { blocking, warnings };
+  })();
+
   const approve = async () => {
-    // Compute box score from events -> insert rows into game_log table.
-    // GmSc is computed per player using the PCAL formula so new games are
-    // consistent with 21 seasons of historical data.
-    const { box } = computeBoxScore(events);
-    const rows = Object.entries(box).map(([player, s]) => ({
-      player,
-      team: s.team,
-      opp: s.team === game.schedule.home_team ? game.schedule.away_team : game.schedule.home_team,
-      week: game.schedule.week,
-      date: formatGameDateShort(game.schedule.game_date),
-      game_type: "R",
+    if (validation.blocking.length > 0) {
+      alert("Cannot approve with validation errors:\n\n" + validation.blocking.join("\n"));
+      return;
+    }
+    if (validation.warnings.length > 0) {
+      const proceed = confirm(
+        "The following warnings were flagged. These aren't blocking but you may want to review:\n\n"
+        + validation.warnings.join("\n")
+        + "\n\nApprove anyway?"
+      );
+      if (!proceed) return;
+    }
+    setSaving(true);
+    const inserts = rows.map(r => ({
+      player: r.player,
+      team: r.team,
+      opp: r.team === game.schedule.home_team ? game.schedule.away_team : game.schedule.home_team,
+      week: parseInt(week, 10) || game.schedule.week,
+      date: gameDate || formatGameDateShort(game.schedule.game_date),
+      game_type: gameType,
       g: 1,
-      pts: s.pts, reb: s.reb, stl: s.stl, ast: s.ast, blk: s.blk,
-      fgm: s.fgm, fga: s.fga, ftm: s.ftm, fta: s.fta, tpm: s.tpm, tpa: s.tpa,
-      foul: s.foul,
-      gmsc: computeGmSc(s),
+      pts: r.pts, reb: r.reb, stl: r.stl, ast: r.ast, blk: r.blk,
+      fgm: r.fgm, fga: r.fga, ftm: r.ftm, fta: r.fta, tpm: r.tpm, tpa: r.tpa,
+      foul: r.foul,
+      gmsc: computeGmSc(r),
       year: game.schedule.season,
     }));
-    const { error } = await supabase.from("game_log").insert(rows);
+    const { error } = await supabase.from("game_log").insert(inserts);
     if (error) {
-      alert("Error writing to game_log: " + error.message + "\n\nThis may mean the game_log table schema doesn't match. You can still mark approved.");
+      alert("Error writing to game_log: " + error.message);
+      setSaving(false);
+      return;
     }
+    // Persist the chosen game_type back to schedule for next time
+    await supabase.from("schedule").update({
+      status: "approved",
+      game_type: gameType,
+    }).eq("game_id", game.game_id);
     await supabase.from("live_games").update({
-      status: "approved", approved_at: new Date().toISOString(), approved_by: "admin",
+      status: "approved",
+      approved_at: new Date().toISOString(),
+      approved_by: "admin",
       updated_at: new Date().toISOString(),
     }).eq("game_id", game.game_id);
-    await supabase.from("schedule").update({ status: "approved" }).eq("game_id", game.game_id);
     await supabase.from("audit_log").insert({
-      game_id: game.game_id, action: "approve", after_value: { rows_written: rows.length },
+      game_id: game.game_id, action: "approve",
+      after_value: { rows_written: inserts.length, game_type: gameType },
     });
+    setSaving(false);
     onDone();
   };
 
+  if (loading) {
+    return (
+      <ModalShell title="Approve game" onClose={onClose}>
+        <div className="text-xs text-gray-400 py-4 text-center">Loading box score...</div>
+      </ModalShell>
+    );
+  }
+
+  const allRoster = [...rosters.home, ...rosters.away];
+  const rosterByName = Object.fromEntries(allRoster.map(r => [r.player_name, r]));
+  const rowsByTeam = { home: [], away: [] };
+  rows.forEach((r, idx) => {
+    (r.team === game.schedule.home_team ? rowsByTeam.home : rowsByTeam.away).push({ r, idx });
+  });
+
+  const homeName = TEAM_NAMES[game.schedule.home_team] || game.schedule.home_team;
+  const awayName = TEAM_NAMES[game.schedule.away_team] || game.schedule.away_team;
+
+  const numInput = "w-10 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:bg-yellow-50 tabular-nums";
+  const headerTh = "text-[9px] font-bold text-gray-400 uppercase tracking-wide px-1 py-1 text-center";
+
+  const renderTeamRows = (teamCode, teamRows) => {
+    if (teamRows.length === 0) return (
+      <tr><td colSpan={14} className="text-[11px] text-gray-400 text-center py-2">No players entered.</td></tr>
+    );
+    return teamRows.map(({ r, idx }) => {
+      const isMergeSrc = mergeSource === idx;
+      const isMergeTargetable = mergeSource != null && mergeSource !== idx;
+      const gmsc = computeGmSc(r);
+      return (
+        <tr key={r.id || idx}
+          className={`${isMergeSrc ? "bg-orange-50" : isMergeTargetable ? "bg-blue-50" : ""} border-b border-gray-100`}
+          onClick={isMergeTargetable ? () => {
+            if (!confirm(`Merge ${formatName(rows[mergeSource].player)}'s stats INTO ${formatName(r.player)}? Source row will be removed.`)) return;
+            mergeRows(idx);
+          } : undefined}
+        >
+          <td className="px-1 py-1">
+            <select
+              value={r.player}
+              onChange={(e) => editCell(idx, "player", e.target.value)}
+              className="text-[11px] font-bold text-gray-900 bg-transparent border-0 max-w-[88px] truncate focus:outline-none focus:bg-yellow-50"
+            >
+              {/* Allow selecting any player on this game's roster, or keep current name */}
+              <option value={r.player}>{formatName(r.player)}</option>
+              {allRoster
+                .filter(p => p.player_name !== r.player)
+                .map(p => (
+                  <option key={p.roster_id} value={p.player_name}>{formatName(p.player_name)} ({p.team})</option>
+                ))}
+            </select>
+          </td>
+          {["pts","reb","ast","stl","blk","fgm","fga","ftm","fta","tpm","tpa","foul"].map(f => (
+            <td key={f} className="px-0.5 py-1 text-center">
+              <input
+                type="number"
+                min="0"
+                value={r[f]}
+                onChange={(e) => editCell(idx, f, e.target.value)}
+                className={numInput}
+              />
+            </td>
+          ))}
+          <td className="px-1 py-1 text-center text-[11px] font-bold text-gray-600 tabular-nums">
+            {gmsc.toFixed(1)}
+          </td>
+          <td className="px-1 py-1 text-right whitespace-nowrap">
+            <button
+              onClick={(e) => { e.stopPropagation(); setMergeSource(isMergeSrc ? null : idx); }}
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-1 ${
+                isMergeSrc ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600 active:bg-gray-200"
+              }`}
+              title="Merge this row into another"
+            >
+              {isMergeSrc ? "\u2715" : "\u2911"}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); deleteRow(idx); }}
+              className="text-[9px] font-bold text-red-600 px-1.5 py-0.5 rounded bg-red-50 active:bg-red-100"
+              title="Remove row"
+            >
+              del
+            </button>
+          </td>
+        </tr>
+      );
+    });
+  };
+
   return (
-    <ModalShell title="Approve and write to game_log" onClose={onClose}>
-      {loading ? <div className="text-xs text-gray-400">Loading...</div> : (
-        <div>
-          <div className="text-xs text-gray-500 mb-3">
-            {events.filter(e => !e.deleted).length} events. Open the game first to edit; tap &quot;Approve&quot; to write rows into the game_log table.
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto p-2" onClick={onClose}>
+      <div className="w-full max-w-2xl bg-white rounded-2xl p-4 my-2" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-bold text-gray-900">
+            Approve: {awayName} at {homeName}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 text-lg leading-none">&times;</button>
+        </div>
+
+        {/* Game metadata */}
+        <div className="grid grid-cols-3 gap-2 mb-3 text-[11px]">
+          <label className="flex flex-col gap-1">
+            <span className="font-bold text-gray-500 uppercase tracking-wide text-[9px]">Date</span>
+            <input type="text" value={gameDate} onChange={e => setGameDate(e.target.value)}
+              className="px-2 py-1.5 rounded border border-gray-200 text-xs" placeholder="6/15" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-bold text-gray-500 uppercase tracking-wide text-[9px]">Week</span>
+            <input type="number" value={week} onChange={e => setWeek(e.target.value)}
+              className="px-2 py-1.5 rounded border border-gray-200 text-xs" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-bold text-gray-500 uppercase tracking-wide text-[9px]">Type</span>
+            <select value={gameType} onChange={e => setGameType(e.target.value)}
+              className="px-2 py-1.5 rounded border border-gray-200 text-xs bg-white">
+              <option value="R">R - Regular</option>
+              <option value="P">P - Playoff</option>
+              <option value="C">C - Championship</option>
+              <option value="X">X - Exhibition</option>
+            </select>
+          </label>
+        </div>
+
+        {/* Merge mode banner */}
+        {mergeSource != null && (
+          <div className="mb-2 px-3 py-2 rounded-lg bg-orange-50 border border-orange-200 text-[11px] text-orange-800">
+            Merging {formatName(rows[mergeSource].player)} ({rows[mergeSource].team}) into another row.
+            Tap a target row to combine, or tap the X to cancel.
           </div>
+        )}
+
+        {/* Validation summary */}
+        {validation.blocking.length > 0 && (
+          <div className="mb-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-800">
+            <div className="font-bold mb-1">Must fix before approving:</div>
+            <ul className="list-disc list-inside space-y-0.5">
+              {validation.blocking.map((m, i) => <li key={i}>{m}</li>)}
+            </ul>
+          </div>
+        )}
+        {validation.warnings.length > 0 && validation.blocking.length === 0 && (
+          <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800">
+            <div className="font-bold mb-1">Warnings (approve anyway is allowed):</div>
+            <ul className="list-disc list-inside space-y-0.5">
+              {validation.warnings.map((m, i) => <li key={i}>{m}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {/* Box score grid */}
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b-2 border-gray-200">
+                <th className={`${headerTh} text-left`}>Player</th>
+                <th className={headerTh}>PTS</th>
+                <th className={headerTh}>REB</th>
+                <th className={headerTh}>AST</th>
+                <th className={headerTh}>STL</th>
+                <th className={headerTh}>BLK</th>
+                <th className={headerTh}>FGM</th>
+                <th className={headerTh}>FGA</th>
+                <th className={headerTh}>FTM</th>
+                <th className={headerTh}>FTA</th>
+                <th className={headerTh}>3PM</th>
+                <th className={headerTh}>3PA</th>
+                <th className={headerTh}>F</th>
+                <th className={headerTh}>GmSc</th>
+                <th className={headerTh}></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="bg-gray-50">
+                <td colSpan={15} className="px-2 py-1 text-[10px] font-bold text-gray-600 uppercase tracking-wide">
+                  {game.schedule.away_team} - {awayName}
+                </td>
+              </tr>
+              {renderTeamRows(game.schedule.away_team, rowsByTeam.away)}
+              <tr>
+                <td colSpan={15} className="px-2 py-1">
+                  <button onClick={() => setAdding(game.schedule.away_team)}
+                    className="text-[10px] font-bold text-gray-500 px-2 py-1 rounded bg-gray-50 active:bg-gray-100 border border-dashed border-gray-300">
+                    + Add {game.schedule.away_team} player
+                  </button>
+                </td>
+              </tr>
+              <tr className="bg-gray-50">
+                <td colSpan={15} className="px-2 py-1 text-[10px] font-bold text-gray-600 uppercase tracking-wide">
+                  {game.schedule.home_team} - {homeName}
+                </td>
+              </tr>
+              {renderTeamRows(game.schedule.home_team, rowsByTeam.home)}
+              <tr>
+                <td colSpan={15} className="px-2 py-1">
+                  <button onClick={() => setAdding(game.schedule.home_team)}
+                    className="text-[10px] font-bold text-gray-500 px-2 py-1 rounded bg-gray-50 active:bg-gray-100 border border-dashed border-gray-300">
+                    + Add {game.schedule.home_team} player
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Add player picker */}
+        {adding && (
+          <ModalShell title={`Add ${adding} player`} onClose={() => setAdding(null)}>
+            <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto">
+              {allRoster
+                .filter(p => p.team === adding)
+                .filter(p => !rows.some(r => r.player === p.player_name && r.team === p.team))
+                .map(p => (
+                  <button key={p.roster_id}
+                    onClick={() => addPlayerFromRoster(p)}
+                    className="py-2 px-2 rounded-xl bg-white border border-gray-200 text-center active:bg-gray-50">
+                    <div className="text-xs font-bold text-gray-900 truncate">{formatName(p.player_name)}</div>
+                    {p.jersey_number && (
+                      <div className="text-[9px] text-gray-400">#{p.jersey_number}</div>
+                    )}
+                  </button>
+                ))}
+            </div>
+          </ModalShell>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
+          <button onClick={onClose} disabled={saving}
+            className="flex-1 py-2.5 rounded-lg bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200 disabled:opacity-50">
+            Cancel
+          </button>
           <button onClick={approve}
-            className="w-full py-3 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
-            Approve and write
+            disabled={saving || validation.blocking.length > 0}
+            className="flex-1 py-2.5 rounded-lg bg-gray-900 text-white font-bold text-sm active:bg-gray-800 disabled:opacity-50">
+            {saving ? "Saving..." : `Approve & Write (${rows.length} rows)`}
           </button>
         </div>
-      )}
-    </ModalShell>
+      </div>
+    </div>
   );
 }
