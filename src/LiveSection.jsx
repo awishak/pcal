@@ -76,18 +76,20 @@ function TeamLogoLocal({ team, size = 24, className = "" }) {
 const CURRENT_SEASON = 2026;
 
 // ------------------------------------------------------------
-// Stat type definitions: all events we can enter during a game
+// Stat type definitions: all events we can enter during a game.
+// Grid is 3x3, row-major. Row 1: makes (green). Row 2: misses (red).
+// Row 3: steal/block/foul (gray).
 // ------------------------------------------------------------
 const STAT_BUTTONS = [
-  { key: "made_2",   label: "Made 2",   pts: 2, prompt: "assist",  color: "bg-gray-900 text-white" },
-  { key: "missed_2", label: "Miss 2",   pts: 0, prompt: "rebound", color: "bg-gray-100 text-gray-700" },
-  { key: "made_3",   label: "Made 3",   pts: 3, prompt: "assist",  color: "bg-gray-900 text-white" },
-  { key: "missed_3", label: "Miss 3",   pts: 0, prompt: "rebound", color: "bg-gray-100 text-gray-700" },
-  { key: "made_ft",  label: "Made FT",  pts: 1, prompt: null,      color: "bg-gray-900 text-white" },
-  { key: "missed_ft",label: "Miss FT",  pts: 0, prompt: "rebound", color: "bg-gray-100 text-gray-700" },
-  { key: "stl",      label: "Steal",    pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700" },
-  { key: "blk",      label: "Block",    pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700" },
-  { key: "foul",     label: "Foul",     pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700" },
+  { key: "made_2",   label: "Made 2",   pts: 2, prompt: "assist",  color: "bg-green-500 text-white", activeRing: "ring-green-300" },
+  { key: "made_3",   label: "Made 3",   pts: 3, prompt: "assist",  color: "bg-green-500 text-white", activeRing: "ring-green-300" },
+  { key: "made_ft",  label: "Made FT",  pts: 1, prompt: null,      color: "bg-green-500 text-white", activeRing: "ring-green-300" },
+  { key: "missed_2", label: "Miss 2",   pts: 0, prompt: "rebound", color: "bg-red-500 text-white",   activeRing: "ring-red-300" },
+  { key: "missed_3", label: "Miss 3",   pts: 0, prompt: "rebound", color: "bg-red-500 text-white",   activeRing: "ring-red-300" },
+  { key: "missed_ft",label: "Miss FT",  pts: 0, prompt: "rebound", color: "bg-red-500 text-white",   activeRing: "ring-red-300" },
+  { key: "stl",      label: "Steal",    pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
+  { key: "blk",      label: "Block",    pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
+  { key: "foul",     label: "Foul",     pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
 ];
 
 // ------------------------------------------------------------
@@ -146,6 +148,7 @@ function computeBoxScore(events) {
   const box = {}; // player_name -> {team, pts, reb, ast, stl, blk, fgm, fga, tpm, tpa, ftm, fta, foul}
   const teamScore = {};
   const teamFoulsThisHalf = {};
+  const teamTimeoutsThisHalf = {}; // { H1: { TEAM: count }, H2: { TEAM: count }, OT1: ... }
   let currentHalf = "H1";
 
   const ensure = (p, team) => {
@@ -160,14 +163,21 @@ function computeBoxScore(events) {
     const t = e.team;
     const p = e.player_name;
     if (e.stat_type === "period_change") {
-      // e.scorer_name holds new period
+      // e.player_name holds new period label
       if (e.player_name === "H2" || e.player_name === "Halftime") currentHalf = "H2";
       else if (e.player_name === "H1") currentHalf = "H1";
-      // OT counts as its own "half" for team-foul reset purposes
+      // OT counts as its own "half" for team-foul and timeout reset
       if (e.player_name && e.player_name.startsWith("OT")) {
         currentHalf = e.player_name;
         teamFoulsThisHalf[currentHalf] = {};
+        teamTimeoutsThisHalf[currentHalf] = {};
       }
+      continue;
+    }
+    if (e.stat_type === "timeout") {
+      if (!t) continue;
+      if (!teamTimeoutsThisHalf[currentHalf]) teamTimeoutsThisHalf[currentHalf] = {};
+      teamTimeoutsThisHalf[currentHalf][t] = (teamTimeoutsThisHalf[currentHalf][t] || 0) + 1;
       continue;
     }
     if (!t || !p) continue;
@@ -204,7 +214,7 @@ function computeBoxScore(events) {
     }
   }
 
-  return { box, teamScore, teamFoulsThisHalf, currentHalf };
+  return { box, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf };
 }
 
 // ------------------------------------------------------------
@@ -613,7 +623,7 @@ function LiveGameView({ gameId, me, onBack }) {
     return () => { supabase.removeChannel(ch); };
   }, [gameId]);
 
-  const { box, teamScore, teamFoulsThisHalf, currentHalf } = useMemo(() => computeBoxScore(events), [events]);
+  const { box, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf } = useMemo(() => computeBoxScore(events), [events]);
 
   // Compute top scorer per team
   const topScorerByTeam = useMemo(() => {
@@ -664,6 +674,7 @@ function LiveGameView({ gameId, me, onBack }) {
         live={live}
         teamScore={teamScore}
         teamFoulsThisHalf={teamFoulsThisHalf}
+        teamTimeoutsThisHalf={teamTimeoutsThisHalf}
         currentHalf={currentHalf}
         topScorerByTeam={topScorerByTeam}
         events={events}
@@ -690,6 +701,7 @@ function LiveGameView({ gameId, me, onBack }) {
           onReload={load}
           currentHalf={currentHalf}
           teamFoulsThisHalf={teamFoulsThisHalf}
+          teamTimeoutsThisHalf={teamTimeoutsThisHalf}
           teamScore={teamScore}
         />
       )}
@@ -713,36 +725,56 @@ function BackRow({ onBack }) {
 // ============================================================
 // Scoreboard (big top display)
 // ============================================================
-function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, currentHalf, topScorerByTeam, events }) {
+function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf, topScorerByTeam, events }) {
   const home = game.home_team;
   const away = game.away_team;
   const hs = teamScore[home] || 0;
   const as = teamScore[away] || 0;
   const homeColor = TEAM_COLORS[home] || "#111827";
   const awayColor = TEAM_COLORS[away] || "#111827";
-  const period = live?.period || "H1";
-  const periodLabel = period === "Halftime" ? "Halftime" : period;
 
   const homeFouls = teamFoulsThisHalf?.[currentHalf]?.[home] || 0;
   const awayFouls = teamFoulsThisHalf?.[currentHalf]?.[away] || 0;
-  const homeTimeouts = live?.home_timeouts_remaining ?? 3;
-  const awayTimeouts = live?.away_timeouts_remaining ?? 3;
 
-  // Last play
+  const [logExpanded, setLogExpanded] = useState(false);
+
+  // Last play (for collapsed state)
   const lastPlay = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
       if (e.deleted) continue;
-      if (["made_2","made_3","made_ft","stl","blk","foul"].includes(e.stat_type)) return e;
+      if (["made_2","made_3","made_ft","stl","blk","foul","timeout"].includes(e.stat_type)) return e;
     }
     return null;
   }, [events]);
 
+  // Build last-10 plays with running team scores attached to each scoring event.
+  // We walk forward to accumulate running totals, then take the last 10 scoring
+  // or notable events (made/missed/stl/blk/foul/timeout).
+  const last10 = useMemo(() => {
+    const running = { [home]: 0, [away]: 0 };
+    const out = [];
+    for (const e of events) {
+      if (e.deleted) continue;
+      // update running score before we capture this event
+      if (e.team && e.stat_type === "made_2" && running[e.team] != null) running[e.team] += 2;
+      if (e.team && e.stat_type === "made_3" && running[e.team] != null) running[e.team] += 3;
+      if (e.team && e.stat_type === "made_ft" && running[e.team] != null) running[e.team] += 1;
+      if (["made_2","made_3","made_ft","missed_2","missed_3","missed_ft","stl","blk","foul","timeout"].includes(e.stat_type)) {
+        out.push({
+          ...e,
+          running_home: running[home],
+          running_away: running[away],
+        });
+      }
+    }
+    return out.slice(-10).reverse();
+  }, [events, home, away]);
+
   return (
     <div className="rounded-2xl overflow-hidden mb-3 border border-gray-200 bg-white">
       <div className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{periodLabel}</div>
+        <div className="flex items-center justify-end mb-3">
           <div className="text-[10px] font-bold uppercase tracking-widest">
             {live?.status === "live" ? (
               <span className="inline-flex items-center gap-1 text-red-600">
@@ -754,22 +786,59 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, currentHalf, top
               </span>
             ) :
              live?.status === "ended" ? <span className="text-gray-500">FINAL</span> :
-             live?.status === "halftime" ? <span className="text-gray-500">HALFTIME</span> :
              <span className="text-gray-400">SCHEDULED</span>}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           {/* Away */}
           <TeamScorePanel team={away} score={as} color={awayColor}
-            fouls={awayFouls} timeouts={awayTimeouts} topScorer={topScorerByTeam[away]} />
+            fouls={awayFouls} topScorer={topScorerByTeam[away]} />
           {/* Home */}
           <TeamScorePanel team={home} score={hs} color={homeColor}
-            fouls={homeFouls} timeouts={homeTimeouts} topScorer={topScorerByTeam[home]} />
+            fouls={homeFouls} topScorer={topScorerByTeam[home]} />
         </div>
+
+        {/* Last play / tappable expand to last 10 */}
         {lastPlay && (
-          <div className="mt-3 pt-3 border-t border-gray-100 text-[11px] text-gray-600">
-            <span className="text-gray-400 mr-1">Last:</span>
-            {formatEventText(lastPlay)}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <button
+              onClick={() => setLogExpanded(v => !v)}
+              className="w-full text-left text-[11px] text-gray-600 flex items-center justify-between active:opacity-60"
+            >
+              <span>
+                <span className="text-gray-400 mr-1">Last:</span>
+                {formatEventText(lastPlay)}
+              </span>
+              <span className="text-gray-400 text-[10px] ml-2">{logExpanded ? "\u25B4 hide" : "\u25BE last 10"}</span>
+            </button>
+            {logExpanded && (
+              <div className="mt-2 flex flex-col gap-1">
+                {last10.length === 0 ? (
+                  <div className="text-[11px] text-gray-400 text-center py-2">No plays yet.</div>
+                ) : (
+                  last10.map((e) => {
+                    const isAway = e.team === away;
+                    const isScoring = ["made_2","made_3","made_ft"].includes(e.stat_type);
+                    const scoreTag = isScoring
+                      ? ` \u00b7 ${away} ${e.running_away} - ${e.running_home} ${home}`
+                      : "";
+                    return (
+                      <div
+                        key={e.event_id || Math.random()}
+                        className={`text-[11px] ${isAway ? "text-right" : "text-left"}`}
+                      >
+                        <span className={`${isScoring ? "font-bold text-gray-900" : "text-gray-700"}`}>
+                          {formatEventText(e)}
+                        </span>
+                        {isScoring && (
+                          <span className="text-gray-400">{scoreTag}</span>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -777,24 +846,21 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, currentHalf, top
   );
 }
 
-function TeamScorePanel({ team, score, color, fouls, timeouts, topScorer }) {
+function TeamScorePanel({ team, score, color, fouls, topScorer }) {
   const foulRed = fouls >= 10;
+  const fullName = TEAM_NAMES[team] || team;
   return (
-    <div className="rounded-xl p-3 bg-gray-50 border border-gray-100">
-      <div className="flex items-center gap-1.5 mb-1">
-        <TeamLogoLocal team={team} size={18} />
-        <span className="text-sm font-bold text-gray-900">{team}</span>
-      </div>
-      <div className="text-4xl font-black text-gray-900 leading-none tracking-tight">{score}</div>
-      <div className="mt-2 flex items-center gap-2 text-[10px]">
+    <div className="rounded-xl p-3 bg-gray-50 border border-gray-100 flex flex-col items-center text-center">
+      <TeamLogoLocal team={team} size={36} />
+      <div className="mt-1 text-base font-black text-gray-900 truncate w-full">{fullName}</div>
+      <div className="mt-1 text-5xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</div>
+      <div className="mt-2 text-xs">
         <span className={`font-bold ${foulRed ? "text-red-600" : "text-gray-500"}`}>
           FOULS {fouls}
         </span>
-        <span className="text-gray-300">|</span>
-        <span className="font-bold text-gray-500">TO {timeouts}</span>
       </div>
       {topScorer && topScorer.pts > 0 && (
-        <div className="mt-1 text-[10px] text-gray-500 truncate">
+        <div className="mt-1 text-[11px] text-gray-500 truncate w-full">
           {formatName(topScorer.name)} {topScorer.pts}pts
         </div>
       )}
@@ -806,7 +872,7 @@ function TeamScorePanel({ team, score, color, fouls, timeouts, topScorer }) {
 // Scorer controls: team claim, stat entry with rebound/assist
 // prompts, undo, game state buttons
 // ============================================================
-function ScorerControls({ game, live, events, rosters, me, myRole, onReload, currentHalf, teamFoulsThisHalf, teamScore }) {
+function ScorerControls({ game, live, events, rosters, me, myRole, onReload, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore }) {
   const [showAdminForTakeover, setShowAdminForTakeover] = useState(null); // target team code
   const [pendingStat, setPendingStat] = useState(null); // {stat, player}
   const [promptMode, setPromptMode] = useState(null);   // rebound | assist
@@ -972,19 +1038,37 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
   };
 
   // ---- Period/state controls ----
+  // End of first half jumps straight to H2 (no halftime intermission).
   const endFirstHalf = async () => {
-    if (!confirm("End 1st half?")) return;
-    await supabase.from("live_games").update({ period: "Halftime", status: "halftime", updated_at: new Date().toISOString() }).eq("game_id", game.game_id);
-    await supabase.from("live_events").insert({ game_id: game.game_id, period: "Halftime", stat_type: "period_change", player_name: "Halftime", scorer_pin: me.pin, scorer_name: me.name });
-  };
-  const startSecondHalf = async () => {
-    // Reset timeouts per half? PCAL rule was 3 per half, no carryover
+    if (!confirm("End 1st half and begin 2nd half?")) return;
     await supabase.from("live_games").update({
       period: "H2", status: "live",
       home_timeouts_remaining: 3, away_timeouts_remaining: 3,
       updated_at: new Date().toISOString(),
     }).eq("game_id", game.game_id);
-    await supabase.from("live_events").insert({ game_id: game.game_id, period: "H2", stat_type: "period_change", player_name: "H2", scorer_pin: me.pin, scorer_name: me.name });
+    await supabase.from("live_events").insert({
+      game_id: game.game_id, period: "H2", stat_type: "period_change",
+      player_name: "H2", scorer_pin: me.pin, scorer_name: me.name,
+    });
+  };
+
+  // ---- Timeout ----
+  // Any scorer can record a timeout for either playing team. Timeouts are
+  // tracked per half via live_events (stat_type='timeout'), computed from
+  // teamTimeoutsThisHalf in computeBoxScore. Resets automatically on H2/OT.
+  const callTimeout = async (teamCode) => {
+    if (!me) return;
+    const used = teamTimeoutsThisHalf?.[currentHalf]?.[teamCode] || 0;
+    if (used >= 3) return;
+    await supabase.from("live_events").insert({
+      game_id: game.game_id,
+      period: live?.period || "H1",
+      team: teamCode,
+      player_name: null,
+      stat_type: "timeout",
+      scorer_pin: me.pin,
+      scorer_name: me.name,
+    });
   };
 
   const endGameOrStartOT = async () => {
@@ -1101,40 +1185,101 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
 
   // If I am a scorer, show stat grid + roster + controls
   if (myRole === "home_scorer" || myRole === "away_scorer") {
+    const period = live.period || "H1";
+    const homeTeam = game.home_team;
+    const awayTeam = game.away_team;
+    const homeTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[homeTeam] || 0;
+    const awayTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[awayTeam] || 0;
+    const inRegulation = period === "H1" || period === "H2" || period?.startsWith("OT");
+
+    // Timeout pill: filled if available, crossed out if used. Tapping the leftmost
+    // available pill records a timeout for that team.
+    const renderTimeoutPills = (teamCode, usedCount) => {
+      const pills = [];
+      for (let i = 0; i < 3; i++) {
+        const used = i < usedCount;
+        pills.push(
+          <button
+            key={i}
+            onClick={() => !used && callTimeout(teamCode)}
+            disabled={used || !inRegulation}
+            className={`relative w-5 h-5 rounded-full border transition-all ${
+              used
+                ? "bg-gray-200 border-gray-300"
+                : "bg-white border-gray-400 active:bg-gray-100"
+            } disabled:cursor-not-allowed`}
+            title={used ? "Used" : `Call timeout for ${teamCode}`}
+          >
+            {used && (
+              <svg viewBox="0 0 20 20" className="absolute inset-0 w-full h-full text-gray-400" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="5" y1="5" x2="15" y2="15" />
+                <line x1="15" y1="5" x2="5" y2="15" />
+              </svg>
+            )}
+          </button>
+        );
+      }
+      return pills;
+    };
+
+    // Stat label for the player-select banner
+    const pendingLabel = pendingStat?.meta?.label || "";
+    const pendingIsGreen = pendingStat?.meta?.color?.includes("green");
+    const pendingIsRed = pendingStat?.meta?.color?.includes("red");
+
     return (
       <div className="space-y-3">
-        {/* State control bar */}
-        <div className="flex gap-1.5 flex-wrap">
-          {(live.period === "H1" || live.period === "H2" || live.period?.startsWith("OT")) && (
-            <>
-              {live.period === "H1" && (
-                <button onClick={endFirstHalf} className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">End 1st half</button>
-              )}
-              {live.period === "Halftime" && (
-                <button onClick={startSecondHalf} className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800">Start 2nd half</button>
-              )}
-              {(live.period === "H2" || live.period?.startsWith("OT")) && (
-                <button onClick={endGameOrStartOT} className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700">End game</button>
-              )}
-            </>
-          )}
-          {live.period === "Halftime" && (
-            <button onClick={startSecondHalf} className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800">Start 2nd half</button>
-          )}
-          {gameIsOver && (
-            <button onClick={reopenGame} className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">Reopen</button>
-          )}
-          <div className="flex-1" />
-          <button onClick={undoLast} className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">Undo last</button>
-        </div>
-
-        {gameIsOver && (
-          <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-[11px] text-gray-500">
-            Game ended. Tap &quot;Reopen&quot; (requires admin) to edit.
+        {/* Top bar: period + end-half + timeouts per team */}
+        {inRegulation && !gameIsOver && (
+          <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-black text-gray-900">{period}</span>
+                {period === "H1" && (
+                  <button onClick={endFirstHalf}
+                    className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800">
+                    End 1st half
+                  </button>
+                )}
+                {(period === "H2" || period?.startsWith("OT")) && (
+                  <button onClick={endGameOrStartOT}
+                    className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700">
+                    End game
+                  </button>
+                )}
+              </div>
+              <button onClick={undoLast}
+                className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
+                Undo last
+              </button>
+            </div>
+            {/* Timeout rows, one per team */}
+            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-gray-100">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{awayTeam} TO</span>
+                <div className="flex gap-1">{renderTimeoutPills(awayTeam, awayTOUsed)}</div>
+              </div>
+              <div className="flex items-center gap-2 justify-end">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{homeTeam} TO</span>
+                <div className="flex gap-1">{renderTimeoutPills(homeTeam, homeTOUsed)}</div>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Stat buttons */}
+        {gameIsOver && (
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 flex items-center justify-between">
+            <div className="text-[11px] text-gray-500">
+              Game ended. Tap &quot;Reopen&quot; (requires admin) to edit.
+            </div>
+            <button onClick={reopenGame}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
+              Reopen
+            </button>
+          </div>
+        )}
+
+        {/* Stat buttons + roster */}
         {!gameIsOver && (
           <>
             <div>
@@ -1146,9 +1291,10 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
                   const active = pendingStat?.key === s.key;
                   return (
                     <button key={s.key} onClick={() => tapStat(s.key)}
-                      className={`py-3 rounded-xl text-xs font-bold transition-all border ${
-                        active ? "bg-gray-900 text-white border-gray-900 ring-2 ring-gray-900/20" :
-                        s.color + " border-transparent active:bg-gray-200"
+                      className={`py-3 rounded-xl text-sm font-bold transition-all border-2 ${
+                        active
+                          ? `${s.color} border-gray-900 ring-4 ${s.activeRing}`
+                          : `${s.color} border-transparent opacity-90 active:opacity-100`
                       }`}>
                       {s.label}
                     </button>
@@ -1157,21 +1303,52 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
               </div>
             </div>
 
-            {/* Roster (2. tap player) */}
+            {/* Player-select banner + roster */}
             <div>
-              <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">
-                2. Tap player
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              {pendingStat ? (
+                <div
+                  className={`mb-2 rounded-xl p-3 text-center border-2 animate-pulse ${
+                    pendingIsGreen ? "bg-green-50 border-green-500" :
+                    pendingIsRed ? "bg-red-50 border-red-500" :
+                    "bg-gray-50 border-gray-900"
+                  }`}
+                >
+                  <div className={`text-xs font-black uppercase tracking-widest ${
+                    pendingIsGreen ? "text-green-700" :
+                    pendingIsRed ? "text-red-700" :
+                    "text-gray-900"
+                  }`}>
+                    Tap a player for
+                  </div>
+                  <div className="text-xl font-black text-gray-900 mt-0.5">{pendingLabel}</div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">
+                  2. Tap player
+                </div>
+              )}
+              <div className={`grid grid-cols-2 gap-1.5 rounded-xl p-1 ${
+                pendingStat && !promptMode
+                  ? pendingIsGreen ? "ring-2 ring-green-400 ring-offset-1" :
+                    pendingIsRed ? "ring-2 ring-red-400 ring-offset-1" :
+                    "ring-2 ring-gray-400 ring-offset-1"
+                  : ""
+              }`}>
                 {myRoster.map(p => (
                   <button key={p.roster_id}
                     disabled={!pendingStat || promptMode}
                     onClick={() => tapPlayerForStat(p)}
-                    className="py-3 px-2 rounded-xl bg-white border border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
-                    <div className="text-xs font-bold text-gray-900 truncate">{formatName(p.player_name)}</div>
+                    className="py-4 px-2 rounded-xl bg-white border border-gray-200 text-center active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
+                    <div className="text-base font-black text-gray-900 truncate">{formatName(p.player_name)}</div>
                   </button>
                 ))}
               </div>
+              {pendingStat && (
+                <button onClick={cancelPrompt}
+                  className="mt-2 w-full py-2 rounded-lg bg-gray-50 border border-gray-200 text-[11px] font-bold text-gray-600 active:bg-gray-100">
+                  Cancel
+                </button>
+              )}
             </div>
           </>
         )}
