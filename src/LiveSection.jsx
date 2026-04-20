@@ -30,6 +30,12 @@ import { supabase } from "./supabase.js";
 const LogosContext = createContext(null);
 const useLogos = () => useContext(LogosContext);
 
+// Context carries player photo URLs keyed by "LASTNAME Firstname" (matching
+// rosters.player_name). Fetched from the player_photos table in LiveGameView
+// at load time. Falls back to initials avatar when a key is missing.
+const PhotosContext = createContext({});
+const usePhotos = () => useContext(PhotosContext);
+
 // ------------------------------------------------------------
 // Team names/colors: match main app TEAM_BADGE_COLORS
 // ------------------------------------------------------------
@@ -94,8 +100,8 @@ const CURRENT_SEASON = 2026;
 
 // ------------------------------------------------------------
 // Stat type definitions: all events we can enter during a game.
-// Grid is 3x3, row-major. Row 1: makes (green). Row 2: misses (red).
-// Row 3: steal/block/foul (gray).
+// Grid is 3x4 (rows of 3,3,4), row-major. Row 1: makes (green).
+// Row 2: misses (red). Row 3: REB/STL/BLK/FOUL (gray, 4-across).
 // ------------------------------------------------------------
 const STAT_BUTTONS = [
   { key: "made_2",   label: "Made 2",   pts: 2, prompt: "assist",  color: "bg-green-500 text-white", activeRing: "ring-green-300" },
@@ -104,6 +110,7 @@ const STAT_BUTTONS = [
   { key: "missed_2", label: "Miss 2",   pts: 0, prompt: "rebound", color: "bg-red-500 text-white",   activeRing: "ring-red-300" },
   { key: "missed_3", label: "Miss 3",   pts: 0, prompt: "rebound", color: "bg-red-500 text-white",   activeRing: "ring-red-300" },
   { key: "missed_ft",label: "Miss FT",  pts: 0, prompt: "rebound", color: "bg-red-500 text-white",   activeRing: "ring-red-300" },
+  { key: "reb",      label: "REB",      pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
   { key: "stl",      label: "Steal",    pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
   { key: "blk",      label: "Block",    pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
   { key: "foul",     label: "Foul",     pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
@@ -250,16 +257,43 @@ const STAT_TO_BOX_FIELD = {
   ast: "ast",
 };
 
-// For a given stat key, what count should be shown for a player?
-// Rebounds show total rebounds; fouls show total fouls; makes show
-// that specific make count; misses show misses (attempts - makes).
+// For a given stat key, return { count, label } to render on the player card.
+// ALL shot-related stats (makes, misses, free throws) surface the player's
+// total points, not shot counts. Defensive/bucket stats show their own count.
+// Label is pluralized ("1 pt" / "2 pts").
+function statLabelForPlayer(statKey, boxEntry) {
+  if (!boxEntry) return { count: 0, label: "0 pts" };
+  const SHOT_KEYS = new Set(["made_2","made_3","made_ft","missed_2","missed_3","missed_ft"]);
+  if (SHOT_KEYS.has(statKey)) {
+    const n = boxEntry.pts || 0;
+    return { count: n, label: `${n} pt${n === 1 ? "" : "s"}` };
+  }
+  if (statKey === "reb") {
+    const n = boxEntry.reb || 0;
+    return { count: n, label: `${n} rebound${n === 1 ? "" : "s"}` };
+  }
+  if (statKey === "stl") {
+    const n = boxEntry.stl || 0;
+    return { count: n, label: `${n} steal${n === 1 ? "" : "s"}` };
+  }
+  if (statKey === "blk") {
+    const n = boxEntry.blk || 0;
+    return { count: n, label: `${n} block${n === 1 ? "" : "s"}` };
+  }
+  if (statKey === "foul") {
+    const n = boxEntry.foul || 0;
+    return { count: n, label: `${n} foul${n === 1 ? "" : "s"}` };
+  }
+  if (statKey === "ast") {
+    const n = boxEntry.ast || 0;
+    return { count: n, label: `${n} assist${n === 1 ? "" : "s"}` };
+  }
+  return { count: 0, label: "" };
+}
+
+// Legacy helper: raw count only, used for partition-by-has-stat logic.
 function statCountForPlayer(statKey, boxEntry) {
-  if (!boxEntry) return 0;
-  if (statKey === "missed_2") return (boxEntry.fga || 0) - (boxEntry.fgm || 0) - ((boxEntry.tpa || 0) - (boxEntry.tpm || 0));
-  if (statKey === "missed_3") return (boxEntry.tpa || 0) - (boxEntry.tpm || 0);
-  if (statKey === "missed_ft") return (boxEntry.fta || 0) - (boxEntry.ftm || 0);
-  const field = STAT_TO_BOX_FIELD[statKey];
-  return field ? (boxEntry[field] || 0) : 0;
+  return statLabelForPlayer(statKey, boxEntry).count;
 }
 
 // Given the events list and a player name, is that player currently on
@@ -304,6 +338,39 @@ function partitionRosterByStat(roster, box, statKey) {
   withStat.sort(byLastName);
   withoutStat.sort(byLastName);
   return { withStat, withoutStat };
+}
+
+// Player avatar: photo if available via PhotosContext, otherwise a colored
+// circle with the player's initials. Team color provides the backdrop so
+// rosters stay visually cohesive.
+function PlayerAvatar({ name, team, size = 40 }) {
+  const photos = usePhotos();
+  const url = photos?.[name];
+  const parts = (name || "").trim().split(/\s+/);
+  const lastInit = (parts[0]?.charAt(0) || "").toUpperCase();
+  const firstInit = (parts[1]?.charAt(0) || "").toUpperCase();
+  const initials = `${firstInit}${lastInit}`;
+  const bg = TEAM_COLORS[team] || "#6b7280";
+  const fg = textOnTeam(team);
+  if (url) {
+    return (
+      <img src={url} alt={name}
+        style={{ width: size, height: size, objectFit: "cover" }}
+        className="rounded-full border border-gray-200 flex-shrink-0 bg-gray-100"
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-full flex items-center justify-center flex-shrink-0 border border-gray-200"
+      style={{ width: size, height: size, backgroundColor: bg }}
+    >
+      <span style={{ fontSize: Math.max(9, size * 0.36), color: fg }} className="font-black">
+        {initials}
+      </span>
+    </div>
+  );
 }
 
 // ------------------------------------------------------------
@@ -661,11 +728,12 @@ function LiveGameView({ gameId, me, onBack }) {
   const [live, setLive] = useState(null);
   const [events, setEvents] = useState([]);
   const [rosters, setRosters] = useState({ home: [], away: [] });
+  const [playerPhotos, setPlayerPhotos] = useState({}); // { "LASTNAME FIRSTNAME": image_url }
   const [mode, setMode] = useState("score"); // score | box | log
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Load game + state + events + rosters
+  // Load game + state + events + rosters + player photos
   const load = useCallback(async () => {
     setLoading(true); setError("");
     const [{ data: sch }, { data: lg }, { data: evs }] = await Promise.all([
@@ -684,10 +752,26 @@ function LiveGameView({ gameId, me, onBack }) {
     const home = (rosterRows || []).filter(r => r.team === sch.home_team);
     const away = (rosterRows || []).filter(r => r.team === sch.away_team);
 
+    // Fetch player photos for both rosters. Keyed by player_name (the "id"
+    // column in player_photos is the LASTNAME Firstname string matching
+    // rosters.player_name). Missing rows fall back to initials avatar.
+    const names = (rosterRows || []).map(r => r.player_name).filter(Boolean);
+    let photoMap = {};
+    if (names.length > 0) {
+      const { data: photoRows } = await supabase
+        .from("player_photos")
+        .select("id,image_url")
+        .in("id", names);
+      for (const row of (photoRows || [])) {
+        if (row.image_url) photoMap[row.id] = row.image_url;
+      }
+    }
+
     setGame(sch);
     setLive(lg);
     setEvents(evs || []);
     setRosters({ home, away });
+    setPlayerPhotos(photoMap);
     setLoading(false);
   }, [gameId]);
 
@@ -743,19 +827,19 @@ function LiveGameView({ gameId, me, onBack }) {
   if (!game) return null;
 
   return (
-    <div>
-      <BackRow onBack={onBack} />
+    <PhotosContext.Provider value={playerPhotos}>
+      <div>
+        <BackRow onBack={onBack} />
 
-      {/* Big date/time + matchup header */}
+      {/* Compact matchup header: week & location on top, date + time on one line */}
       <div className="mb-3 text-center">
         <div className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">
           Week {game.week === 0 ? "Preseason" : game.week}{game.location ? ` \u00b7 ${game.location}` : ""}
         </div>
-        <div className="text-xl font-black text-gray-900 leading-tight">
+        <div className="text-base font-black text-gray-900 leading-tight">
           {formatGameDate(game.game_date)}
-        </div>
-        <div className="text-lg font-bold text-gray-700 leading-tight mt-0.5">
-          {formatGameTime(game.game_time)}
+          {" \u00b7 "}
+          <span className="font-bold text-gray-700">{formatGameTime(game.game_time)}</span>
         </div>
       </div>
 
@@ -815,7 +899,8 @@ function LiveGameView({ gameId, me, onBack }) {
       )}
       {mode === "box" && <BoxScoreView game={game} box={box} rosters={rosters} />}
       {mode === "log" && <PlayByPlay events={events} me={me} myRole={myRole} game={game} />}
-    </div>
+      </div>
+    </PhotosContext.Provider>
   );
 }
 
@@ -1040,6 +1125,7 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
                       : "";
                     const showFire = ["made_2","made_3"].includes(e.stat_type)
                       && isOnHotStreakAtIndex(events, e);
+                    const milestone = milestoneForEvent(events, e);
                     return (
                       <div
                         key={e.event_id || Math.random()}
@@ -1050,6 +1136,11 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
                           {showFire && (
                             <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-orange-500 text-white tracking-wider align-middle">
                               HOT
+                            </span>
+                          )}
+                          {milestone && (
+                            <span className="ml-1 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums align-middle">
+                              {milestone.label}
                             </span>
                           )}
                         </span>
@@ -1069,7 +1160,51 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
   );
 }
 
-// For play-by-play fire icon: was this event part of a 3-in-a-row (FGs only)
+// For play-by-play: if this event caused the player's running total in the
+// event's relevant stat to reach 10 or more, return { stat, label, count }.
+// Otherwise return null. "keep going" semantics: shows up at 10, 11, 12, ...
+function milestoneForEvent(events, target) {
+  if (!target || !target.player_name || target.deleted) return null;
+  const key = target.stat_type;
+  const STAT_FIELD = {
+    made_2: { pts: 2, field: "pts", singular: "pt", plural: "pts" },
+    made_3: { pts: 3, field: "pts", singular: "pt", plural: "pts" },
+    made_ft: { pts: 1, field: "pts", singular: "pt", plural: "pts" },
+    reb: { field: "reb", singular: "rebound", plural: "rebounds" },
+    ast: { field: "ast", singular: "assist", plural: "assists" },
+    stl: { field: "stl", singular: "steal", plural: "steals" },
+    blk: { field: "blk", singular: "block", plural: "blocks" },
+  };
+  const spec = STAT_FIELD[key];
+  if (!spec) return null;
+  // Sum prior contributions by this player in the relevant field
+  let total = 0;
+  for (const e of events) {
+    if (e.deleted) continue;
+    if (e.player_name !== target.player_name) continue;
+    if (e.event_id === target.event_id) {
+      // Include the target itself, then stop
+      if (spec.pts != null) total += spec.pts;
+      else if (e.stat_type === key) total += 1;
+      break;
+    }
+    if (spec.field === "pts") {
+      if (e.stat_type === "made_2") total += 2;
+      else if (e.stat_type === "made_3") total += 3;
+      else if (e.stat_type === "made_ft") total += 1;
+    } else if (e.stat_type === key) {
+      total += 1;
+    }
+  }
+  if (total < 10) return null;
+  return {
+    stat: key,
+    count: total,
+    label: `${total} ${total === 1 ? spec.singular : spec.plural}`,
+  };
+}
+
+// For play-by-play hot streak: was this event part of a 3-in-a-row (FGs only)
 // for the shooter at the time it was made? Walks back from this event in the
 // non-deleted event stream and counts the 3 most recent FG attempts by the
 // same player.
@@ -1106,11 +1241,6 @@ function TeamScorePanel({ team, score, color, fouls, topScorer }) {
           FOULS {fouls}
         </span>
       </div>
-      {topScorer && topScorer.pts > 0 && (
-        <div className="mt-1 text-[11px] text-gray-500 truncate w-full">
-          {formatName(topScorer.name)} {topScorer.pts}pts
-        </div>
-      )}
     </div>
   );
 }
@@ -1198,8 +1328,8 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
     const iCanTap = teamCode === myTeamCode && inRegulation && !gameIsOver;
     if (usedCount >= 3) {
       return (
-        <span className="text-[11px] font-bold text-red-600">
-          No timeouts left
+        <span className="text-[10px] font-bold text-red-600">
+          No TO left
         </span>
       );
     }
@@ -1209,10 +1339,10 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
     for (let i = 0; i < usedCount; i++) {
       pills.push(
         <div key={`u${i}`}
-          className="relative w-8 h-7 rounded-md bg-gray-200 border border-gray-300 flex items-center justify-center flex-shrink-0"
+          className="relative w-6 h-6 rounded-md bg-gray-200 border border-gray-300 flex items-center justify-center flex-shrink-0"
           title="Used"
         >
-          <svg viewBox="0 0 20 20" className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <svg viewBox="0 0 20 20" className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <line x1="5" y1="5" x2="15" y2="15" />
             <line x1="15" y1="5" x2="5" y2="15" />
           </svg>
@@ -1222,14 +1352,12 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
     // Remaining green pills, renumbered 1..remaining
     for (let i = 0; i < remaining; i++) {
       const label = i + 1;
-      // Only the first remaining pill is tappable so a double-tap doesn't
-      // accidentally burn two timeouts.
       const isNext = i === 0;
       pills.push(
         <button key={`r${i}`}
           onClick={() => isNext && iCanTap && callTimeout(teamCode)}
           disabled={!isNext || !iCanTap}
-          className={`w-8 h-7 rounded-md text-xs font-black flex items-center justify-center flex-shrink-0 transition-all ${
+          className={`w-6 h-6 rounded-md text-[10px] font-black flex items-center justify-center flex-shrink-0 transition-all ${
             isNext && iCanTap
               ? "bg-green-500 text-white border-2 border-green-600 active:bg-green-600"
               : "bg-green-100 text-green-700 border border-green-200"
@@ -1253,10 +1381,10 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 mb-3 space-y-2">
-      {/* Row 1: period + action button */}
+    <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 mb-3 space-y-1.5">
+      {/* Row 1: period (left), end-half/end-game (center-right). Tight. */}
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xl font-black text-gray-900">{period}</div>
+        <div className="text-lg font-black text-gray-900">{period}</div>
         <div className="flex gap-1.5">
           {period === "H1" && (
             <button onClick={endFirstHalf}
@@ -1272,19 +1400,16 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
           )}
         </div>
       </div>
-      {/* Row 2: timeouts, one line per team */}
-      <div className="pt-2 border-t border-gray-100 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-            {awayTeam} timeouts
-          </span>
+      {/* Row 2: team timeouts. Away on the left, home on the right,
+          each aligned to its side to mirror the scoreboard layout. */}
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-100">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{awayTeam}</span>
           {renderTimeoutPills(awayTeam, awayTOUsed)}
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-            {homeTeam} timeouts
-          </span>
+        <div className="flex items-center gap-1.5">
           {renderTimeoutPills(homeTeam, homeTOUsed)}
+          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{homeTeam}</span>
         </div>
       </div>
     </div>
@@ -1814,33 +1939,64 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
       ? partitionRosterByStat(myRoster, box, partitionStatKey)
       : null;
 
-    // Renders a single player card in the box picker: big last name, jersey #
-    // placeholder, and the per-stat count as a small chip in the corner.
+    // Renders a single player card in the box picker. Layout, top to bottom:
+    //   [avatar 36px] [milestone badge if >=10]  [stat chip top-right]
+    //   F. LastName
+    //       <BIG jersey #>
+    // Avatar is a photo if available (from PhotosContext) otherwise initials.
+    // Stat chip shows labeled count ("2 fouls", "14 pts", etc). When the
+    // player crosses 10+ in the displayed stat, a small gold badge sits
+    // next to the avatar showing that count (keeps climbing past 10).
     const renderPlayerCard = (p, opts = {}) => {
       const { onClick, disabled, showCount = true } = opts;
       const name = p.player_name || "";
       const parts = name.trim().split(/\s+/);
-      const lastName = (parts[0] || "").replace(/^./, c => c.toUpperCase()).toLowerCase();
-      const displayLast = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase() : name;
-      const firstInitial = parts[1] ? parts[1].charAt(0).toUpperCase() + "." : "";
-      const count = showCount && partitionStatKey
-        ? statCountForPlayer(partitionStatKey, box[name])
-        : 0;
+      const displayLast = parts[0]
+        ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase()
+        : name;
+      const firstInit = parts[1] ? parts[1].charAt(0).toUpperCase() + "." : "";
+      const displayName = firstInit ? `${firstInit} ${displayLast}` : displayLast;
+      const statInfo = showCount && partitionStatKey
+        ? statLabelForPlayer(partitionStatKey, box[name])
+        : { count: 0, label: "" };
+      const jersey = p.jersey_number || "";
+      // Milestone chip: show for any countable stat where they have >=10.
+      // Uses the PARTITION stat, which for shot keys is points (so "10 pts"
+      // triggers it, which is the right semantic: double-digit scorer).
+      const hasMilestone = statInfo.count >= 10;
       return (
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
-          className="relative py-4 px-2 rounded-xl bg-white border-2 border-gray-200 text-center active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
-          <div className="absolute top-1 left-2 text-[10px] font-bold text-gray-300">#</div>
-          {showCount && count > 0 && (
-            <div className="absolute top-1 right-2 text-[10px] font-black text-gray-500 tabular-nums">
-              {count}
+          className="relative py-3 px-2 rounded-xl bg-white border-2 border-gray-200 text-center active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white min-h-[112px]">
+          {/* Top-left: avatar */}
+          <div className="absolute top-2 left-2">
+            <PlayerAvatar name={name} team={p.team} size={32} />
+          </div>
+          {/* Milestone badge: small filled chip next to the avatar */}
+          {hasMilestone && (
+            <div
+              className="absolute top-0 left-9 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums border-2 border-white"
+              title="Double-digit!"
+            >
+              {statInfo.count}
             </div>
           )}
-          <div className="text-base font-black text-gray-900 truncate leading-tight">{displayLast}</div>
-          {firstInitial && (
-            <div className="text-[10px] text-gray-400 truncate">{firstInitial}</div>
+          {/* Top-right: labeled stat chip */}
+          {showCount && statInfo.label && statInfo.count > 0 && (
+            <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-black bg-gray-100 text-gray-700 tabular-nums">
+              {statInfo.label}
+            </div>
           )}
+          {/* Body: name + big jersey number */}
+          <div className="pt-11">
+            <div className="text-xs font-black text-gray-900 truncate leading-tight">
+              {displayName}
+            </div>
+            <div className="text-3xl font-black text-gray-900 leading-none mt-1 tabular-nums">
+              {jersey || <span className="text-gray-200">&mdash;</span>}
+            </div>
+          </div>
         </button>
       );
     };
@@ -2020,12 +2176,37 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
           </ModalShell>
         )}
 
-        {/* Rebound prompt overlay (after a missed shot) */}
+        {/* Rebound prompt overlay (after a missed shot).
+            For missed FREE THROWS, we lead with an "Uncontested Rebound"
+            button because for the first 38 minutes of the game, PCAL
+            rebounds off free throws are automatic to the other team. */}
         {promptMode === "rebound" && (
           <ModalShell title="Rebound?" onClose={cancelPrompt}>
             <div className="space-y-2">
+              {pendingStat?.key === "missed_ft" && (
+                <>
+                  <button onClick={() => chooseRebound("other_team")}
+                    className="w-full py-4 rounded-xl bg-gray-900 text-white font-black text-sm active:bg-gray-800">
+                    <div>Uncontested Rebound</div>
+                    <div className="text-[10px] font-normal text-gray-300 mt-0.5">
+                      (first 38 min of game)
+                    </div>
+                  </button>
+                  <div className="flex items-center gap-2 pt-1">
+                    <div className="flex-1 h-px bg-gray-200" />
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      or
+                    </span>
+                    <div className="flex-1 h-px bg-gray-200" />
+                  </div>
+                </>
+              )}
               <button onClick={() => chooseRebound("own")}
-                className="w-full py-3 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
+                className={`w-full py-3 rounded-xl font-bold text-sm active:bg-gray-800 ${
+                  pendingStat?.key === "missed_ft"
+                    ? "bg-gray-100 text-gray-700 active:bg-gray-200"
+                    : "bg-gray-900 text-white"
+                }`}>
                 {myTeamCode} rebound
               </button>
               <button onClick={() => chooseRebound("other_team")}
@@ -2287,11 +2468,19 @@ function PlayByPlay({ events, me, myRole, game }) {
       )}
       {visible.map(e => {
         const mine = e.scorer_pin === me?.pin;
+        const milestone = milestoneForEvent(events, e);
         return (
           <div key={e.event_id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg border border-gray-100 bg-white text-[11px]">
             <span className="text-gray-400 tabular-nums w-16">{formatTime(e.event_ts)}</span>
             <span className="text-gray-400 w-10 font-bold">{e.period}</span>
-            <span className="flex-1 text-gray-700">{formatEventText(e)}</span>
+            <span className="flex-1 text-gray-700">
+              {formatEventText(e)}
+              {milestone && (
+                <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums align-middle">
+                  {milestone.label}
+                </span>
+              )}
+            </span>
             {e.edited_at && <span className="text-[9px] text-gray-400 italic">edited</span>}
             {canEdit && mine && (
               <div className="flex gap-1">
