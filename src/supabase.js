@@ -240,6 +240,24 @@ export async function adminToggleAnnouncement(id, announce, quote) {
   return data;
 }
 
+// Writes free-form overrides onto a registration so the home-page announcement
+// can be admin-edited. Pass null for any field you don't want to change... no
+// actually, this function always sets all three so the caller knows exactly
+// what's persisted. To clear an override, pass an empty string or null.
+export async function adminUpdateAnnouncementOverride(id, { displayNameOverride, announcementOverride, hidden }) {
+  const token = getAdminToken();
+  if (!token) return { error: "not admin" };
+  const { data, error } = await supabase.rpc("admin_update_announcement_override", {
+    p_token: token,
+    p_id: id,
+    p_name_override: displayNameOverride || null,
+    p_announcement: announcementOverride || null,
+    p_hidden: !!hidden,
+  });
+  if (error) { console.error("adminUpdateAnnouncementOverride error:", error); return { error: error.message }; }
+  return data;
+}
+
 // ============================================================================
 // GAME LOG ADMIN (Supabase)
 // ============================================================================

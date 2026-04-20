@@ -8,7 +8,7 @@ import {
   adminListRegistrations, adminUpdateRegistration, adminDeleteRegistration,
   uploadPhoto,
   requestEmailVerification, verifyEmailCode, sendRegistrationConfirmation,
-  loadAnnouncedRegistrations, adminToggleAnnouncement,
+  loadAnnouncedRegistrations, adminToggleAnnouncement, adminUpdateAnnouncementOverride,
   adminSearchGameLog, adminUpdateGameLog, adminAddGameLog, adminDeleteGameLog, adminBatchUpdateGameLog,
   loadGameLog, bumpGameLogCache,
 } from "./supabase.js";
@@ -3572,6 +3572,17 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
     loadAnnouncedRegistrations().then(setAnnouncements);
   }, []);
 
+  // Admin announcement editor state. When set to a registration object the
+  // modal opens for that announcement; otherwise closed.
+  const [editingAnnouncement, setEditingAnnouncement] = useState(null);
+
+  // Reload announcements from Supabase and replace state. Called after an
+  // admin edit so the UI reflects the new override immediately.
+  const refreshAnnouncements = useCallback(async () => {
+    const fresh = await loadAnnouncedRegistrations();
+    setAnnouncements(fresh);
+  }, []);
+
   // Build a lookup: LASTNAME FIRSTNAME -> { lastTeam, lastYear } from GAME_LOG
   // so registration announcements can say "He played for X last season"
   const playerHistoryMap = useMemo(() => {
@@ -3858,12 +3869,16 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         };
 
         // Sort announcements newest-first so the enrichment walks them in
-        // the same order the user will read them.
-        const annsByDisplay = [...announcements].sort((a, b) => {
-          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return tb - ta;
-        });
+        // the same order the user will read them. Hidden announcements are
+        // filtered out unless admin is viewing, in which case they show with
+        // a "Hidden" badge so admin can unhide them.
+        const annsByDisplay = [...announcements]
+          .filter(a => isAdminView || !a.announcement_hidden)
+          .sort((a, b) => {
+            const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return tb - ta;
+          });
 
         const recentOpener = [];
         const recentHist2025 = [];
@@ -3948,14 +3963,28 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
             pushRecent(recentAge, ageIdx);
           }
 
-          // Display name with override
-          const displayName = playerNameOverrides[nameKey] || `${a.first_name} ${a.last_name}`;
+          // Display name with override. Priority: admin-set DB override wins,
+          // then the hardcoded playerNameOverrides map, then first+last from
+          // the registration.
+          const displayName =
+            a.display_name_override ||
+            playerNameOverrides[nameKey] ||
+            `${a.first_name} ${a.last_name}`;
 
-          // Assembly order: season count first, then history, then modifiers
-          const historyNote = seasonText + historyText + playerModText + ageModText;
+          // Assembly order: season count first, then history, then modifiers.
+          // If admin set a free-form announcement override, it replaces the
+          // full "after the name" sentence. The opener is also replaced in
+          // that case, because admin typed a complete sentence.
+          let historyNote = seasonText + historyText + playerModText + ageModText;
+          let finalOpenerText = openerText;
+          if (a.announcement_override && a.announcement_override.trim()) {
+            // Admin wrote the full text. Display it verbatim after the name.
+            finalOpenerText = a.announcement_override.trim();
+            historyNote = "";
+          }
           const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
           return {
-            ...a, pronoun, history, historyNote, openerText, displayName, dateStr,
+            ...a, pronoun, history, historyNote, openerText: finalOpenerText, displayName, dateStr,
             tc: TEAM_C[a.team_pref] || (history ? (TEAM_COLORS[history.lastTeam] || "#6b7280") : "#6b7280"),
             _ts: a.created_at ? new Date(a.created_at).getTime() : 0,
           };
@@ -4035,8 +4064,22 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
                                         <strong>{a.displayName || `${a.first_name} ${a.last_name}`}</strong>
                                         <span className="text-gray-500 font-normal"> {a.openerText || "has registered."}{a.historyNote}</span>
                                         {a.reg_quote && <span className="text-gray-500 italic"> "{a.reg_quote}"</span>}
+                                        {a.announcement_hidden && isAdminView && (
+                                          <span className="ml-2 text-[9px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded align-middle">HIDDEN</span>
+                                        )}
+                                        {a.announcement_override && isAdminView && (
+                                          <span className="ml-2 text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded align-middle">CUSTOM</span>
+                                        )}
                                       </p>
                                     </div>
+                                    {isAdminView && (
+                                      <button
+                                        onClick={() => setEditingAnnouncement(a)}
+                                        className="text-[10px] font-bold text-gray-500 px-2 py-0.5 rounded bg-gray-100 active:bg-gray-200 flex-shrink-0"
+                                      >
+                                        edit
+                                      </button>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -4061,8 +4104,26 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">New Registration</p>
-                                  {item.dateStr && <p className="text-xs font-bold text-gray-500">{item.dateStr}</p>}
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">
+                                    New Registration
+                                    {a.announcement_hidden && isAdminView && (
+                                      <span className="ml-2 text-[9px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">HIDDEN</span>
+                                    )}
+                                    {a.announcement_override && isAdminView && (
+                                      <span className="ml-2 text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">CUSTOM</span>
+                                    )}
+                                  </p>
+                                  <div className="flex items-center gap-2">
+                                    {item.dateStr && <p className="text-xs font-bold text-gray-500">{item.dateStr}</p>}
+                                    {isAdminView && (
+                                      <button
+                                        onClick={() => setEditingAnnouncement(a)}
+                                        className="text-[10px] font-bold text-gray-500 px-2 py-0.5 rounded bg-gray-100 active:bg-gray-200"
+                                      >
+                                        edit
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                                 <p className="text-sm text-gray-900 leading-relaxed">
                                   <strong>{a.displayName || `${a.first_name} ${a.last_name}`}</strong> {a.openerText || "has registered."}{item.historyNote}
@@ -4170,6 +4231,126 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           </button>
         </div>
       )}
+
+      {/* Admin: announcement override editor */}
+      {editingAnnouncement && (
+        <AnnouncementEditorModal
+          reg={editingAnnouncement}
+          onClose={() => setEditingAnnouncement(null)}
+          onSaved={async () => {
+            setEditingAnnouncement(null);
+            await refreshAnnouncements();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Admin-only modal to override how a registration announcement reads on the
+// home page. Three fields:
+//   - Display name override: replaces the bold name (e.g. 'Zack "Draymond" Girgis')
+//   - Announcement override: replaces the entire sentence after the name
+//     with free-form text. When non-empty, the seeded pool text is ignored.
+//   - Hidden toggle: drop this announcement from the public feed entirely.
+// All three are cleared by blanking the text fields / unchecking hidden.
+function AnnouncementEditorModal({ reg, onClose, onSaved }) {
+  const [displayNameOverride, setDisplayNameOverride] = useState(reg.display_name_override || "");
+  const [announcementOverride, setAnnouncementOverride] = useState(reg.announcement_override || "");
+  const [hidden, setHidden] = useState(!!reg.announcement_hidden);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    const res = await adminUpdateAnnouncementOverride(reg.id, {
+      displayNameOverride: displayNameOverride.trim(),
+      announcementOverride: announcementOverride.trim(),
+      hidden,
+    });
+    setSaving(false);
+    if (res && res.error) {
+      alert("Save failed: " + res.error);
+      return;
+    }
+    await onSaved();
+  };
+
+  const defaultName = `${reg.first_name} ${reg.last_name}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto p-4" onClick={onClose}>
+      <div className="w-full max-w-lg bg-white rounded-2xl p-4 my-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-bold text-gray-900">Edit announcement</h3>
+          <button onClick={onClose} className="text-gray-400 text-lg leading-none">&times;</button>
+        </div>
+        <div className="text-[11px] text-gray-500 mb-3">
+          Editing: <span className="font-bold">{defaultName}</span>
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+            Display name override
+          </label>
+          <input
+            type="text"
+            value={displayNameOverride}
+            onChange={e => setDisplayNameOverride(e.target.value)}
+            placeholder={defaultName}
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
+          />
+          <p className="text-[10px] text-gray-400 mt-1">
+            Leave blank to use the name from the registration.
+          </p>
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+            Announcement override
+          </label>
+          <textarea
+            value={announcementOverride}
+            onChange={e => setAnnouncementOverride(e.target.value)}
+            placeholder="Leave blank to use auto-generated text"
+            rows={4}
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-y"
+          />
+          <p className="text-[10px] text-gray-400 mt-1">
+            Free-form text that replaces everything after the name. Include
+            punctuation (e.g. "is back for his 10th PCAL season. Welcome back.").
+            Leave blank to restore the auto-generated announcement.
+          </p>
+        </div>
+
+        <div className="mb-4">
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={hidden}
+              onChange={e => setHidden(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <span>Hide this announcement from the public feed</span>
+          </label>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-lg bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-lg bg-gray-900 text-white font-bold text-sm active:bg-gray-800 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
