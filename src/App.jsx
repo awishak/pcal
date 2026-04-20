@@ -12427,7 +12427,7 @@ function LiveHomeCard({ openLiveGame }) {
 
       {otherGames.length > 0 && (
         <div className={`grid gap-1.5 ${liveGame ? "mt-3" : ""}`}
-             style={{ gridTemplateColumns: `repeat(${Math.min(otherGames.length, 5)}, minmax(0, 1fr))` }}>
+             style={{ gridTemplateColumns: `repeat(${Math.min(otherGames.length, 3)}, minmax(0, 1fr))` }}>
           {otherGames.map(g => (
             <OtherGameMiniCard
               key={g.game_id}
@@ -12458,7 +12458,6 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
     if (!n) return null;
     const p = n.trim().split(/\s+/);
     if (p.length < 2) return n;
-    // Names stored "LASTNAME Firstname" -> "A. Ishak"
     const last = p[0];
     const first = p.slice(1).join(" ");
     const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
@@ -12466,10 +12465,29 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
   };
   const homeScorer = formatScorer(liveState && liveState.home_scorer_name);
   const awayScorer = formatScorer(liveState && liveState.away_scorer_name);
+
+  // One row per team. Each row is: [logo] [team name + Scored by underneath] [score on the far right]
+  const TeamRow = ({ code, name, score, scorer }) => (
+    <div className="flex items-center gap-3">
+      <TeamLogo team={code} size={36} />
+      <div className="flex-1 min-w-0">
+        <div className="text-base font-black text-gray-900 truncate leading-tight">{name}</div>
+        <div className="text-[9px] text-gray-500 truncate leading-tight">
+          {scorer ? (
+            <>Scored by: <span className="text-gray-700">{scorer}</span></>
+          ) : (
+            <span className="text-gray-300">No scorer yet</span>
+          )}
+        </div>
+      </div>
+      <span className="text-3xl font-black tabular-nums text-gray-900">{score}</span>
+    </div>
+  );
+
   return (
     <button onClick={onTap}
       className="w-full rounded-xl border-2 border-red-500 bg-white p-3 text-left active:scale-[0.99] transition">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -12480,37 +12498,9 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
         </div>
         <span className="text-[10px] text-gray-400">Tap to view</span>
       </div>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <TeamLogo team={home} size={32} />
-            <span className="text-base font-black text-gray-900 truncate">{homeName}</span>
-            <span className="text-2xl font-black tabular-nums ml-auto">{homeScore}</span>
-          </div>
-          {/* Always render the scorer line so both sides stay vertically aligned */}
-          <div className="text-[9px] text-gray-500 mt-0.5 pl-10 truncate">
-            {homeScorer ? (
-              <>Scored by: <span className="text-gray-700">{homeScorer}</span></>
-            ) : (
-              <span className="text-gray-300">No scorer yet</span>
-            )}
-          </div>
-        </div>
-        <span className="text-gray-300 text-sm">-</span>
-        <div className="flex flex-col flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-black tabular-nums">{awayScore}</span>
-            <span className="text-base font-black text-gray-900 ml-auto truncate">{awayName}</span>
-            <TeamLogo team={away} size={32} />
-          </div>
-          <div className="text-[9px] text-gray-500 mt-0.5 pr-10 truncate text-right">
-            {awayScorer ? (
-              <>Scored by: <span className="text-gray-700">{awayScorer}</span></>
-            ) : (
-              <span className="text-gray-300">No scorer yet</span>
-            )}
-          </div>
-        </div>
+      <div className="space-y-2">
+        <TeamRow code={away} name={awayName} score={awayScore} scorer={awayScorer} />
+        <TeamRow code={home} name={homeName} score={homeScore} scorer={homeScorer} />
       </div>
     </button>
   );
