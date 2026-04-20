@@ -420,3 +420,130 @@ export async function sendRegistrationConfirmation(form, pin) {
     replyTo: "andrewishak@gmail.com",
   });
 }
+
+// ============================================================================
+// GAME LOG LOADING
+// ============================================================================
+// Fetches the entire game_log table from Supabase and converts each row to
+// the 21-element positional array format the app expects. Results are cached
+// in localStorage keyed on a version string; if the cache is present and the
+// version matches, we return the cached data immediately and skip the fetch.
+//
+// Column order (must match the historical baked-in GAME_LOG):
+//   [0] player, [1] team, [2] opp, [3] week, [4] date, [5] game_type,
+//   [6] g, [7] pts, [8] reb, [9] stl, [10] ast, [11] blk,
+//   [12] fgm, [13] fga, [14] ftm, [15] fta, [16] tpm, [17] tpa,
+//   [18] foul, [19] gmsc, [20] year
+//
+// To force a refresh after approving a new game, call bumpGameLogCache()
+// or pass { force: true } to loadGameLog().
+
+const GAME_LOG_CACHE_KEY = "pcal_game_log_v2";
+const GAME_LOG_VERSION_KEY = "pcal_game_log_version";
+const GAME_LOG_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+// Map a game_log row object (from Supabase) into the 21-element positional
+// array format the App.jsx code expects. Missing fields default to 0 / "".
+function gameLogRowToArray(r) {
+  return [
+    r.player || "",
+    r.team || "",
+    r.opp || "",
+    r.week || 0,
+    r.date || "",
+    r.game_type || "R",
+    r.g || 0,
+    r.pts || 0,
+    r.reb || 0,
+    r.stl || 0,
+    r.ast || 0,
+    r.blk || 0,
+    r.fgm || 0,
+    r.fga || 0,
+    r.ftm || 0,
+    r.fta || 0,
+    r.tpm || 0,
+    r.tpa || 0,
+    r.foul || 0,
+    r.gmsc || 0,
+    r.year || 0,
+  ];
+}
+
+// Fetch every row from game_log using range-based pagination. PostgREST
+// caps queries at 1000 rows per request, so we loop until an empty batch.
+async function fetchAllGameLogRows() {
+  const pageSize = 1000;
+  const out = [];
+  let from = 0;
+  for (;;) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("game_log")
+      .select("*")
+      .order("year", { ascending: true })
+      .order("date", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error("game_log fetch failed: " + error.message);
+    if (!data || data.length === 0) break;
+    out.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
+// Load the full game log. Checks localStorage first; if cache is valid,
+// returns cached data immediately. Otherwise fetches from Supabase, caches,
+// and returns.
+//
+// Options:
+//   force: true        - skip cache, always fetch
+//   onProgress: fn     - called with { loaded, total? } during fetch
+//
+// Returns an array of 21-element arrays.
+export async function loadGameLog(options = {}) {
+  const { force = false } = options;
+
+  if (!force) {
+    try {
+      const cached = window.localStorage.getItem(GAME_LOG_CACHE_KEY);
+      const versionAt = window.localStorage.getItem(GAME_LOG_VERSION_KEY);
+      if (cached && versionAt) {
+        const age = Date.now() - parseInt(versionAt, 10);
+        if (age >= 0 && age < GAME_LOG_TTL_MS) {
+          const arr = JSON.parse(cached);
+          if (Array.isArray(arr) && arr.length > 0) {
+            return arr;
+          }
+        }
+      }
+    } catch (e) {
+      // Cache read failed; fall through to fresh fetch.
+      console.warn("game_log cache read failed:", e);
+    }
+  }
+
+  const rows = await fetchAllGameLogRows();
+  const arr = rows.map(gameLogRowToArray);
+
+  try {
+    window.localStorage.setItem(GAME_LOG_CACHE_KEY, JSON.stringify(arr));
+    window.localStorage.setItem(GAME_LOG_VERSION_KEY, String(Date.now()));
+  } catch (e) {
+    // localStorage may be full or disabled; not fatal.
+    console.warn("game_log cache write failed:", e);
+  }
+
+  return arr;
+}
+
+// Invalidate the cached game_log so the next loadGameLog() call re-fetches.
+// Call this after approving or reversing a game so stats pages reflect the
+// new data on the next page load.
+export function bumpGameLogCache() {
+  try {
+    window.localStorage.removeItem(GAME_LOG_CACHE_KEY);
+    window.localStorage.removeItem(GAME_LOG_VERSION_KEY);
+  } catch {}
+}
