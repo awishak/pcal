@@ -164,7 +164,11 @@ const TEAM_LOGOS = new Proxy({}, {
 });
 
 const TEAM_2005_NAMES = {
-  HAY: "West (Hayward)", CON: "North (Concord + Sacramento)", SJO: "South (San Jose)", SRA: "East (San Ramon)"
+  HAY: "West (Hayward)",
+  CON: "North (Concord + Sacramento)",
+  SAC: "North (Concord + Sacramento)",
+  SJO: "South (San Jose)",
+  SRA: "East (San Ramon)",
 };
 const getTeamDisplay = (team, year) => {
   if (year === 2005 && TEAM_2005_NAMES[team]) return TEAM_2005_NAMES[team];
@@ -3823,16 +3827,61 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           });
         }
 
-        // Build enriched announcements with history, using seeded variant pools
-        const enriched = announcements.map(a => {
+        // Build enriched announcements with history. To avoid adjacent cards
+        // reading too similar ("was moved by the Spirit... was moved by the
+        // Spirit" or 3-of-4 using "repping"), we walk announcements in
+        // display order (newest first) and bias each pool pick away from
+        // whatever the last two announcements in that pool picked. We still
+        // seed from created_at so within a stable feed the picks are stable,
+        // but adjacency nudges kick in when a seeded pick would collide with
+        // a recent neighbor.
+        //
+        // pickAvoidRecent: starts at pool[seed % len], then rotates forward
+        // through the pool until it lands on an index that isn't in the
+        // "recent" list (last 2 picks from this pool). If the pool has
+        // fewer unique options than the window, it falls back to the seeded
+        // pick to avoid infinite loops.
+        const pickAvoidRecent = (pool, seed, recent) => {
+          if (pool.length === 0) return null;
+          const start = seed % pool.length;
+          if (pool.length <= recent.length) return start;
+          for (let i = 0; i < pool.length; i++) {
+            const idx = (start + i) % pool.length;
+            if (!recent.includes(idx)) return idx;
+          }
+          return start;
+        };
+        const pushRecent = (arr, idx) => {
+          arr.push(idx);
+          if (arr.length > 2) arr.shift();
+          return arr;
+        };
+
+        // Sort announcements newest-first so the enrichment walks them in
+        // the same order the user will read them.
+        const annsByDisplay = [...announcements].sort((a, b) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        });
+
+        const recentOpener = [];
+        const recentHist2025 = [];
+        const recentHistPast = [];
+        const recentSeason = [];
+        const recentFirst = [];
+        const recentAge = [];
+
+        const enriched = annsByDisplay.map(a => {
           const pronoun = a.gender === "Female" ? "She" : "He";
           const possessive = a.gender === "Female" ? "her" : "his";
           const history = findPlayerHistory(a.first_name, a.last_name);
           const seed = hashSeed(a.created_at || `${a.first_name}${a.last_name}`);
-          const pick = (pool) => pool[seed % pool.length];
 
-          // Opener (always used)
-          const openerText = pick(REG_OPENERS);
+          // Opener: avoid matching either of the last 2 openers.
+          const openerIdx = pickAvoidRecent(REG_OPENERS, seed, recentOpener);
+          const openerText = REG_OPENERS[openerIdx];
+          pushRecent(recentOpener, openerIdx);
 
           // History and season count
           let historyText = "";
@@ -3848,8 +3897,10 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
             } else if ((history.seasonsPlayed || 0) >= 10 && seed % 4 === 0) {
               seasonText = " " + REG_SEASON_COUNT_LONGTIMER(seasonNum);
             } else {
-              const fn = REG_SEASON_COUNT[seed % REG_SEASON_COUNT.length];
+              const seasonIdx = pickAvoidRecent(REG_SEASON_COUNT, seed, recentSeason);
+              const fn = REG_SEASON_COUNT[seasonIdx];
               seasonText = " " + fn(seasonNum, pronoun);
+              pushRecent(recentSeason, seasonIdx);
             }
             // History: if season count uses "season", avoid 2025-history variants that also say "season"
             if (history.lastYear === 2025) {
@@ -3857,12 +3908,30 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
               const seasonCollision = /\bseasons?\b/i.test(seasonText);
               const filtered = seasonCollision ? pool.filter(fn => !/\bseasons?\b/i.test(fn("TEAM"))) : pool;
               const chosen = filtered.length ? filtered : pool;
-              historyText = " " + chosen[seed % chosen.length](teamDisplay);
+              // Translate "avoid recent" indices from the original pool to the filtered one.
+              // Simpler: track recents by phrase identity. Build a recent-index list
+              // scoped to the `chosen` array by mapping phrases.
+              const recentPhrases = recentHist2025
+                .map(i => pool[i] ? pool[i]("TEAM") : null)
+                .filter(Boolean);
+              const chosenRecent = chosen
+                .map((fn, i) => recentPhrases.includes(fn("TEAM")) ? i : -1)
+                .filter(i => i >= 0);
+              const histIdx = pickAvoidRecent(chosen, seed, chosenRecent);
+              historyText = " " + chosen[histIdx](teamDisplay);
+              // Record the chosen phrase's index in the original `pool` so
+              // future neighbors can avoid it regardless of filtering.
+              const origIdx = pool.findIndex(fn => fn("TEAM") === chosen[histIdx]("TEAM"));
+              pushRecent(recentHist2025, origIdx >= 0 ? origIdx : 0);
             } else {
-              historyText = " " + REG_HISTORY_PAST[seed % REG_HISTORY_PAST.length](teamDisplay, history.lastYear, pronoun);
+              const histIdx = pickAvoidRecent(REG_HISTORY_PAST, seed, recentHistPast);
+              historyText = " " + REG_HISTORY_PAST[histIdx](teamDisplay, history.lastYear, pronoun);
+              pushRecent(recentHistPast, histIdx);
             }
           } else {
-            seasonText = " " + REG_FIRST_TIMER[seed % REG_FIRST_TIMER.length];
+            const firstIdx = pickAvoidRecent(REG_FIRST_TIMER, seed, recentFirst);
+            seasonText = " " + REG_FIRST_TIMER[firstIdx];
+            pushRecent(recentFirst, firstIdx);
           }
 
           // Player-specific modifier
@@ -3873,8 +3942,10 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           const age = ageFromDob(a.dob);
           let ageModText = "";
           if (age !== null && age >= 40) {
-            const mod = REG_AGE_MODIFIER[seed % REG_AGE_MODIFIER.length];
+            const ageIdx = pickAvoidRecent(REG_AGE_MODIFIER, seed, recentAge);
+            const mod = REG_AGE_MODIFIER[ageIdx];
             ageModText = " " + (typeof mod === "function" ? mod(age) : mod);
+            pushRecent(recentAge, ageIdx);
           }
 
           // Display name with override
