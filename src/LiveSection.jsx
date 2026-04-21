@@ -61,6 +61,10 @@ const TEAM_COLORS = {
   MCS: "#9333ea",
 };
 
+// The six teams participating in the 2026 season. Used for the team
+// filter pill row on the Games page.
+const TEAMS_2026 = ["SAC", "PDF", "MOD", "SJO", "HAY", "PLE"];
+
 // Text color that reads well on top of TEAM_COLORS[team] background
 const TEAM_TEXT_ON_BG = {
   PLE: "#000000",
@@ -487,6 +491,10 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
   const [liveScores, setLiveScores] = useState({});
   const [loading, setLoading] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
+  // Team filter: when null, show all games. When set to a team code, only
+  // show games where that team is playing OR scoring. Scoring-only games
+  // get the light yellow highlight treatment in MiniGameCard.
+  const [teamFilter, setTeamFilter] = useState(null);
 
   const loadGames = useCallback(async () => {
     setLoading(true);
@@ -568,12 +576,21 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
   //                  These get the fancy live-scoreboard card at top.
   //   upcoming: future 2026 games outside the current window.
   //   past: 2026 games in the past with status = approved or ended.
+  //
+  // If a team filter is active, we include games where that team is
+  // playing OR scoring. Scoring-only games still appear but with a light
+  // yellow highlight (handled in MiniGameCard via highlightScoring prop).
   const { currentWindow, upcoming, past } = useMemo(() => {
     const cw = [];
     const up = [];
     const pa = [];
     const now = Date.now();
+    const matchesFilter = (g) => {
+      if (!teamFilter) return true;
+      return g.home_team === teamFilter || g.away_team === teamFilter || g.scoring_team === teamFilter;
+    };
     allGames.forEach(g => {
+      if (!matchesFilter(g)) return;
       const inWindow = within96Hours(g.game_date, g.game_time);
       const isApproved = g.status === "approved";
       const isEnded = g.status === "ended";
@@ -593,7 +610,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
       return bTs - aTs;
     });
     return { currentWindow: cw, upcoming: up, past: pa };
-  }, [allGames]);
+  }, [allGames, teamFilter]);
 
   // For the current-window section, pick the earliest week represented.
   // This mirrors the home-page LiveHomeCard behavior: show one week's
@@ -649,9 +666,42 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
 
       {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading...</div>}
 
+      {/* Team filter: pill row. Tap a team to show only their games
+          (plus any games they're scoring, highlighted in yellow). */}
+      {!loading && allGames.length > 0 && (
+        <div className="mb-4 flex gap-1 flex-wrap">
+          <button
+            onClick={() => setTeamFilter(null)}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex-shrink-0 transition ${
+              teamFilter === null ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"
+            }`}>
+            All
+          </button>
+          {TEAMS_2026.map(t => {
+            const active = teamFilter === t;
+            return (
+              <button key={t} onClick={() => setTeamFilter(active ? null : t)}
+                className={`px-2 py-1.5 rounded-lg text-xs font-bold flex-shrink-0 flex items-center gap-1 transition ${
+                  active ? "text-white" : "bg-gray-100 text-gray-600"
+                }`}
+                style={active ? { backgroundColor: TEAM_COLORS[t] || "#374151" } : {}}>
+                <TeamLogoLocal team={t} size={16} />
+                {t}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {!loading && allGames.length === 0 && (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center">
           <div className="text-sm text-gray-500">No 2026 games scheduled yet.</div>
+        </div>
+      )}
+
+      {!loading && allGames.length > 0 && currentWeekGames.length === 0 && upcoming.length === 0 && past.length === 0 && (
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center">
+          <div className="text-sm text-gray-500">No games for this team.</div>
         </div>
       )}
 
@@ -664,6 +714,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
             liveScores={liveScores}
             onOpenGame={onOpenGame}
             fmtDate={fmtDate}
+            activeTeamFilter={teamFilter}
           />
         </div>
       )}
@@ -672,7 +723,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
       {!loading && upcoming.length > 0 && (
         <div className="mb-5">
           <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Upcoming 2026</div>
-          <UpcomingByWeek games={upcoming} onOpenGame={onOpenGame} fmtDate={fmtDate} />
+          <UpcomingByWeek games={upcoming} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
         </div>
       )}
 
@@ -680,7 +731,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
       {!loading && past.length > 0 && (
         <div className="mb-5">
           <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Past 2026</div>
-          <PastByWeek games={past} liveStates={liveStates} liveScores={liveScores} onOpenGame={onOpenGame} fmtDate={fmtDate} />
+          <PastByWeek games={past} liveStates={liveStates} liveScores={liveScores} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
         </div>
       )}
 
@@ -702,8 +753,11 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
 // LiveWeekCard: current week's games with the fancy "LIVE" full-width
 // card for any in-progress game plus a mini-grid for the rest. Mirrors
 // the style of the home-page LiveHomeCard in App.jsx.
+//
+// The header is a full-width banner with date + location prominently
+// displayed, with the week number as a smaller eyebrow above.
 // ============================================================
-function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
+function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate, activeTeamFilter }) {
   const liveGame = games.find(g => (liveStates[g.game_id]?.status || g.status) === "live");
   const otherGames = liveGame ? games.filter(g => g.game_id !== liveGame.game_id) : games;
   const weekMeta = games[0];
@@ -711,15 +765,13 @@ function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
 
   return (
     <div className="rounded-2xl bg-white border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">This Week</p>
-          <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(weekMeta.game_date)}</p>
-          {weekMeta.location && <p className="text-[10px] text-gray-500 mt-0.5">{weekMeta.location}</p>}
-        </div>
+      {/* Prominent week header: eyebrow + big date + location */}
+      <div className="mb-4">
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">This Week &middot; {weekLabel}</p>
+        <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(weekMeta.game_date)}</h3>
+        {weekMeta.location && (
+          <p className="text-sm text-gray-600 font-semibold mt-0.5">{weekMeta.location}</p>
+        )}
       </div>
 
       {liveGame && (
@@ -741,6 +793,7 @@ function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
               liveState={liveStates[g.game_id]}
               scores={liveScores[g.game_id]}
               onTap={() => onOpenGame(g.game_id)}
+              highlightScoring={activeTeamFilter && g.scoring_team === activeTeamFilter && g.home_team !== activeTeamFilter && g.away_team !== activeTeamFilter}
             />
           ))}
         </div>
@@ -814,8 +867,16 @@ function LiveFullCard({ game, liveState, scores, onTap }) {
 // ============================================================
 // MiniGameCard: small card showing matchup + time (or final score).
 // Used in the week card grid and in upcoming/past lists.
+//
+// Visual notes:
+//   - Team codes at text-xs (12px, bumped from 10px).
+//   - Time at text-sm formatted as "3pm" (bumped from 11px "3p").
+//   - Always shows the scoring team label below the matchup.
+//   - When `highlightScoring` is true (the scoring team matches the
+//     active team filter), the card renders with a light yellow
+//     background to distinguish scoring duty from playing.
 // ============================================================
-function MiniGameCard({ game, liveState, scores, onTap }) {
+function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false }) {
   const home = game.home_team;
   const away = game.away_team;
   const status = liveState?.status || game.status;
@@ -829,24 +890,24 @@ function MiniGameCard({ game, liveState, scores, onTap }) {
     const [hh, mm] = game.game_time.split(":");
     const h = parseInt(hh, 10);
     const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    const ampm = h >= 12 ? "p" : "a";
+    const ampm = h >= 12 ? "pm" : "am";
     return `${hour12}${ampm}`;
   })();
 
   const teamRow = (team, score, won, showScore) => (
     <div className="flex items-center justify-between gap-1">
-      <div className="flex items-center gap-1">
-        <TeamLogoLocal team={team} size={16} />
-        <span className="text-[10px] font-black text-gray-900">{team}</span>
+      <div className="flex items-center gap-1.5">
+        <TeamLogoLocal team={team} size={20} />
+        <span className="text-xs font-black text-gray-900">{team}</span>
       </div>
       {showScore && (
         <div className="flex items-center gap-0.5">
           {won && (
-            <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
+            <svg className="w-2.5 h-2.5 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
               <path d="M0 1 L8 4 L0 7 Z" />
             </svg>
           )}
-          <span className={`text-sm font-black tabular-nums ${
+          <span className={`text-base font-black tabular-nums ${
             won ? "text-gray-900" : "text-gray-400"
           }`}>{score}</span>
         </div>
@@ -854,25 +915,40 @@ function MiniGameCard({ game, liveState, scores, onTap }) {
     </div>
   );
 
+  // Card background: three states.
+  //   highlightScoring: light yellow (user filtered by a team and this
+  //     game is one that team is scoring)
+  //   isEnded: white with black border (completed game)
+  //   default: light gray
+  const cardClass = highlightScoring
+    ? "bg-yellow-50 border border-yellow-300"
+    : isEnded
+      ? "bg-white border-2 border-gray-900"
+      : "bg-gray-50 border border-gray-200";
+
   return (
     <button onClick={onTap}
-      className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1 ${
-        isEnded
-          ? "bg-white border-2 border-gray-900"
-          : "bg-gray-50 border border-gray-200"
-      }`}>
-      <div className="flex items-center justify-center gap-1">
-        <span className="text-[11px] text-gray-500 font-bold">{timeStr}</span>
+      className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1.5 ${cardClass}`}>
+      <div className="flex items-center justify-center gap-1.5">
+        <span className="text-sm text-gray-600 font-bold">{timeStr}</span>
         {isEnded && (
-          <span className="text-[11px] font-black text-gray-900 uppercase tracking-wide">
+          <span className="text-xs font-black text-gray-900 uppercase tracking-wide">
             Final
           </span>
         )}
       </div>
-      <div className="flex flex-col gap-0.5 w-full">
+      <div className="flex flex-col gap-1 w-full">
         {teamRow(away, awayScore, awayWon, isEnded)}
         {teamRow(home, homeScore, homeWon, isEnded)}
       </div>
+      {/* Scoring team label: always show, so users know who is keeping
+          the book. Tiny, muted, at the bottom of the card. */}
+      {game.scoring_team && (
+        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
+          <span className="uppercase tracking-wide">Scoring:</span>
+          <span className="font-bold text-gray-700">{game.scoring_team}</span>
+        </div>
+      )}
     </button>
   );
 }
@@ -880,9 +956,9 @@ function MiniGameCard({ game, liveState, scores, onTap }) {
 // ============================================================
 // UpcomingByWeek: future 2026 games, grouped by week, rendered as a
 // header card per week with mini cards below. Matches LiveWeekCard's
-// visual language (simple gray background, date on right).
+// visual language (prominent date + location header, then grid).
 // ============================================================
-function UpcomingByWeek({ games, onOpenGame, fmtDate }) {
+function UpcomingByWeek({ games, onOpenGame, fmtDate, activeTeamFilter }) {
   const byWeek = useMemo(() => {
     const m = new Map();
     games.forEach(g => {
@@ -900,15 +976,12 @@ function UpcomingByWeek({ games, onOpenGame, fmtDate }) {
         const weekLabel = week === 0 ? "Preseason" : `Week ${week}`;
         return (
           <div key={week} className="rounded-2xl bg-white border border-gray-200 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Upcoming</p>
-                <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(first.game_date)}</p>
-                {first.location && <p className="text-[10px] text-gray-500 mt-0.5">{first.location}</p>}
-              </div>
+            <div className="mb-4">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Upcoming &middot; {weekLabel}</p>
+              <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(first.game_date)}</h3>
+              {first.location && (
+                <p className="text-sm text-gray-600 font-semibold mt-0.5">{first.location}</p>
+              )}
             </div>
             <div className="grid gap-1.5"
                  style={{ gridTemplateColumns: `repeat(${Math.min(weekGames.length, 3)}, minmax(0, 1fr))` }}>
@@ -919,6 +992,7 @@ function UpcomingByWeek({ games, onOpenGame, fmtDate }) {
                   liveState={null}
                   scores={null}
                   onTap={() => onOpenGame(g.game_id)}
+                  highlightScoring={activeTeamFilter && g.scoring_team === activeTeamFilter && g.home_team !== activeTeamFilter && g.away_team !== activeTeamFilter}
                 />
               ))}
             </div>
@@ -934,7 +1008,7 @@ function UpcomingByWeek({ games, onOpenGame, fmtDate }) {
 // games. Mini cards will show FINAL + final scores thanks to live_states
 // and live_scores props being populated.
 // ============================================================
-function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
+function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate, activeTeamFilter }) {
   const byWeek = useMemo(() => {
     const m = new Map();
     games.forEach(g => {
@@ -953,15 +1027,12 @@ function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
         const weekLabel = week === 0 ? "Preseason" : `Week ${week}`;
         return (
           <div key={week} className="rounded-2xl bg-white border border-gray-200 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Past</p>
-                <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(first.game_date)}</p>
-                {first.location && <p className="text-[10px] text-gray-500 mt-0.5">{first.location}</p>}
-              </div>
+            <div className="mb-4">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Past &middot; {weekLabel}</p>
+              <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(first.game_date)}</h3>
+              {first.location && (
+                <p className="text-sm text-gray-600 font-semibold mt-0.5">{first.location}</p>
+              )}
             </div>
             <div className="grid gap-1.5"
                  style={{ gridTemplateColumns: `repeat(${Math.min(weekGames.length, 3)}, minmax(0, 1fr))` }}>
@@ -972,6 +1043,7 @@ function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
                   liveState={liveStates[g.game_id]}
                   scores={liveScores[g.game_id]}
                   onTap={() => onOpenGame(g.game_id)}
+                  highlightScoring={activeTeamFilter && g.scoring_team === activeTeamFilter && g.home_team !== activeTeamFilter && g.away_team !== activeTeamFilter}
                 />
               ))}
             </div>
