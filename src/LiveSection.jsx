@@ -22,7 +22,8 @@
 // ============================================================
 
 import React, { useEffect, useMemo, useState, useCallback, useRef, createContext, useContext } from "react";
-import { supabase, adminInsertGameLog, adminDeleteGameLogForGame, bumpGameLogCache } from "./supabase.js";
+import { supabase, adminInsertGameLog, adminDeleteGameLogForGame, bumpGameLogCache,
+  requestLoginCode, verifyLoginCode, signOutUser, getCurrentSession, onAuthStateChange } from "./supabase.js";
 
 // Context carries the base64 team logo map from App.jsx down to
 // components that need to render logos. Falls back to null (colored
@@ -444,9 +445,11 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
     localStorage.setItem("pcal_me", JSON.stringify(rec));
     setMe(rec);
   };
-  const logout = () => {
+  const logout = async () => {
     localStorage.removeItem("pcal_me");
     setMe(null);
+    // Sign out of Supabase Auth so the session is fully cleared.
+    await signOutUser();
   };
 
   const openGame = (gameId) => {
@@ -461,7 +464,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
           <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} />
         )}
         {view === "game" && activeGameId && (
-          <LiveGameView gameId={activeGameId} me={me} onBack={() => { setView("home"); setActiveGameId(null); }} />
+          <LiveGameView gameId={activeGameId} me={me} onLogin={login} onBack={() => { setView("home"); setActiveGameId(null); }} />
         )}
         {view === "review" && (
           <ReviewQueue onBack={() => setView("home")} onOpen={openGame} />
@@ -543,7 +546,9 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
           <>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-bold text-gray-900">{formatName(me.name)}</div>
-              <div className="text-[11px] text-gray-500">{TEAM_NAMES[me.team] || me.team} &middot; PIN &middot;&middot;&middot;&middot;</div>
+              <div className="text-[11px] text-gray-500">
+                {me.team ? (TEAM_NAMES[me.team] || me.team) : (me.email || "Signed in")}
+              </div>
             </div>
             <button onClick={onLogout} className="text-[11px] font-bold text-gray-500 px-3 py-1.5 rounded-lg bg-white border border-gray-200 active:bg-gray-100">
               Log out
@@ -552,8 +557,8 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
         ) : (
           <>
             <div className="flex-1 text-sm text-gray-600">Not signed in</div>
-            <button onClick={() => setShowLogin(true)} className="text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-gray-900 active:bg-gray-800">
-              Sign in with PIN
+            <button onClick={() => setShowLogin(true)} className="text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-emerald-500 active:bg-emerald-600">
+              Log in
             </button>
           </>
         )}
@@ -651,45 +656,145 @@ function TeamBadge({ team }) {
 }
 
 // ============================================================
-// Login modal: pin entry
+// Login modal: email OTP
 // ============================================================
+// Replaces the legacy PIN login. User enters their email, receives a
+// 6-digit code (or magic link) via Supabase Auth, enters the code, and is
+// signed in. We then look up their registration to get team info. The
+// resulting "player" object has the same shape the old PIN flow produced
+// so downstream code doesn't need changes.
+//
+// Scorer identity: instead of player_pin we use the Supabase user id as
+// the scorer identifier. It gets stored in live_games.home_scorer_pin /
+// away_scorer_pin (both text columns, so this works without a schema
+// change). Events the scorer writes will have their user id in
+// scorer_pin, which remains a stable per-user identifier.
 function LoginModal({ onClose, onLogin }) {
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState("");
+  const [mode, setMode] = useState("email");          // 'email' | 'code'
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [status, setStatus] = useState("");
 
-  const submit = async () => {
-    if (!pin.trim()) return;
-    setBusy(true); setErr("");
-    const { data, error } = await supabase
-      .from("rosters")
-      .select("*")
-      .eq("season", CURRENT_SEASON)
-      .eq("player_pin", pin.trim())
-      .eq("active", true)
-      .limit(1);
+  const sendCode = async () => {
+    const addr = email.trim().toLowerCase();
+    if (!addr || !addr.includes("@")) {
+      setErr("Enter a valid email address.");
+      return;
+    }
+    setBusy(true); setErr(""); setStatus("");
+    const res = await requestLoginCode(addr);
     setBusy(false);
-    if (error) { setErr("Error: " + error.message); return; }
-    if (!data || data.length === 0) { setErr("PIN not found. Check with your team."); return; }
-    onLogin(data[0]);
+    if (res.error) { setErr(res.error); return; }
+    setEmail(addr);
+    setStatus("Login code sent to " + addr + ".");
+    setMode("code");
+  };
+
+  const submitCode = async () => {
+    if (!code.trim()) return;
+    setBusy(true); setErr("");
+    const res = await verifyLoginCode(email, code);
+    if (res.error) { setBusy(false); setErr(res.error); return; }
+
+    // Logged in. Now look up the player's registration to get name/team.
+    // Fall back to a generic record using just the email if they don't
+    // have a registration (this covers scorekeepers, photographers, etc.).
+    const { data: reg } = await supabase
+      .from("registrations")
+      .select("*")
+      .eq("email", email)
+      .limit(1);
+    const user = res.user;
+    const userId = user && user.id ? user.id : "auth-" + email;
+
+    let record;
+    if (reg && reg.length > 0) {
+      const r = reg[0];
+      record = {
+        pin: userId,
+        name: (r.first_name + " " + r.last_name).toUpperCase(),
+        team: r.team_pref || "",
+        season: CURRENT_SEASON,
+        email: email,
+      };
+    } else {
+      record = {
+        pin: userId,
+        name: email.split("@")[0].toUpperCase(),
+        team: "",
+        season: CURRENT_SEASON,
+        email: email,
+      };
+    }
+
+    setBusy(false);
+    onLogin(record);
   };
 
   return (
-    <ModalShell onClose={onClose} title="Sign in with your PIN">
-      <input
-        type="tel"
-        inputMode="numeric"
-        autoFocus
-        value={pin}
-        onChange={e => setPin(e.target.value)}
-        placeholder="4-digit PIN"
-        className="w-full text-center text-2xl font-bold tracking-widest py-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:border-gray-900"
-      />
-      {err && <div className="text-xs text-red-600 mt-2">{err}</div>}
-      <button onClick={submit} disabled={busy || !pin}
-        className="w-full mt-3 py-3 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400">
-        {busy ? "Checking..." : "Sign in"}
-      </button>
+    <ModalShell onClose={onClose} title={mode === "email" ? "Log in to score" : "Enter your code"}>
+      {mode === "email" && (
+        <>
+          <div className="text-[11px] text-gray-500 mb-3">
+            Enter your email to receive a login code.
+          </div>
+          <input
+            type="email"
+            autoFocus
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") sendCode(); }}
+            disabled={busy}
+            placeholder="you@example.com"
+            className="w-full py-3 px-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:border-gray-900"
+          />
+          {err && <div className="text-xs text-red-600 mt-2">{err}</div>}
+          <button onClick={sendCode} disabled={busy || !email}
+            className="w-full mt-3 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm active:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400">
+            {busy ? "Sending..." : "Send code"}
+          </button>
+        </>
+      )}
+
+      {mode === "code" && (
+        <>
+          <div className="text-[11px] text-gray-500 mb-3">
+            {status || ("Code sent to " + email + ".")}
+            <br />
+            You can also click the link in the email.
+          </div>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoFocus
+            value={code}
+            onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onKeyDown={e => { if (e.key === "Enter") submitCode(); }}
+            disabled={busy}
+            placeholder="6-digit code"
+            className="w-full text-center text-2xl font-bold tracking-widest py-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:border-gray-900"
+          />
+          {err && <div className="text-xs text-red-600 mt-2">{err}</div>}
+          <div className="flex gap-2 mt-3">
+            <button onClick={() => { setMode("email"); setCode(""); setErr(""); }} disabled={busy}
+              className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">
+              Back
+            </button>
+            <button onClick={submitCode} disabled={busy || code.length < 6}
+              className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm active:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400">
+              {busy ? "Checking..." : "Log in"}
+            </button>
+          </div>
+          <div className="text-center mt-3">
+            <button onClick={sendCode} disabled={busy}
+              className="text-[10px] text-gray-400 hover:text-gray-600">
+              Resend code
+            </button>
+          </div>
+        </>
+      )}
     </ModalShell>
   );
 }
@@ -761,7 +866,7 @@ function ModalShell({ children, onClose, title }) {
 // Live Game View: scoreboard + box score + play-by-play
 // Scorer controls appear only for signed-in scorers
 // ============================================================
-function LiveGameView({ gameId, me, onBack }) {
+function LiveGameView({ gameId, me, onLogin, onBack }) {
   const [game, setGame] = useState(null);
   const [live, setLive] = useState(null);
   const [events, setEvents] = useState([]);
@@ -926,6 +1031,7 @@ function LiveGameView({ gameId, me, onBack }) {
           events={events}
           rosters={rosters}
           me={me}
+          onLogin={onLogin}
           myRole={myRole}
           onReload={load}
           currentHalf={currentHalf}
@@ -1458,7 +1564,8 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 // Scorer controls: team claim, stat entry with rebound/assist
 // prompts, undo, game state buttons
 // ============================================================
-function ScorerControls({ game, live, events, rosters, me, myRole, onReload, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore, box }) {
+function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onReload, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore, box }) {
+  const [showInlineLogin, setShowInlineLogin] = useState(false);
   const [showAdminForTakeover, setShowAdminForTakeover] = useState(null); // target team code
   const [pendingStat, setPendingStat] = useState(null); // {stat, player}
   const [promptMode, setPromptMode] = useState(null);   // rebound | assist
@@ -1472,7 +1579,7 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
 
   // ---- Team claim ----
   const claimTeam = async (teamCode) => {
-    if (!me) { alert("Sign in with your PIN first."); return; }
+    if (!me) { alert("Log in to score."); return; }
     setBusy(true);
     // Initialize live_games row if missing
     const col = teamCode === game.home_team ? "home" : "away";
@@ -1501,7 +1608,7 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
 
   // ---- Takeover (requires admin) ----
   const requestTakeover = (teamCode) => {
-    if (!me) { alert("Sign in with your PIN first."); return; }
+    if (!me) { alert("Log in to score."); return; }
     if (!confirm(`Take over scoring for ${teamCode}? The current scorer will be kicked.`)) return;
     setShowAdminForTakeover(teamCode);
   };
@@ -1530,7 +1637,7 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
   // Claim a stale slot: same as claimTeam but logs a different audit action
   // and shows a notice message about the auto-release.
   const claimStaleSlot = async (teamCode) => {
-    if (!me) { alert("Sign in with your PIN first."); return; }
+    if (!me) { alert("Log in to score."); return; }
     if (!confirm(`The current scorer has been inactive for 10+ minutes. Claim ${teamCode}?`)) return;
     setBusy(true);
     const col = teamCode === game.home_team ? "home" : "away";
@@ -1845,10 +1952,23 @@ function ScorerControls({ game, live, events, rosters, me, myRole, onReload, cur
   // ---------- Render ----------
   if (!me) {
     return (
-      <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
-        <div className="text-sm text-gray-700 mb-2">Sign in with your PIN to score.</div>
-        <div className="text-[11px] text-gray-400">Go back and tap &quot;Sign in with PIN&quot; at the top of the Live tab.</div>
-      </div>
+      <>
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
+          <div className="text-sm text-gray-700 mb-3">Log in to score this game.</div>
+          <button
+            onClick={() => setShowInlineLogin(true)}
+            className="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold text-sm active:bg-emerald-600"
+          >
+            Log in
+          </button>
+        </div>
+        {showInlineLogin && (
+          <LoginModal
+            onClose={() => setShowInlineLogin(false)}
+            onLogin={(rec) => { setShowInlineLogin(false); onLogin(rec); }}
+          />
+        )}
+      </>
     );
   }
 
