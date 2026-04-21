@@ -475,14 +475,18 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
 }
 
 // ============================================================
-// Live Home: 96-hour window of games, login/logout
+// Live Home: Games page with current-window scoreboard, upcoming
+// 2026 games, and past 2026 games.
 // ============================================================
 function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
-  const [games, setGames] = useState([]);
-  const [liveStates, setLiveStates] = useState({}); // game_id -> live_games row
+  // allGames: full 2026 season from schedule.
+  // liveStates: game_id -> live_games row (used for live/ended status + scorer names)
+  // liveScores: game_id -> { [team]: points } derived from live_events
+  const [allGames, setAllGames] = useState([]);
+  const [liveStates, setLiveStates] = useState({});
+  const [liveScores, setLiveScores] = useState({});
   const [loading, setLoading] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
 
   const loadGames = useCallback(async () => {
     setLoading(true);
@@ -495,11 +499,17 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
 
     if (error) {
       console.error(error);
-      setGames([]); setLoading(false); return;
+      setAllGames([]); setLoading(false); return;
     }
 
-    const nearby = (sched || []).filter(g => within96Hours(g.game_date, g.game_time));
-    const ids = nearby.map(g => g.game_id);
+    const games = sched || [];
+    setAllGames(games);
+
+    // Fetch live_games rows for all games that have started or might be live.
+    // In practice we only need rows for games within the current-window
+    // (live cards) and ended games (to show FINAL + final scores). For
+    // simplicity we fetch all game_ids and let the consumer filter.
+    const ids = games.map(g => g.game_id);
     let live = {};
     if (ids.length) {
       const { data: lg } = await supabase
@@ -508,14 +518,35 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
         .in("game_id", ids);
       (lg || []).forEach(row => { live[row.game_id] = row; });
     }
-    setGames(nearby);
     setLiveStates(live);
+
+    // For games with live state (live, halftime, ended, approved), sum
+    // scoring events to compute team scores.
+    const gameIdsWithState = Object.keys(live).map(id => parseInt(id, 10));
+    if (gameIdsWithState.length > 0) {
+      const { data: evs } = await supabase
+        .from("live_events")
+        .select("game_id, team, stat_type, deleted")
+        .in("game_id", gameIdsWithState)
+        .in("stat_type", ["made_2", "made_3", "made_ft"]);
+      const scoreMap = {};
+      (evs || []).forEach(ev => {
+        if (ev.deleted) return;
+        if (!ev.team) return;
+        if (!scoreMap[ev.game_id]) scoreMap[ev.game_id] = {};
+        const pts = ev.stat_type === "made_3" ? 3 : ev.stat_type === "made_2" ? 2 : 1;
+        scoreMap[ev.game_id][ev.team] = (scoreMap[ev.game_id][ev.team] || 0) + pts;
+      });
+      setLiveScores(scoreMap);
+    } else {
+      setLiveScores({});
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => { loadGames(); }, [loadGames]);
 
-  // Subscribe to live_games changes so statuses update in real time
+  // Subscribe to live_games changes so statuses update in real time.
   useEffect(() => {
     const channel = supabase
       .channel("live_home_games")
@@ -532,13 +563,56 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const now = new Date();
-  const upcoming = games.filter(g => new Date(`${g.game_date}T${g.game_time}`) >= now);
-  const recent = games.filter(g => new Date(`${g.game_date}T${g.game_time}`) < now);
+  // Bucket games into three groups:
+  //   currentWindow: games within 96 hours past or future, not yet approved.
+  //                  These get the fancy live-scoreboard card at top.
+  //   upcoming: future 2026 games outside the current window.
+  //   past: 2026 games in the past with status = approved or ended.
+  const { currentWindow, upcoming, past } = useMemo(() => {
+    const cw = [];
+    const up = [];
+    const pa = [];
+    const now = Date.now();
+    allGames.forEach(g => {
+      const inWindow = within96Hours(g.game_date, g.game_time);
+      const isApproved = g.status === "approved";
+      const isEnded = g.status === "ended";
+      const gameTs = new Date(`${g.game_date}T${g.game_time}`).getTime();
+      if (inWindow && !isApproved) {
+        cw.push(g);
+      } else if (gameTs > now && !isApproved && !isEnded) {
+        up.push(g);
+      } else {
+        pa.push(g);
+      }
+    });
+    // Past games newest first for quick reference.
+    pa.sort((a, b) => {
+      const aTs = new Date(`${a.game_date}T${a.game_time}`).getTime();
+      const bTs = new Date(`${b.game_date}T${b.game_time}`).getTime();
+      return bTs - aTs;
+    });
+    return { currentWindow: cw, upcoming: up, past: pa };
+  }, [allGames]);
+
+  // For the current-window section, pick the earliest week represented.
+  // This mirrors the home-page LiveHomeCard behavior: show one week's
+  // worth of games, not a rolling 96-hour mixed batch across weeks.
+  const currentWeekGames = useMemo(() => {
+    if (currentWindow.length === 0) return [];
+    const first = currentWindow[0];
+    return currentWindow.filter(g => g.season === first.season && g.week === first.week);
+  }, [currentWindow]);
+
+  const fmtDate = (d) => {
+    if (!d) return "";
+    const dt = new Date(d + "T12:00:00");
+    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
 
   return (
     <div>
-      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Live Scoring</p>
+      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Games</p>
 
       {/* Identity bar */}
       <div className="mb-4 rounded-2xl border border-gray-100 bg-gray-50 p-3 flex items-center gap-3">
@@ -559,7 +633,6 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
             <div className="flex-1 text-sm text-gray-600">Not signed in</div>
             <button
               onClick={() => {
-                // Remember we were on the Live section so we return here after login.
                 try {
                   window.localStorage.setItem("pcal_pending_section", JSON.stringify({
                     section: "live", tab: "live", ts: Date.now(),
@@ -575,8 +648,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
       </div>
 
       {/* Admin review link */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Games &middot; 96-hour window</div>
+      <div className="mb-4 flex items-center justify-end">
         <button onClick={onReview} className="text-[11px] font-bold text-gray-500 px-2 py-1 rounded bg-gray-100 active:bg-gray-200">
           Admin review
         </button>
@@ -584,37 +656,326 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
 
       {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading...</div>}
 
-      {!loading && upcoming.length === 0 && recent.length === 0 && (
+      {!loading && allGames.length === 0 && (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center">
-          <div className="text-sm text-gray-500">No games within 96 hours.</div>
-          <div className="text-[11px] text-gray-400 mt-1">Check back closer to game day.</div>
+          <div className="text-sm text-gray-500">No 2026 games scheduled yet.</div>
         </div>
       )}
 
-      {upcoming.length > 0 && (
-        <div className="mb-4">
-          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Upcoming &amp; Live</div>
-          <div className="space-y-2">
-            {upcoming.map(g => (
-              <GameRow key={g.game_id} g={g} live={liveStates[g.game_id]} onOpen={() => onOpenGame(g.game_id)} />
-            ))}
-          </div>
+      {/* ===== CURRENT WINDOW ===== */}
+      {!loading && currentWeekGames.length > 0 && (
+        <div className="mb-5">
+          <LiveWeekCard
+            games={currentWeekGames}
+            liveStates={liveStates}
+            liveScores={liveScores}
+            onOpenGame={onOpenGame}
+            fmtDate={fmtDate}
+          />
         </div>
       )}
 
-      {recent.length > 0 && (
-        <div>
-          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Recent</div>
-          <div className="space-y-2">
-            {recent.map(g => (
-              <GameRow key={g.game_id} g={g} live={liveStates[g.game_id]} onOpen={() => onOpenGame(g.game_id)} />
-            ))}
-          </div>
+      {/* ===== UPCOMING ===== */}
+      {!loading && upcoming.length > 0 && (
+        <div className="mb-5">
+          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Upcoming 2026</div>
+          <UpcomingByWeek games={upcoming} onOpenGame={onOpenGame} fmtDate={fmtDate} />
+        </div>
+      )}
+
+      {/* ===== PAST ===== */}
+      {!loading && past.length > 0 && (
+        <div className="mb-5">
+          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Past 2026</div>
+          <PastByWeek games={past} liveStates={liveStates} liveScores={liveScores} onOpenGame={onOpenGame} fmtDate={fmtDate} />
         </div>
       )}
 
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onLogin={(p) => { onLogin(p); setShowLogin(false); }} />}
-      {showAdmin && <AdminPasswordModal onClose={() => setShowAdmin(false)} onOk={() => setShowAdmin(false)} />}
+    </div>
+  );
+}
+
+// ============================================================
+// LiveWeekCard: current week's games with the fancy "LIVE" full-width
+// card for any in-progress game plus a mini-grid for the rest. Mirrors
+// the style of the home-page LiveHomeCard in App.jsx.
+// ============================================================
+function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
+  const liveGame = games.find(g => (liveStates[g.game_id]?.status || g.status) === "live");
+  const otherGames = liveGame ? games.filter(g => g.game_id !== liveGame.game_id) : games;
+  const weekMeta = games[0];
+  const weekLabel = weekMeta.week === 0 ? "Preseason" : `Week ${weekMeta.week}`;
+
+  return (
+    <div className="rounded-2xl bg-white border border-gray-200 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">This Week</p>
+          <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(weekMeta.game_date)}</p>
+          {weekMeta.location && <p className="text-[10px] text-gray-500 mt-0.5">{weekMeta.location}</p>}
+        </div>
+      </div>
+
+      {liveGame && (
+        <LiveFullCard
+          game={liveGame}
+          liveState={liveStates[liveGame.game_id]}
+          scores={liveScores[liveGame.game_id]}
+          onTap={() => onOpenGame(liveGame.game_id)}
+        />
+      )}
+
+      {otherGames.length > 0 && (
+        <div className={`grid gap-1.5 ${liveGame ? "mt-3" : ""}`}
+             style={{ gridTemplateColumns: `repeat(${Math.min(otherGames.length, 3)}, minmax(0, 1fr))` }}>
+          {otherGames.map(g => (
+            <MiniGameCard
+              key={g.game_id}
+              game={g}
+              liveState={liveStates[g.game_id]}
+              scores={liveScores[g.game_id]}
+              onTap={() => onOpenGame(g.game_id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// LiveFullCard: pulsing-red card shown when a game is currently live.
+// ============================================================
+function LiveFullCard({ game, liveState, scores, onTap }) {
+  const home = game.home_team;
+  const away = game.away_team;
+  const homeScore = (scores && scores[home]) || 0;
+  const awayScore = (scores && scores[away]) || 0;
+  const period = (liveState && liveState.period) || "H1";
+  const homeName = TEAM_NAMES[home] || home;
+  const awayName = TEAM_NAMES[away] || away;
+  const formatScorer = (n) => {
+    if (!n) return null;
+    const p = n.trim().split(/\s+/);
+    if (p.length < 2) return n;
+    const last = p[0];
+    const first = p.slice(1).join(" ");
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    return `${first.charAt(0).toUpperCase()}. ${cap(last)}`;
+  };
+  const homeScorer = formatScorer(liveState && liveState.home_scorer_name);
+  const awayScorer = formatScorer(liveState && liveState.away_scorer_name);
+
+  const TeamRow = ({ code, name, score, scorer }) => (
+    <div className="flex items-center gap-3">
+      <TeamLogoLocal team={code} size={36} />
+      <div className="flex-1 min-w-0">
+        <div className="text-base font-black text-gray-900 truncate leading-tight">{name}</div>
+        <div className="text-[9px] text-gray-500 truncate leading-tight">
+          {scorer ? (
+            <>Scored by: <span className="text-gray-700">{scorer}</span></>
+          ) : (
+            <span className="text-gray-300">No scorer yet</span>
+          )}
+        </div>
+      </div>
+      <span className="text-3xl font-black tabular-nums text-gray-900">{score}</span>
+    </div>
+  );
+
+  return (
+    <button onClick={onTap}
+      className="w-full rounded-xl border-2 border-red-500 bg-white p-3 text-left active:scale-[0.99] transition">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-1.5">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+          </span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-red-600">Live</span>
+          <span className="text-[10px] text-gray-400 ml-1">{period}</span>
+        </div>
+        <span className="text-[10px] text-gray-400">Tap to view</span>
+      </div>
+      <div className="space-y-2">
+        <TeamRow code={away} name={awayName} score={awayScore} scorer={awayScorer} />
+        <TeamRow code={home} name={homeName} score={homeScore} scorer={homeScorer} />
+      </div>
+    </button>
+  );
+}
+
+// ============================================================
+// MiniGameCard: small card showing matchup + time (or final score).
+// Used in the week card grid and in upcoming/past lists.
+// ============================================================
+function MiniGameCard({ game, liveState, scores, onTap }) {
+  const home = game.home_team;
+  const away = game.away_team;
+  const status = liveState?.status || game.status;
+  const isEnded = status === "ended" || status === "approved";
+  const homeScore = (scores && scores[home]) || 0;
+  const awayScore = (scores && scores[away]) || 0;
+  const homeWon = isEnded && homeScore > awayScore;
+  const awayWon = isEnded && awayScore > homeScore;
+  const timeStr = (() => {
+    if (!game.game_time) return "";
+    const [hh, mm] = game.game_time.split(":");
+    const h = parseInt(hh, 10);
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h >= 12 ? "p" : "a";
+    return `${hour12}${ampm}`;
+  })();
+
+  const teamRow = (team, score, won, showScore) => (
+    <div className="flex items-center justify-between gap-1">
+      <div className="flex items-center gap-1">
+        <TeamLogoLocal team={team} size={16} />
+        <span className="text-[10px] font-black text-gray-900">{team}</span>
+      </div>
+      {showScore && (
+        <div className="flex items-center gap-0.5">
+          {won && (
+            <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
+              <path d="M0 1 L8 4 L0 7 Z" />
+            </svg>
+          )}
+          <span className={`text-sm font-black tabular-nums ${
+            won ? "text-gray-900" : "text-gray-400"
+          }`}>{score}</span>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <button onClick={onTap}
+      className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1 ${
+        isEnded
+          ? "bg-white border-2 border-gray-900"
+          : "bg-gray-50 border border-gray-200"
+      }`}>
+      <div className="flex items-center justify-center gap-1">
+        <span className="text-[11px] text-gray-500 font-bold">{timeStr}</span>
+        {isEnded && (
+          <span className="text-[11px] font-black text-gray-900 uppercase tracking-wide">
+            Final
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-0.5 w-full">
+        {teamRow(away, awayScore, awayWon, isEnded)}
+        {teamRow(home, homeScore, homeWon, isEnded)}
+      </div>
+    </button>
+  );
+}
+
+// ============================================================
+// UpcomingByWeek: future 2026 games, grouped by week, rendered as a
+// header card per week with mini cards below. Matches LiveWeekCard's
+// visual language (simple gray background, date on right).
+// ============================================================
+function UpcomingByWeek({ games, onOpenGame, fmtDate }) {
+  const byWeek = useMemo(() => {
+    const m = new Map();
+    games.forEach(g => {
+      const k = g.week;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(g);
+    });
+    return Array.from(m.entries()).sort((a, b) => a[0] - b[0]);
+  }, [games]);
+
+  return (
+    <div className="space-y-3">
+      {byWeek.map(([week, weekGames]) => {
+        const first = weekGames[0];
+        const weekLabel = week === 0 ? "Preseason" : `Week ${week}`;
+        return (
+          <div key={week} className="rounded-2xl bg-white border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Upcoming</p>
+                <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(first.game_date)}</p>
+                {first.location && <p className="text-[10px] text-gray-500 mt-0.5">{first.location}</p>}
+              </div>
+            </div>
+            <div className="grid gap-1.5"
+                 style={{ gridTemplateColumns: `repeat(${Math.min(weekGames.length, 3)}, minmax(0, 1fr))` }}>
+              {weekGames.map(g => (
+                <MiniGameCard
+                  key={g.game_id}
+                  game={g}
+                  liveState={null}
+                  scores={null}
+                  onTap={() => onOpenGame(g.game_id)}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// PastByWeek: same visual as UpcomingByWeek but for ended/approved
+// games. Mini cards will show FINAL + final scores thanks to live_states
+// and live_scores props being populated.
+// ============================================================
+function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate }) {
+  const byWeek = useMemo(() => {
+    const m = new Map();
+    games.forEach(g => {
+      const k = g.week;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(g);
+    });
+    // Past: newest week first.
+    return Array.from(m.entries()).sort((a, b) => b[0] - a[0]);
+  }, [games]);
+
+  return (
+    <div className="space-y-3">
+      {byWeek.map(([week, weekGames]) => {
+        const first = weekGames[0];
+        const weekLabel = week === 0 ? "Preseason" : `Week ${week}`;
+        return (
+          <div key={week} className="rounded-2xl bg-white border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Past</p>
+                <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(first.game_date)}</p>
+                {first.location && <p className="text-[10px] text-gray-500 mt-0.5">{first.location}</p>}
+              </div>
+            </div>
+            <div className="grid gap-1.5"
+                 style={{ gridTemplateColumns: `repeat(${Math.min(weekGames.length, 3)}, minmax(0, 1fr))` }}>
+              {weekGames.map(g => (
+                <MiniGameCard
+                  key={g.game_id}
+                  game={g}
+                  liveState={liveStates[g.game_id]}
+                  scores={liveScores[g.game_id]}
+                  onTap={() => onOpenGame(g.game_id)}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
