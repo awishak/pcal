@@ -583,6 +583,56 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
+  // Subscribe to live_events changes so the big LIVE card (scores and
+  // top-3 player stats) updates in real time as the scorer taps. Each
+  // event triggers an incremental update to both liveScores and
+  // liveEventsByGame so downstream components recompute instantly.
+  useEffect(() => {
+    const channel = supabase
+      .channel("live_home_events")
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_events" },
+        (payload) => {
+          const row = payload.new || payload.old;
+          if (!row || !row.game_id) return;
+          const gid = row.game_id;
+
+          // Update both events and scores for this game.
+          // We compute the new event list inline so we can derive scores
+          // from it without a second setState hop.
+          setLiveEventsByGame(prev => {
+            const list = prev[gid] ? [...prev[gid]] : [];
+            let nextList;
+            if (payload.eventType === "DELETE") {
+              nextList = list.filter(e => e.event_id !== row.event_id);
+            } else if (payload.eventType === "UPDATE") {
+              const idx = list.findIndex(e => e.event_id === row.event_id);
+              if (idx >= 0) { list[idx] = payload.new; nextList = list; }
+              else { list.push(payload.new); nextList = list; }
+            } else {
+              // INSERT
+              if (!list.find(e => e.event_id === row.event_id)) list.push(payload.new);
+              nextList = list;
+            }
+
+            // Recompute team score from the updated list and push to
+            // liveScores in the same tick.
+            const teamScore = {};
+            nextList.forEach(ev => {
+              if (ev.deleted) return;
+              if (!ev.team) return;
+              if (ev.stat_type === "made_2") teamScore[ev.team] = (teamScore[ev.team] || 0) + 2;
+              else if (ev.stat_type === "made_3") teamScore[ev.team] = (teamScore[ev.team] || 0) + 3;
+              else if (ev.stat_type === "made_ft") teamScore[ev.team] = (teamScore[ev.team] || 0) + 1;
+            });
+            setLiveScores(prevScores => ({ ...prevScores, [gid]: teamScore }));
+
+            return { ...prev, [gid]: nextList };
+          });
+        })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   // Bucket games into three groups:
   //   currentWindow: games within 96 hours past or future, not yet approved.
   //                  These get the fancy live-scoreboard card at top.
@@ -860,6 +910,9 @@ function TopPlayersDisplay({ team, teamName, events, emptyMessage = "No stats ye
                   {p.topOtherStat} {p.topOtherLabel.toLowerCase()}
                 </span>
               )}
+              <span className="text-[10px] font-black text-gray-900 tabular-nums bg-gray-100 px-1.5 py-0.5 rounded">
+                {p.gmsc.toFixed(1)}
+              </span>
             </div>
           ))}
         </div>
@@ -893,20 +946,29 @@ function LiveFullCard({ game, liveState, scores, events, onTap }) {
   const homeScorer = formatScorer(liveState && liveState.home_scorer_name);
   const awayScorer = formatScorer(liveState && liveState.away_scorer_name);
 
-  const TeamHeader = ({ code, name, score, scorer }) => (
-    <div className="flex items-center gap-3">
-      <TeamLogoLocal team={code} size={40} />
-      <div className="flex-1 min-w-0">
-        <div className="text-base font-black text-gray-900 truncate leading-tight">{name}</div>
-        <div className="text-[10px] text-gray-500 truncate leading-tight mt-0.5">
-          {scorer ? (
-            <>Scored by: <span className="text-gray-700">{scorer}</span></>
-          ) : (
-            <span className="text-gray-300">No scorer yet</span>
-          )}
+  // TeamColumn: logo + team name, big score underneath, then the top 3
+  // players. One column per team so the two teams sit side by side.
+  const TeamColumn = ({ code, name, score, scorer, isHome }) => (
+    <div className={`flex-1 min-w-0 ${isHome ? "text-right" : "text-left"}`}>
+      <div className={`flex items-center gap-2 ${isHome ? "flex-row-reverse" : "flex-row"}`}>
+        <TeamLogoLocal team={code} size={32} />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-black text-gray-900 truncate leading-tight">{name}</div>
+          <div className="text-[9px] text-gray-500 truncate leading-tight mt-0.5">
+            {scorer ? (
+              <>By: <span className="text-gray-700">{scorer}</span></>
+            ) : (
+              <span className="text-gray-300">No scorer yet</span>
+            )}
+          </div>
         </div>
       </div>
-      <span className="text-4xl font-black tabular-nums text-gray-900">{score}</span>
+      <div className={`mt-2 text-4xl font-black tabular-nums text-gray-900 ${isHome ? "text-right" : "text-left"}`}>
+        {score}
+      </div>
+      <div className="mt-3">
+        <TopPlayersDisplayCompact team={code} events={events} align={isHome ? "right" : "left"} />
+      </div>
     </div>
   );
 
@@ -924,16 +986,49 @@ function LiveFullCard({ game, liveState, scores, events, onTap }) {
         </div>
         <span className="text-[10px] text-gray-400">Tap to view</span>
       </div>
-      <div className="space-y-3 mb-4">
-        <TeamHeader code={away} name={awayName} score={awayScore} scorer={awayScorer} />
-        <TeamHeader code={home} name={homeName} score={homeScore} scorer={homeScorer} />
-      </div>
-      {/* Top-3 per team. Two columns on wider screens, stacked on narrow. */}
-      <div className="pt-3 border-t border-gray-100 grid grid-cols-1 gap-3">
-        <TopPlayersDisplay team={away} teamName={awayName} events={events} />
-        <TopPlayersDisplay team={home} teamName={homeName} events={events} />
+      <div className="flex gap-4 items-start">
+        <TeamColumn code={away} name={awayName} score={awayScore} scorer={awayScorer} isHome={false} />
+        <div className="w-px bg-gray-100 self-stretch"></div>
+        <TeamColumn code={home} name={homeName} score={homeScore} scorer={homeScorer} isHome={true} />
       </div>
     </button>
+  );
+}
+
+// ============================================================
+// TopPlayersDisplayCompact: same info as TopPlayersDisplay but in a
+// vertical stacked layout suited for a narrow column. No team header
+// (the parent renders that). Each row: rank, name, stats, GmSc.
+// When align="right" the row flips so stats stay on the "inner" side.
+// ============================================================
+function TopPlayersDisplayCompact({ team, events, align = "left" }) {
+  const top = useMemo(() => computeTopPlayers(events || [], team), [events, team]);
+  if (top.length === 0) {
+    return <div className={`text-[10px] text-gray-400 italic ${align === "right" ? "text-right" : "text-left"}`}>No stats yet</div>;
+  }
+  const isRight = align === "right";
+  return (
+    <div className="space-y-1">
+      {top.map((p, i) => (
+        <div key={p.name} className={`flex items-center gap-1.5 text-[10px] ${isRight ? "flex-row-reverse" : ""}`}>
+          <span className="w-3 text-center text-gray-400 font-bold flex-shrink-0">{i + 1}</span>
+          <span className="font-bold text-gray-900 truncate flex-shrink min-w-0">{formatName(p.name)}</span>
+          <span className="flex-1" />
+          <span className="text-[9px] font-black text-gray-900 tabular-nums bg-gray-100 px-1 py-0.5 rounded flex-shrink-0">
+            {p.gmsc.toFixed(1)}
+          </span>
+          <div className={`flex gap-1 text-[9px] flex-shrink-0 ${isRight ? "flex-row-reverse" : ""}`}>
+            <span className="text-gray-700 tabular-nums">{p.pts}p</span>
+            <span className="text-gray-500 tabular-nums">{p.reb}r</span>
+            {p.topOtherStat > 0 && (
+              <span className="text-gray-500 tabular-nums">
+                {p.topOtherStat}{p.topOtherLabel[0].toLowerCase()}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
