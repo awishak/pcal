@@ -328,7 +328,24 @@ export async function sendEmail({ to, subject, html, bcc, replyTo }) {
     const { data, error } = await supabase.functions.invoke("send-email", {
       body: { to, subject, html, bcc, replyTo },
     });
-    if (error) { console.error("sendEmail error:", error); return { error: error.message }; }
+    if (error) {
+      // supabase.functions.invoke returns a generic "non-2xx status code"
+      // error message and hides the actual response body. Try to unwrap it.
+      let detail = error.message;
+      if (error.context && error.context.body) {
+        try {
+          const text = await error.context.text();
+          detail = detail + " | " + text;
+        } catch {}
+      } else if (error.context && typeof error.context.text === "function") {
+        try {
+          const text = await error.context.text();
+          detail = detail + " | " + text;
+        } catch {}
+      }
+      console.error("sendEmail error:", detail, error);
+      return { error: detail };
+    }
     return data;
   } catch (e) {
     console.error("sendEmail error:", e);
