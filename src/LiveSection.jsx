@@ -1672,7 +1672,13 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
         ))}
       </div>
 
-      {mode === "score" && (myRole === "home_scorer" || myRole === "away_scorer") && (
+      {mode === "score" && me && (
+        /* Any logged-in user sees ScorerControls. ScorerControls itself
+            handles the sub-states: not-yet-claimed (shows claim-team
+            buttons), already-claimed-by-someone-else (shows takeover),
+            you-are-the-scorer (shows full scoring UI). Previously we
+            gated this on myRole but that broke the claim flow because
+            myRole is "viewer" until AFTER you claim. */
         <ScorerControls
           game={game}
           live={live}
@@ -1689,10 +1695,9 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
           box={box}
         />
       )}
-      {mode === "score" && myRole === "viewer" && (
-        /* Viewers (not the assigned scorer for this game) see a read-only
-            summary: top 3 players per team in the same side-by-side
-            layout as the Games-page LIVE card. */
+      {mode === "score" && !me && (
+        /* Not logged in: read-only top-3 summary. To score, log in via
+            the top nav and come back. */
         <div>
           <div className="flex gap-4 items-start rounded-2xl border border-gray-100 bg-white p-4">
             <div className="flex-1 min-w-0">
@@ -1716,7 +1721,7 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
             </div>
           </div>
           <div className="text-center text-[10px] text-gray-400 pt-3">
-            Tap "Box Score" above to see full stats.
+            Log in from the top of the page to score this game.
           </div>
         </div>
       )}
