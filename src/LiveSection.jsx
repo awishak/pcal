@@ -998,8 +998,9 @@ function LiveFullCard({ game, liveState, scores, events, onTap }) {
 // ============================================================
 // TopPlayersDisplayCompact: same info as TopPlayersDisplay but in a
 // vertical stacked layout suited for a narrow column. No team header
-// (the parent renders that). Each row: rank, name, stats, GmSc.
-// When align="right" the row flips so stats stay on the "inner" side.
+// (the parent renders that). Each row: "J. Smith", stats (pts/reb/topOther),
+// GmSc pill. When align="right" the row flips so stats stay on the
+// "inner" side.
 // ============================================================
 function TopPlayersDisplayCompact({ team, events, align = "left" }) {
   const top = useMemo(() => computeTopPlayers(events || [], team), [events, team]);
@@ -1007,16 +1008,25 @@ function TopPlayersDisplayCompact({ team, events, align = "left" }) {
     return <div className={`text-[10px] text-gray-400 italic ${align === "right" ? "text-right" : "text-left"}`}>No stats yet</div>;
   }
   const isRight = align === "right";
+  // Format player name as "J. Smith" (first initial, capitalized; last
+  // name with only first letter capitalized). Names in the box arrive
+  // as "LASTNAME Firstname" (see formatName elsewhere). We extract and
+  // reformat here.
+  const shortName = (raw) => {
+    if (!raw) return "";
+    const parts = raw.trim().split(/\s+/);
+    if (parts.length < 2) return raw;
+    const last = parts[0];
+    const first = parts.slice(1).join(" ");
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    return `${first.charAt(0).toUpperCase()}. ${cap(last)}`;
+  };
   return (
     <div className="space-y-1">
-      {top.map((p, i) => (
+      {top.map((p) => (
         <div key={p.name} className={`flex items-center gap-1.5 text-[10px] ${isRight ? "flex-row-reverse" : ""}`}>
-          <span className="w-3 text-center text-gray-400 font-bold flex-shrink-0">{i + 1}</span>
-          <span className="font-bold text-gray-900 truncate flex-shrink min-w-0">{formatName(p.name)}</span>
+          <span className="font-bold text-gray-900 truncate flex-shrink min-w-0">{shortName(p.name)}</span>
           <span className="flex-1" />
-          <span className="text-[9px] font-black text-gray-900 tabular-nums bg-gray-100 px-1 py-0.5 rounded flex-shrink-0">
-            {p.gmsc.toFixed(1)}
-          </span>
           <div className={`flex gap-1 text-[9px] flex-shrink-0 ${isRight ? "flex-row-reverse" : ""}`}>
             <span className="text-gray-700 tabular-nums">{p.pts}p</span>
             <span className="text-gray-500 tabular-nums">{p.reb}r</span>
@@ -1026,6 +1036,9 @@ function TopPlayersDisplayCompact({ team, events, align = "left" }) {
               </span>
             )}
           </div>
+          <span className="text-[9px] font-black text-gray-900 tabular-nums bg-gray-100 px-1 py-0.5 rounded flex-shrink-0">
+            {p.gmsc.toFixed(1)}
+          </span>
         </div>
       ))}
     </div>
@@ -1678,23 +1691,31 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
       )}
       {mode === "score" && myRole === "viewer" && (
         /* Viewers (not the assigned scorer for this game) see a read-only
-            summary: top 3 players per team with pts / reb / best-of
-            stl-blk-ast. Useful for fans checking in on a game they're
-            not scoring. */
-        <div className="space-y-4">
-          <TopPlayersDisplay
-            team={game.away_team}
-            teamName={TEAM_NAMES[game.away_team] || game.away_team}
-            events={events}
-            emptyMessage="No stats recorded yet"
-          />
-          <TopPlayersDisplay
-            team={game.home_team}
-            teamName={TEAM_NAMES[game.home_team] || game.home_team}
-            events={events}
-            emptyMessage="No stats recorded yet"
-          />
-          <div className="text-center text-[10px] text-gray-400 pt-2">
+            summary: top 3 players per team in the same side-by-side
+            layout as the Games-page LIVE card. */
+        <div>
+          <div className="flex gap-4 items-start rounded-2xl border border-gray-100 bg-white p-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-3">
+                <TeamLogoLocal team={game.away_team} size={28} />
+                <div className="text-sm font-black text-gray-900 truncate">
+                  {TEAM_NAMES[game.away_team] || game.away_team}
+                </div>
+              </div>
+              <TopPlayersDisplayCompact team={game.away_team} events={events} align="left" />
+            </div>
+            <div className="w-px bg-gray-100 self-stretch"></div>
+            <div className="flex-1 min-w-0 text-right">
+              <div className="flex items-center gap-2 mb-3 flex-row-reverse">
+                <TeamLogoLocal team={game.home_team} size={28} />
+                <div className="text-sm font-black text-gray-900 truncate">
+                  {TEAM_NAMES[game.home_team] || game.home_team}
+                </div>
+              </div>
+              <TopPlayersDisplayCompact team={game.home_team} events={events} align="right" />
+            </div>
+          </div>
+          <div className="text-center text-[10px] text-gray-400 pt-3">
             Tap "Box Score" above to see full stats.
           </div>
         </div>
