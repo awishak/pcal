@@ -3662,19 +3662,9 @@ function LiveHomeCard({ openLiveGame }) {
         )}
       </div>
 
-      {liveGame && (
-        <LiveGameFullCard
-          game={liveGame}
-          liveState={liveStates[liveGame.game_id]}
-          scores={liveScores[liveGame.game_id]}
-          onTap={() => openLiveGame(liveGame.game_id)}
-        />
-      )}
-
-      {otherGames.length > 0 && (
-        <div className={`grid gap-1.5 ${liveGame ? "mt-3" : ""}`}
-             style={{ gridTemplateColumns: `repeat(${Math.min(otherGames.length, 3)}, minmax(0, 1fr))` }}>
-          {otherGames.map(g => (
+      {games.length > 0 && (
+        <div className="grid grid-cols-3 gap-1.5">
+          {games.map(g => (
             <OtherGameMiniCard
               key={g.game_id}
               game={g}
@@ -3755,11 +3745,19 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
 function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   const home = game.home_team;
   const away = game.away_team;
-  const isEnded = game.status === "ended" || game.status === "approved";
+  const effectiveStatus = liveState?.status || game.status;
+  const isLive = effectiveStatus === "live" || effectiveStatus === "halftime";
+  const isEnded = effectiveStatus === "ended" || effectiveStatus === "approved";
   const homeScore = (scores && scores[home]) || 0;
   const awayScore = (scores && scores[away]) || 0;
+  // Show score on live AND ended games. For "winning" highlight we only
+  // use it on ended games since the live lead is still in flux.
+  const showScore = isLive || isEnded;
   const homeWon = isEnded && homeScore > awayScore;
   const awayWon = isEnded && awayScore > homeScore;
+  // When live, highlight the currently-leading team in dark text.
+  const homeLeading = isLive && homeScore > awayScore;
+  const awayLeading = isLive && awayScore > homeScore;
   const timeStr = (() => {
     if (!game.game_time) return "";
     const [hh, mm] = game.game_time.split(":");
@@ -3772,15 +3770,15 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   const coordFull = scoringTeam ? SCORING_COORDINATORS[scoringTeam] : null;
   const coordShort = coordFull ? shortCoord(coordFull) : null;
 
-  // Team row: logo + short code on the left, score on the right (ended only).
-  // For not-ended games the right side stays empty so the layout matches.
-  const teamRow = (team, score, won, showScore) => (
+  // Team row: logo + short code on the left, score on the right.
+  // For pre-game cards the right side stays empty so the layout matches.
+  const teamRow = (team, score, won, leading, showScoreHere) => (
     <div className="flex items-center justify-between gap-1">
       <div className="flex items-center gap-1.5">
         <TeamLogo team={team} size={20} />
         <span className="text-xs font-black text-gray-900">{team}</span>
       </div>
-      {showScore && (
+      {showScoreHere && (
         <div className="flex items-center gap-0.5">
           {won && (
             <svg className="w-2.5 h-2.5 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
@@ -3788,39 +3786,58 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
             </svg>
           )}
           <span className={`text-base font-black tabular-nums ${
-            won ? "text-gray-900" : "text-gray-400"
+            won || leading ? "text-gray-900" : "text-gray-400"
           }`}>{score}</span>
         </div>
       )}
     </div>
   );
 
+  // Card background: three states.
+  //   isLive: white with pulsing red border
+  //   isEnded: white with black border
+  //   default: light gray
+  const cardClass = isLive
+    ? "bg-white border-2 border-red-500"
+    : isEnded
+      ? "bg-white border-2 border-gray-900"
+      : "bg-gray-50 border border-gray-200";
+
   return (
     <div className="flex flex-col gap-1">
       <button onClick={onTap}
-        className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1.5 ${
-          isEnded
-            ? "bg-white border-2 border-gray-900"
-            : "bg-gray-50 border border-gray-200"
-        }`}>
+        className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1.5 ${cardClass}`}>
         <div className="flex items-center justify-center gap-1.5">
-          <span className="text-sm text-gray-600 font-bold">{timeStr}</span>
-          {isEnded && (
-            <span className="text-xs font-black text-gray-900 uppercase tracking-wide">
-              Final
+          {isLive ? (
+            <span className="flex items-center gap-1">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span>
+              </span>
+              <span className="text-xs font-black uppercase tracking-wide text-red-600">Live</span>
             </span>
+          ) : (
+            <>
+              <span className="text-sm text-gray-600 font-bold">{timeStr}</span>
+              {isEnded && (
+                <span className="text-xs font-black text-gray-900 uppercase tracking-wide">
+                  Final
+                </span>
+              )}
+            </>
           )}
         </div>
         <div className="flex flex-col gap-1 w-full">
-          {teamRow(away, awayScore, awayWon, isEnded)}
-          {teamRow(home, homeScore, homeWon, isEnded)}
+          {teamRow(away, awayScore, awayWon, awayLeading, showScore)}
+          {teamRow(home, homeScore, homeWon, homeLeading, showScore)}
         </div>
-        {/* Scoring team as a yellow pill. Always shown so users see who's
-            keeping book at a glance. */}
+        {/* Scoring team label inside the card. Muted gray; the home
+            page has no team filter so no yellow state here. */}
         {scoringTeam && (
-          <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-[10px]">
-            <span className="uppercase tracking-wide text-yellow-800 font-bold">Scoring:</span>
-            <span className="font-black text-yellow-900">{scoringTeam}</span>
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
+            <span className="uppercase tracking-wide">Scoring:</span>
+            <TeamLogo team={scoringTeam} size={14} />
+            <span className="font-bold text-gray-700">{scoringTeam}</span>
           </div>
         )}
       </button>

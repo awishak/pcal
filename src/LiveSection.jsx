@@ -489,6 +489,9 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
   const [allGames, setAllGames] = useState([]);
   const [liveStates, setLiveStates] = useState({});
   const [liveScores, setLiveScores] = useState({});
+  // Full event lists per game_id, used to compute top-3 player stats in
+  // the big live card. Keyed by game_id.
+  const [liveEventsByGame, setLiveEventsByGame] = useState({});
   const [loading, setLoading] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
   // Team filter: when null, show all games. When set to a team code, only
@@ -529,25 +532,34 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
     setLiveStates(live);
 
     // For games with live state (live, halftime, ended, approved), sum
-    // scoring events to compute team scores.
+    // scoring events to compute team scores AND store full event lists
+    // per game so we can compute box scores (top-3 display) without
+    // re-fetching in the live card component.
     const gameIdsWithState = Object.keys(live).map(id => parseInt(id, 10));
     if (gameIdsWithState.length > 0) {
       const { data: evs } = await supabase
         .from("live_events")
-        .select("game_id, team, stat_type, deleted")
+        .select("*")
         .in("game_id", gameIdsWithState)
-        .in("stat_type", ["made_2", "made_3", "made_ft"]);
+        .order("event_ts", { ascending: true });
       const scoreMap = {};
+      const eventsByGame = {};
       (evs || []).forEach(ev => {
+        if (!eventsByGame[ev.game_id]) eventsByGame[ev.game_id] = [];
+        eventsByGame[ev.game_id].push(ev);
         if (ev.deleted) return;
         if (!ev.team) return;
-        if (!scoreMap[ev.game_id]) scoreMap[ev.game_id] = {};
-        const pts = ev.stat_type === "made_3" ? 3 : ev.stat_type === "made_2" ? 2 : 1;
-        scoreMap[ev.game_id][ev.team] = (scoreMap[ev.game_id][ev.team] || 0) + pts;
+        if (ev.stat_type === "made_2" || ev.stat_type === "made_3" || ev.stat_type === "made_ft") {
+          if (!scoreMap[ev.game_id]) scoreMap[ev.game_id] = {};
+          const pts = ev.stat_type === "made_3" ? 3 : ev.stat_type === "made_2" ? 2 : 1;
+          scoreMap[ev.game_id][ev.team] = (scoreMap[ev.game_id][ev.team] || 0) + pts;
+        }
       });
       setLiveScores(scoreMap);
+      setLiveEventsByGame(eventsByGame);
     } else {
       setLiveScores({});
+      setLiveEventsByGame({});
     }
     setLoading(false);
   }, []);
@@ -689,6 +701,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
             games={currentWeekGames}
             liveStates={liveStates}
             liveScores={liveScores}
+            liveEventsByGame={liveEventsByGame}
             onOpenGame={onOpenGame}
             fmtDate={fmtDate}
             activeTeamFilter={teamFilter}
@@ -734,7 +747,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
 // The header is a full-width banner with date + location prominently
 // displayed, with the week number as a smaller eyebrow above.
 // ============================================================
-function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate, activeTeamFilter }) {
+function LiveWeekCard({ games, liveStates, liveScores, liveEventsByGame, onOpenGame, fmtDate, activeTeamFilter }) {
   const liveGame = games.find(g => (liveStates[g.game_id]?.status || g.status) === "live");
   const otherGames = liveGame ? games.filter(g => g.game_id !== liveGame.game_id) : games;
   const weekMeta = games[0];
@@ -756,6 +769,7 @@ function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate, acti
           game={liveGame}
           liveState={liveStates[liveGame.game_id]}
           scores={liveScores[liveGame.game_id]}
+          events={(liveEventsByGame && liveEventsByGame[liveGame.game_id]) || []}
           onTap={() => onOpenGame(liveGame.game_id)}
         />
       )}
@@ -771,6 +785,7 @@ function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate, acti
               scores={liveScores[g.game_id]}
               onTap={() => onOpenGame(g.game_id)}
               highlightScoring={activeTeamFilter && g.scoring_team === activeTeamFilter && g.home_team !== activeTeamFilter && g.away_team !== activeTeamFilter}
+              accentColor={activeTeamFilter && (g.home_team === activeTeamFilter || g.away_team === activeTeamFilter) ? TEAM_COLORS[activeTeamFilter] : null}
             />
           ))}
         </div>
@@ -780,9 +795,85 @@ function LiveWeekCard({ games, liveStates, liveScores, onOpenGame, fmtDate, acti
 }
 
 // ============================================================
-// LiveFullCard: pulsing-red card shown when a game is currently live.
+// computeTopPlayers: takes a list of live_events and a team and returns
+// the top 3 players by live GmSc, each with key stats.
+//
+// Returns: array of { name, pts, reb, topOtherStat, topOtherLabel, gmsc }
+// where topOtherStat/topOtherLabel are the highest of STL/BLK/AST with
+// its label. If there's a tie between those three, we prefer AST > STL > BLK
+// (alphabetical-ish but also: assists usually tell the most story).
 // ============================================================
-function LiveFullCard({ game, liveState, scores, onTap }) {
+function computeTopPlayers(events, team) {
+  const { box } = computeBoxScore(events);
+  const rows = [];
+  Object.entries(box).forEach(([name, s]) => {
+    if (s.team !== team) return;
+    const gmsc = computeGmSc(s);
+    // Compute "next highest" among STL/BLK/AST.
+    const candidates = [
+      { label: "AST", val: s.ast },
+      { label: "STL", val: s.stl },
+      { label: "BLK", val: s.blk },
+    ];
+    candidates.sort((a, b) => b.val - a.val);
+    const top = candidates[0];
+    rows.push({
+      name,
+      pts: s.pts,
+      reb: s.reb,
+      topOtherLabel: top.label,
+      topOtherStat: top.val,
+      gmsc,
+    });
+  });
+  rows.sort((a, b) => b.gmsc - a.gmsc);
+  return rows.slice(0, 3);
+}
+
+// ============================================================
+// TopPlayersDisplay: compact per-team top-3 list showing pts, reb, and
+// the next-highest among stl/blk/ast. Used in LiveFullCard (Games page)
+// and in the non-scorer game view.
+// ============================================================
+function TopPlayersDisplay({ team, teamName, events, emptyMessage = "No stats yet" }) {
+  const top = useMemo(() => computeTopPlayers(events || [], team), [events, team]);
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <TeamLogoLocal team={team} size={18} />
+        <span className="text-xs font-black uppercase tracking-wide text-gray-700">
+          {teamName} &middot; Top Players
+        </span>
+      </div>
+      {top.length === 0 ? (
+        <div className="text-[11px] text-gray-400 italic py-1">{emptyMessage}</div>
+      ) : (
+        <div className="space-y-1">
+          {top.map((p, i) => (
+            <div key={p.name} className="flex items-center gap-2 text-[11px]">
+              <span className="w-3 text-center text-gray-400 font-bold">{i + 1}</span>
+              <span className="flex-1 font-bold text-gray-900 truncate">{formatName(p.name)}</span>
+              <span className="text-gray-700 tabular-nums">{p.pts} pts</span>
+              <span className="text-gray-500 tabular-nums">{p.reb} reb</span>
+              {p.topOtherStat > 0 && (
+                <span className="text-gray-500 tabular-nums">
+                  {p.topOtherStat} {p.topOtherLabel.toLowerCase()}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// LiveFullCard: big "LIVE" card shown at top of the week card when a
+// game is in progress. Shows score, scorer names, and top 3 players per
+// team (by live GmSc).
+// ============================================================
+function LiveFullCard({ game, liveState, scores, events, onTap }) {
   const home = game.home_team;
   const away = game.away_team;
   const homeScore = (scores && scores[home]) || 0;
@@ -802,12 +893,12 @@ function LiveFullCard({ game, liveState, scores, onTap }) {
   const homeScorer = formatScorer(liveState && liveState.home_scorer_name);
   const awayScorer = formatScorer(liveState && liveState.away_scorer_name);
 
-  const TeamRow = ({ code, name, score, scorer }) => (
+  const TeamHeader = ({ code, name, score, scorer }) => (
     <div className="flex items-center gap-3">
-      <TeamLogoLocal team={code} size={36} />
+      <TeamLogoLocal team={code} size={40} />
       <div className="flex-1 min-w-0">
         <div className="text-base font-black text-gray-900 truncate leading-tight">{name}</div>
-        <div className="text-[9px] text-gray-500 truncate leading-tight">
+        <div className="text-[10px] text-gray-500 truncate leading-tight mt-0.5">
           {scorer ? (
             <>Scored by: <span className="text-gray-700">{scorer}</span></>
           ) : (
@@ -815,27 +906,32 @@ function LiveFullCard({ game, liveState, scores, onTap }) {
           )}
         </div>
       </div>
-      <span className="text-3xl font-black tabular-nums text-gray-900">{score}</span>
+      <span className="text-4xl font-black tabular-nums text-gray-900">{score}</span>
     </div>
   );
 
   return (
     <button onClick={onTap}
-      className="w-full rounded-xl border-2 border-red-500 bg-white p-3 text-left active:scale-[0.99] transition">
-      <div className="flex items-center justify-between mb-3">
+      className="w-full rounded-xl border-2 border-red-500 bg-white p-4 text-left active:scale-[0.99] transition">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-1.5">
-          <span className="relative flex h-2 w-2">
+          <span className="relative flex h-2.5 w-2.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
           </span>
-          <span className="text-[10px] font-black uppercase tracking-widest text-red-600">Live</span>
-          <span className="text-[10px] text-gray-400 ml-1">{period}</span>
+          <span className="text-xs font-black uppercase tracking-widest text-red-600">Live</span>
+          <span className="text-xs text-gray-400 ml-1">{period}</span>
         </div>
         <span className="text-[10px] text-gray-400">Tap to view</span>
       </div>
-      <div className="space-y-2">
-        <TeamRow code={away} name={awayName} score={awayScore} scorer={awayScorer} />
-        <TeamRow code={home} name={homeName} score={homeScore} scorer={homeScorer} />
+      <div className="space-y-3 mb-4">
+        <TeamHeader code={away} name={awayName} score={awayScore} scorer={awayScorer} />
+        <TeamHeader code={home} name={homeName} score={homeScore} scorer={homeScorer} />
+      </div>
+      {/* Top-3 per team. Two columns on wider screens, stacked on narrow. */}
+      <div className="pt-3 border-t border-gray-100 grid grid-cols-1 gap-3">
+        <TopPlayersDisplay team={away} teamName={awayName} events={events} />
+        <TopPlayersDisplay team={home} teamName={homeName} events={events} />
       </div>
     </button>
   );
@@ -853,7 +949,7 @@ function LiveFullCard({ game, liveState, scores, onTap }) {
 //     active team filter), the card renders with a light yellow
 //     background to distinguish scoring duty from playing.
 // ============================================================
-function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false }) {
+function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false, accentColor = null }) {
   const home = game.home_team;
   const away = game.away_team;
   const status = liveState?.status || game.status;
@@ -898,12 +994,22 @@ function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false
   // Note: previously we highlighted the whole card yellow when filtered
   // to a team's scoring duties; now we always highlight the scoring team
   // label itself with a yellow pill regardless of filter. More scannable.
-  const cardClass = isEnded
+  //
+  // When accentColor is set (team filter is active AND the filtered team
+  // is playing in this game), we override the border with the team's
+  // accent color. Scoring-only games skip the accent and rely on the
+  // yellow pill instead.
+  const baseCardClass = isEnded
     ? "bg-white border-2 border-gray-900"
     : "bg-gray-50 border border-gray-200";
+  const cardClass = accentColor
+    ? "bg-white border-2"
+    : baseCardClass;
+  const cardStyle = accentColor ? { borderColor: accentColor } : undefined;
 
   return (
     <button onClick={onTap}
+      style={cardStyle}
       className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1.5 ${cardClass}`}>
       <div className="flex items-center justify-center gap-1.5">
         <span className="text-sm text-gray-600 font-bold">{timeStr}</span>
@@ -917,13 +1023,24 @@ function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false
         {teamRow(away, awayScore, awayWon, isEnded)}
         {teamRow(home, homeScore, homeWon, isEnded)}
       </div>
-      {/* Scoring team as a yellow pill. Always shown so users see who's
-          keeping book at a glance. */}
+      {/* Scoring team. Normally muted gray; turns yellow when a team
+          filter is active and this is a game that team is scoring (not
+          playing). Helps the scorekeeper's games stand out when drilling
+          into one team. */}
       {game.scoring_team && (
-        <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-[10px]">
-          <span className="uppercase tracking-wide text-yellow-800 font-bold">Scoring:</span>
-          <span className="font-black text-yellow-900">{game.scoring_team}</span>
-        </div>
+        highlightScoring ? (
+          <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-[10px]">
+            <span className="uppercase tracking-wide text-yellow-800 font-bold">Scoring:</span>
+            <TeamLogoLocal team={game.scoring_team} size={14} />
+            <span className="font-black text-yellow-900">{game.scoring_team}</span>
+          </div>
+        ) : (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
+            <span className="uppercase tracking-wide">Scoring:</span>
+            <TeamLogoLocal team={game.scoring_team} size={14} />
+            <span className="font-bold text-gray-700">{game.scoring_team}</span>
+          </div>
+        )
       )}
     </button>
   );
@@ -969,6 +1086,7 @@ function UpcomingByWeek({ games, onOpenGame, fmtDate, activeTeamFilter }) {
                   scores={null}
                   onTap={() => onOpenGame(g.game_id)}
                   highlightScoring={activeTeamFilter && g.scoring_team === activeTeamFilter && g.home_team !== activeTeamFilter && g.away_team !== activeTeamFilter}
+                  accentColor={activeTeamFilter && (g.home_team === activeTeamFilter || g.away_team === activeTeamFilter) ? TEAM_COLORS[activeTeamFilter] : null}
                 />
               ))}
             </div>
@@ -1020,6 +1138,7 @@ function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate, active
                   scores={liveScores[g.game_id]}
                   onTap={() => onOpenGame(g.game_id)}
                   highlightScoring={activeTeamFilter && g.scoring_team === activeTeamFilter && g.home_team !== activeTeamFilter && g.away_team !== activeTeamFilter}
+                  accentColor={activeTeamFilter && (g.home_team === activeTeamFilter || g.away_team === activeTeamFilter) ? TEAM_COLORS[activeTeamFilter] : null}
                 />
               ))}
             </div>
@@ -1445,7 +1564,7 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
         ))}
       </div>
 
-      {mode === "score" && (
+      {mode === "score" && (myRole === "home_scorer" || myRole === "away_scorer") && (
         <ScorerControls
           game={game}
           live={live}
@@ -1461,6 +1580,29 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
           teamScore={teamScore}
           box={box}
         />
+      )}
+      {mode === "score" && myRole === "viewer" && (
+        /* Viewers (not the assigned scorer for this game) see a read-only
+            summary: top 3 players per team with pts / reb / best-of
+            stl-blk-ast. Useful for fans checking in on a game they're
+            not scoring. */
+        <div className="space-y-4">
+          <TopPlayersDisplay
+            team={game.away_team}
+            teamName={TEAM_NAMES[game.away_team] || game.away_team}
+            events={events}
+            emptyMessage="No stats recorded yet"
+          />
+          <TopPlayersDisplay
+            team={game.home_team}
+            teamName={TEAM_NAMES[game.home_team] || game.home_team}
+            events={events}
+            emptyMessage="No stats recorded yet"
+          />
+          <div className="text-center text-[10px] text-gray-400 pt-2">
+            Tap "Box Score" above to see full stats.
+          </div>
+        </div>
       )}
       {mode === "box" && <BoxScoreView game={game} box={box} rosters={rosters} />}
       {mode === "log" && <PlayByPlay events={events} me={me} myRole={myRole} game={game} />}
