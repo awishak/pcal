@@ -420,13 +420,77 @@ function PlayerAvatar({ name, team, size = 40 }) {
 // Main Live Section
 // ------------------------------------------------------------
 export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null } = {}) {
-  // Cached login from localStorage
+  // Cached login from localStorage. This is kept so the scoring UI has
+  // a player identity ({name, team, pin, season}) to attach to events.
+  // It's synced below to the Supabase Auth session so logging in via the
+  // top nav (which only sets auth state) also populates this.
   const [me, setMe] = useState(() => {
     try {
       const raw = localStorage.getItem("pcal_me");
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
+
+  // Keep `me` in sync with the Supabase Auth session. When the user logs
+  // in from the top nav (which only sets auth state), derive a player
+  // identity from registrations by email and store it here. When they
+  // log out, clear it. This makes claim-team, scoring, etc. work for
+  // users who never went through LiveSection's internal LoginModal.
+  useEffect(() => {
+    let cancelled = false;
+    const syncMe = async (session) => {
+      if (cancelled) return;
+      if (!session || !session.user || !session.user.email) {
+        setMe(prev => {
+          // Only clear if `me` was set by auth (not by the legacy
+          // LoginModal flow, which sets pin=userId already, so this
+          // branch is a no-op in practice, but defensive).
+          if (prev) localStorage.removeItem("pcal_me");
+          return null;
+        });
+        return;
+      }
+      const email = session.user.email;
+      const userId = session.user.id;
+      // Look up the player's registration by email for name/team.
+      const { data: reg } = await supabase
+        .from("registrations")
+        .select("first_name, last_name, team_pref")
+        .ilike("email", email)
+        .limit(1);
+      let record;
+      if (reg && reg.length > 0) {
+        const r = reg[0];
+        record = {
+          pin: userId,
+          name: `${(r.first_name || "").toUpperCase()} ${(r.last_name || "").toUpperCase()}`.trim(),
+          team: r.team_pref || "",
+          season: CURRENT_SEASON,
+          email,
+        };
+      } else {
+        record = {
+          pin: userId,
+          name: email.split("@")[0].toUpperCase(),
+          team: "",
+          season: CURRENT_SEASON,
+          email,
+        };
+      }
+      try { localStorage.setItem("pcal_me", JSON.stringify(record)); } catch {}
+      setMe(record);
+    };
+    // Initial read
+    (async () => {
+      const s = await getCurrentSession();
+      await syncMe(s);
+    })();
+    // Subscribe
+    const unsub = onAuthStateChange((event, session) => {
+      syncMe(session);
+    });
+    return () => { cancelled = true; unsub(); };
+  }, []);
 
   // View state: 'home' | 'game' | 'review'
   const [view, setView] = useState("home");
