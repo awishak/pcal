@@ -11,6 +11,8 @@ import {
   loadAnnouncedRegistrations, adminToggleAnnouncement, adminUpdateAnnouncementOverride,
   adminSearchGameLog, adminUpdateGameLog, adminAddGameLog, adminDeleteGameLog, adminBatchUpdateGameLog,
   loadGameLog, bumpGameLogCache,
+  requestLoginCode, verifyLoginCode, signOutUser, getCurrentSession,
+  onAuthStateChange, loadCurrentUserRoles, verifyCommissionerPassword,
 } from "./supabase.js";
 import LiveSection from "./LiveSection.jsx";
 
@@ -1283,6 +1285,59 @@ function AppInner() {
   const [adminPreviewMode, setAdminPreviewMode] = useState(false);
   const [adminPasswordModal, setAdminPasswordModal] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
+
+  // ===== AUTH STATE =====
+  // Session is a Supabase Auth session object (or null). userRoles is the
+  // list of role rows from user_roles for the signed-in user. We derive
+  // adminUnlocked from the presence of 'commissioner' or 'admin' roles, in
+  // addition to the legacy admin-password flow which remains active as a
+  // fallback for this phase.
+  const [authSession, setAuthSession] = useState(null);
+  const [userRoles, setUserRoles] = useState([]);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Refresh the current user's roles from Supabase. Called after login and
+  // when the session changes.
+  const refreshUserRoles = useCallback(async () => {
+    const roles = await loadCurrentUserRoles();
+    setUserRoles(roles);
+    // If the signed-in user has commissioner or admin role, unlock admin UI.
+    if (roles.some(r => r.role === "commissioner" || r.role === "admin")) {
+      setAdminUnlocked(true);
+    }
+  }, []);
+
+  // Initial session check + subscribe to auth state changes.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const s = await getCurrentSession();
+      if (cancelled) return;
+      setAuthSession(s);
+      if (s) {
+        await refreshUserRoles();
+      }
+      setAuthLoading(false);
+    })();
+    const unsub = onAuthStateChange(async (event, s) => {
+      if (cancelled) return;
+      setAuthSession(s);
+      if (s) {
+        await refreshUserRoles();
+      } else {
+        setUserRoles([]);
+      }
+    });
+    return () => { cancelled = true; unsub(); };
+  }, [refreshUserRoles]);
+
+  // Helper: does the current user have a specific role?
+  const hasRole = useCallback((role, teamScope = null) => {
+    return userRoles.some(r =>
+      r.role === role && (teamScope == null || r.team_scope === teamScope || r.team_scope == null)
+    );
+  }, [userRoles]);
+
   const [registrations, setRegistrations] = useState([]);
   const [tabVisibility, setTabVisibility] = useState({
     register: "visible",
@@ -2565,7 +2620,15 @@ function AppInner() {
             scheduleWarning={scheduleWarning} setScheduleWarning={setScheduleWarning}
             adminPreviewMode={adminPreviewMode} setAdminPreviewMode={setAdminPreviewMode}
             STATS_GROUPS={STATS_GROUPS}
-            onLogout={() => { setAdminToken(null); setAdminUnlocked(false); setTab("home"); }}
+            onLogout={async () => {
+              // Legacy admin token cleanup.
+              setAdminToken(null);
+              // Supabase Auth sign-out. Clears persisted session in localStorage.
+              // The onAuthStateChange listener will fire and clear userRoles.
+              await signOutUser();
+              setAdminUnlocked(false);
+              setTab("home");
+            }}
           />
         )}
 
@@ -3107,47 +3170,190 @@ function AppInner() {
   );
 }
 
-// ========== ADMIN PASSWORD MODAL ==========
+// ========== LOGIN MODAL ==========
+// Two-step email-OTP login with a master-password fallback for the
+// commissioner.
+//
+// Step 1: User enters their email. We call requestLoginCode which sends a
+// Supabase magic-link email containing both a clickable link and a 6-digit
+// code. If they click the link in the email, they come back to the app
+// already signed in (auth state change handler takes it from there). If
+// they prefer the code, we present step 2.
+//
+// Step 2: User enters the 6-digit code. We call verifyLoginCode which
+// validates and returns a session. On success, the auth state change
+// handler in App fires and populates session + roles.
+//
+// Master password fallback (bottom link): The commissioner can enter the
+// master password (stored hashed in commissioner_password). If correct,
+// we auto-fill the email with the commissioner's address and send the OTP.
+// The commissioner still has to complete the OTP flow via email, so the
+// master password alone doesn't grant access; it just confirms "yes, this
+// is the commissioner" without them having to type their email.
 function AdminPasswordModal({ onClose, onUnlock, inputValue, setInputValue }) {
+  const [mode, setMode] = useState("email");                 // 'email' | 'code' | 'master'
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [masterPw, setMasterPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");                  // success messages
 
-  const attemptUnlock = async () => {
-    if (!inputValue) return;
+  const sendCode = async (targetEmail) => {
+    const addr = (targetEmail || email).trim().toLowerCase();
+    if (!addr || !addr.includes("@")) {
+      setError("Enter a valid email address.");
+      return;
+    }
     setBusy(true);
     setError("");
-    try {
-      const token = await verifyAdminPassword(inputValue);
-      if (token) {
-        setAdminToken(token);
-        onUnlock();
-      } else {
-        setError("Wrong password");
-      }
-    } catch (e) {
-      setError("Connection error. Try again.");
-    } finally {
-      setBusy(false);
+    setStatus("");
+    const res = await requestLoginCode(addr);
+    setBusy(false);
+    if (res.error) {
+      setError(res.error);
+      return;
     }
+    setEmail(addr);
+    setStatus("We sent a login link and 6-digit code to " + addr + ".");
+    setMode("code");
+  };
+
+  const submitCode = async () => {
+    if (!code.trim()) return;
+    setBusy(true);
+    setError("");
+    const res = await verifyLoginCode(email, code);
+    setBusy(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    // Session is live. The onAuthStateChange listener in App will pick it up
+    // and set roles. Close the modal and call onUnlock so the existing admin
+    // UI branches stay compatible.
+    onUnlock();
+  };
+
+  const submitMasterPassword = async () => {
+    if (!masterPw) return;
+    setBusy(true);
+    setError("");
+    const res = await verifyCommissionerPassword(masterPw);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error || "Incorrect password.");
+      return;
+    }
+    // Password confirmed. Trigger OTP email to the commissioner address
+    // returned by the RPC. This keeps email as the second factor.
+    await sendCode(res.commissioner_email);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-5 max-w-sm w-full" onClick={e => e.stopPropagation()}>
-        <p className="text-sm font-bold text-gray-900 mb-3">Admin Access</p>
-        <input type="password" value={inputValue} onChange={e => setInputValue(e.target.value)} autoFocus
-          disabled={busy}
-          onKeyDown={e => { if (e.key === "Enter") attemptUnlock(); }}
-          placeholder="Password"
-          className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white" />
-        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
-        <div className="flex gap-2 mt-3">
-          <button onClick={onClose} disabled={busy} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-600">Cancel</button>
-          <button onClick={attemptUnlock} disabled={busy}
-            className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gray-900 text-white disabled:opacity-50">
-            {busy ? "Checking…" : "Unlock"}
-          </button>
-        </div>
+
+        {mode === "email" && (
+          <>
+            <p className="text-sm font-bold text-gray-900 mb-1">Log in to PCAL</p>
+            <p className="text-[11px] text-gray-500 mb-3">Enter your email to receive a login code.</p>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              autoFocus
+              disabled={busy}
+              onKeyDown={e => { if (e.key === "Enter") sendCode(); }}
+              placeholder="you@example.com"
+              className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white"
+            />
+            {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+            <div className="flex gap-2 mt-3">
+              <button onClick={onClose} disabled={busy} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-600">Cancel</button>
+              <button onClick={() => sendCode()} disabled={busy}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 text-white disabled:opacity-50">
+                {busy ? "Sending..." : "Send code"}
+              </button>
+            </div>
+            <div className="text-center mt-4 pt-3 border-t border-gray-100">
+              <button onClick={() => { setMode("master"); setError(""); setStatus(""); }}
+                className="text-[10px] text-gray-400 hover:text-gray-600">
+                Use master password instead
+              </button>
+            </div>
+          </>
+        )}
+
+        {mode === "code" && (
+          <>
+            <p className="text-sm font-bold text-gray-900 mb-1">Enter your code</p>
+            <p className="text-[11px] text-gray-500 mb-3">
+              {status || ("Code sent to " + email + ".")}
+              <br />
+              You can also click the link in the email.
+            </p>
+            <input
+              type="text"
+              value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              autoFocus
+              disabled={busy}
+              onKeyDown={e => { if (e.key === "Enter") submitCode(); }}
+              placeholder="6-digit code"
+              inputMode="numeric"
+              className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-base font-mono tracking-widest text-center text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white"
+            />
+            {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => { setMode("email"); setCode(""); setError(""); }} disabled={busy}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-600">
+                Back
+              </button>
+              <button onClick={submitCode} disabled={busy || code.length < 6}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 text-white disabled:opacity-50">
+                {busy ? "Checking..." : "Log in"}
+              </button>
+            </div>
+            <div className="text-center mt-3">
+              <button onClick={() => sendCode(email)} disabled={busy}
+                className="text-[10px] text-gray-400 hover:text-gray-600">
+                Resend code
+              </button>
+            </div>
+          </>
+        )}
+
+        {mode === "master" && (
+          <>
+            <p className="text-sm font-bold text-gray-900 mb-1">Master password</p>
+            <p className="text-[11px] text-gray-500 mb-3">
+              For commissioner use. After verification you'll still receive a code by email.
+            </p>
+            <input
+              type="password"
+              value={masterPw}
+              onChange={e => setMasterPw(e.target.value)}
+              autoFocus
+              disabled={busy}
+              onKeyDown={e => { if (e.key === "Enter") submitMasterPassword(); }}
+              placeholder="Master password"
+              className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white"
+            />
+            {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => { setMode("email"); setMasterPw(""); setError(""); }} disabled={busy}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-600">
+                Back
+              </button>
+              <button onClick={submitMasterPassword} disabled={busy || !masterPw}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 text-white disabled:opacity-50">
+                {busy ? "Checking..." : "Verify"}
+              </button>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   );

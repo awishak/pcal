@@ -22,7 +22,7 @@
 // ============================================================
 
 import React, { useEffect, useMemo, useState, useCallback, useRef, createContext, useContext } from "react";
-import { supabase } from "./supabase.js";
+import { supabase, adminInsertGameLog, adminDeleteGameLogForGame, bumpGameLogCache } from "./supabase.js";
 
 // Context carries the base64 team logo map from App.jsx down to
 // components that need to render logos. Falls back to null (colored
@@ -2645,15 +2645,15 @@ function ReviewQueue({ onBack, onOpen }) {
       if (!reallyDelete) return;
     }
 
-    const { error: delErr } = await supabase
-      .from("game_log")
-      .delete()
-      .eq("year", season)
-      .eq("week", week)
-      .eq("date", shortDate)
-      .in("team", [homeTeam, awayTeam]);
-    if (delErr) {
-      alert("Error deleting from game_log: " + delErr.message);
+    const delRes = await adminDeleteGameLogForGame({
+      year: season,
+      week: week,
+      date: shortDate,
+      homeTeam: homeTeam,
+      awayTeam: awayTeam,
+    });
+    if (!delRes || !delRes.ok) {
+      alert("Error deleting from game_log: " + (delRes && delRes.error ? delRes.error : "unknown error"));
       return;
     }
 
@@ -2669,6 +2669,8 @@ function ReviewQueue({ onBack, onOpen }) {
       action: "reverse_approval",
       after_value: { rows_deleted: rowCount },
     });
+    // Invalidate the cached GAME_LOG so stats pages reflect the rollback.
+    bumpGameLogCache();
 
     alert(`Reversal complete. ${rowCount} rows removed from game_log. The game is back in the queue for re-approval.`);
     setReversing(null);
@@ -2876,9 +2878,9 @@ function ApproveModal({ game, onClose, onDone }) {
       gmsc: computeGmSc(r),
       year: game.schedule.season,
     }));
-    const { error } = await supabase.from("game_log").insert(inserts);
-    if (error) {
-      alert("Error writing to game_log: " + error.message);
+    const insertRes = await adminInsertGameLog(inserts);
+    if (!insertRes || !insertRes.ok) {
+      alert("Error writing to game_log: " + (insertRes && insertRes.error ? insertRes.error : "unknown error"));
       setSaving(false);
       return;
     }
@@ -2897,6 +2899,9 @@ function ApproveModal({ game, onClose, onDone }) {
       game_id: game.game_id, action: "approve",
       after_value: { rows_written: inserts.length, game_type: gameType },
     });
+    // Invalidate the cached GAME_LOG so stats pages pick up the new rows
+    // on next page load instead of waiting for the 12h TTL to expire.
+    bumpGameLogCache();
     setSaving(false);
     onDone();
   };

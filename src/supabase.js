@@ -4,7 +4,12 @@ const SUPABASE_URL = "https://msvgstunqxjmmsmmumgg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1zdmdzdHVucXhqbW1zbW11bWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMTU4MjIsImV4cCI6MjA5MTg5MTgyMn0.QkOb0eu5dlHrItsFeFCU8KxAakgQnYjM7pqv7zzmURU";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storageKey: "pcal_supabase_auth",
+  },
 });
 
 // ============================================================================
@@ -564,4 +569,182 @@ export function bumpGameLogCache() {
     window.localStorage.removeItem(GAME_LOG_CACHE_KEY);
     window.localStorage.removeItem(GAME_LOG_VERSION_KEY);
   } catch {}
+}
+
+// ============================================================================
+// SUPABASE AUTH (Phase 1: role-based)
+// ============================================================================
+// These functions wrap Supabase's built-in auth with role resolution. After
+// a successful login, call loadCurrentUserRoles() to pull the user's roles
+// from user_roles (with auto-grants from registrations/approved_staff/etc.).
+//
+// Auth flow:
+//   1. User enters email, app calls requestLoginCode(email)
+//   2. Supabase emails both a magic link and a 6-digit code
+//   3. User either clicks the link (app detects session on return) or
+//      enters the code into a prompt; app calls verifyLoginCode(email, code)
+//   4. On success, app calls loadCurrentUserRoles() and caches in state
+//
+// Master-password backdoor:
+//   1. User enters master password on the Stats page
+//   2. App calls verifyCommissionerPassword(password)
+//   3. On success, app calls requestLoginCode() for the commissioner email
+//   4. Commissioner receives OTP, enters code, gets commissioner session
+
+// Send a login code/link to an email. The OTP is the 6-digit code that
+// appears in the email body alongside the magic link.
+export async function requestLoginCode(email) {
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim().toLowerCase(),
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: window.location.origin,
+    },
+  });
+  if (error) { console.error("requestLoginCode error:", error); return { error: error.message }; }
+  return { ok: true };
+}
+
+// Verify a 6-digit code. Returns the resulting session or an error.
+export async function verifyLoginCode(email, code) {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: code.trim(),
+    type: "email",
+  });
+  if (error) { console.error("verifyLoginCode error:", error); return { error: error.message }; }
+  return { ok: true, session: data.session, user: data.user };
+}
+
+// Sign out the current user.
+export async function signOutUser() {
+  const { error } = await supabase.auth.signOut();
+  if (error) { console.error("signOutUser error:", error); return { error: error.message }; }
+  return { ok: true };
+}
+
+// Get the current session (or null if not signed in).
+export async function getCurrentSession() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) { console.error("getCurrentSession error:", error); return null; }
+  return data.session;
+}
+
+// Subscribe to auth state changes. Returns an unsubscribe function.
+// The callback receives (event, session). Events are: SIGNED_IN, SIGNED_OUT,
+// TOKEN_REFRESHED, USER_UPDATED, PASSWORD_RECOVERY.
+export function onAuthStateChange(callback) {
+  const { data } = supabase.auth.onAuthStateChange(callback);
+  return () => data.subscription.unsubscribe();
+}
+
+// Resolve the current user's roles. Calls the SQL RPC which auto-grants
+// roles from registrations/approved_staff/commissioner hardcode and returns
+// all roles. Returns an array of role row objects, or [] if not signed in.
+export async function loadCurrentUserRoles() {
+  const { data, error } = await supabase.rpc("resolve_current_user_roles");
+  if (error) { console.error("loadCurrentUserRoles error:", error); return []; }
+  return data || [];
+}
+
+// Verify the commissioner master password. On success returns
+// { ok: true, commissioner_email }. The caller should then initiate a
+// normal OTP login flow for that email.
+export async function verifyCommissionerPassword(password) {
+  const { data, error } = await supabase.rpc("verify_commissioner_password", { p_password: password });
+  if (error) { console.error("verifyCommissionerPassword error:", error); return { ok: false, error: error.message }; }
+  return data;
+}
+
+// Change the commissioner password (must be logged in as commissioner).
+export async function changeCommissionerPassword(newPassword) {
+  const { data, error } = await supabase.rpc("change_commissioner_password", { p_new_password: newPassword });
+  if (error) { console.error("changeCommissionerPassword error:", error); return { ok: false, error: error.message }; }
+  return data;
+}
+
+// Grant a role to a user by email. Only admins/commissioners; only
+// commissioner can grant 'admin'. team_scope is optional and only used for
+// role='team_rep'.
+export async function adminGrantRole(email, role, teamScope = null) {
+  const { data, error } = await supabase.rpc("grant_user_role", {
+    p_email: email,
+    p_role: role,
+    p_team_scope: teamScope,
+  });
+  if (error) { console.error("adminGrantRole error:", error); return { ok: false, error: error.message }; }
+  return data;
+}
+
+// Revoke a role from a user by email.
+export async function adminRevokeRole(email, role, teamScope = null) {
+  const { data, error } = await supabase.rpc("revoke_user_role", {
+    p_email: email,
+    p_role: role,
+    p_team_scope: teamScope,
+  });
+  if (error) { console.error("adminRevokeRole error:", error); return { ok: false, error: error.message }; }
+  return data;
+}
+
+// Submit a staff access request from the public form. No auth required.
+export async function submitStaffRequest({ firstName, lastName, email, phone, requestedRole, notes }) {
+  const { error } = await supabase.from("staff_requests").insert({
+    first_name: firstName,
+    last_name: lastName,
+    email: email.trim().toLowerCase(),
+    phone: phone || null,
+    requested_role: requestedRole,
+    notes: notes || null,
+  });
+  if (error) { console.error("submitStaffRequest error:", error); return { ok: false, error: error.message }; }
+  return { ok: true };
+}
+
+// Admin: list staff requests, optionally filtered by status.
+export async function adminListStaffRequests(status = "pending") {
+  let q = supabase.from("staff_requests").select("*").order("created_at", { ascending: false });
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q;
+  if (error) { console.error("adminListStaffRequests error:", error); return []; }
+  return data || [];
+}
+
+// Admin: approve a staff request (moves to approved_staff).
+export async function adminApproveStaffRequest(requestId) {
+  const { data, error } = await supabase.rpc("approve_staff_request", { p_request_id: requestId });
+  if (error) { console.error("adminApproveStaffRequest error:", error); return { ok: false, error: error.message }; }
+  return data;
+}
+
+// Admin: reject a staff request.
+export async function adminRejectStaffRequest(requestId) {
+  const { data, error } = await supabase.rpc("reject_staff_request", { p_request_id: requestId });
+  if (error) { console.error("adminRejectStaffRequest error:", error); return { ok: false, error: error.message }; }
+  return data;
+}
+
+// ============================================================================
+// ADMIN GAME_LOG WRITES (Phase 1 auth-backed)
+// ============================================================================
+// These call server-side RPCs that check has_admin_or_commish() on the
+// Supabase Auth session. They replace direct supabase.from("game_log")
+// writes, which were failing under anon RLS.
+
+export async function adminInsertGameLog(rows) {
+  const { data, error } = await supabase.rpc("admin_insert_game_log", { p_rows: rows });
+  if (error) { console.error("adminInsertGameLog error:", error); return { ok: false, error: error.message }; }
+  return data;
+}
+
+export async function adminDeleteGameLogForGame({ year, week, date, homeTeam, awayTeam }) {
+  const { data, error } = await supabase.rpc("admin_delete_game_log_for_game", {
+    p_year: year,
+    p_week: week,
+    p_date: date,
+    p_home: homeTeam,
+    p_away: awayTeam,
+  });
+  if (error) { console.error("adminDeleteGameLogForGame error:", error); return { ok: false, error: error.message }; }
+  return data;
 }
