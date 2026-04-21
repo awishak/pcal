@@ -1647,6 +1647,30 @@ function AppInner() {
       gameScores[key][g[1]] = (gameScores[key][g[1]] || 0) + g[7];
     });
 
+    // Determine the championship-winning team for each year. We look at
+    // all game_type === "C" rows, sum team points per (year, team), and
+    // pick the higher-scoring team as the champ.
+    // Special case: 2005 was won by Hayward (commissioner-confirmed).
+    const champsByYear = {};
+    {
+      const byYearKey = {};
+      GAME_LOG.filter(g => g[6] === 1 && g[5] === "C").forEach(g => {
+        const year = g[20];
+        const teams = [g[1], g[2]].sort().join("-");
+        const key = `${year}|${teams}`;
+        if (!byYearKey[key]) byYearKey[key] = { year, scores: {} };
+        byYearKey[key].scores[g[1]] = (byYearKey[key].scores[g[1]] || 0) + g[7];
+      });
+      Object.values(byYearKey).forEach(({ year, scores }) => {
+        const entries = Object.entries(scores);
+        if (entries.length < 2) return;
+        entries.sort((a, b) => b[1] - a[1]);
+        champsByYear[year] = entries[0][0];
+      });
+      // Override for 2005: Hayward.
+      champsByYear[2005] = "HAY";
+    }
+
     return Object.values(byPlayer).map(p => {
       const rs = p.records;
       const g = rs.reduce((s,r) => s+r.g, 0);
@@ -1674,8 +1698,9 @@ function AppInner() {
       const bigStl = playerGames.length ? Math.max(...playerGames.map(gl => gl[9])) : 0;
       const bigBlk = playerGames.length ? Math.max(...playerGames.map(gl => gl[11])) : 0;
 
-      // Wins, playoff wins, championships, playoff games
-      let wins = 0, playoffWins = 0, champWins = 0, playoffGames = 0;
+      // Wins, playoff wins, playoff games (championship tracked separately
+      // below).
+      let wins = 0, playoffWins = 0, playoffGames = 0;
       const playoffYears = new Set();
       playerGames.forEach(gl => {
         const key = `${gl[20]}-${gl[3]}-${[gl[1],gl[2]].sort().join("-")}-${gl[5]}`;
@@ -1689,10 +1714,32 @@ function AppInner() {
           if (myPts > oppPts) {
             wins++;
             if (gl[5] === "P" || gl[5] === "C") playoffWins++;
-            if (gl[5] === "C") champWins++;
           }
         }
       });
+
+      // Championships: credited based on roster membership, not just
+      // championship-game appearance. A player gets a championship for
+      // each (year, team) where the team won the championship AND the
+      // player either played in the championship game OR played at
+      // least 5 games for that team in that year (any game type).
+      //
+      // Build a map of (year, team) -> { games, playedInChampGame }.
+      const teamYearMap = {};
+      playerGames.forEach(gl => {
+        const team = gl[1];
+        const year = gl[20];
+        const k = `${year}|${team}`;
+        if (!teamYearMap[k]) teamYearMap[k] = { year, team, games: 0, playedInChampGame: false };
+        teamYearMap[k].games += 1;
+        if (gl[5] === "C") teamYearMap[k].playedInChampGame = true;
+      });
+      let champWins = 0;
+      Object.values(teamYearMap).forEach(({ year, team, games, playedInChampGame }) => {
+        if (champsByYear[year] !== team) return;
+        if (games >= 5 || playedInChampGame) champWins++;
+      });
+
       const playoffAppearances = playoffYears.size;
       const winPct = g > 0 ? wins / g : 0;
 
