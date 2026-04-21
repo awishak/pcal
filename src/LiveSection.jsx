@@ -647,13 +647,6 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
         )}
       </div>
 
-      {/* Admin review link */}
-      <div className="mb-4 flex items-center justify-end">
-        <button onClick={onReview} className="text-[11px] font-bold text-gray-500 px-2 py-1 rounded bg-gray-100 active:bg-gray-200">
-          Admin review
-        </button>
-      </div>
-
       {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading...</div>}
 
       {!loading && allGames.length === 0 && (
@@ -690,6 +683,15 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
           <PastByWeek games={past} liveStates={liveStates} liveScores={liveScores} onOpenGame={onOpenGame} fmtDate={fmtDate} />
         </div>
       )}
+
+      {/* Admin review link at the bottom of the page (moved from top to
+          declutter the header; admin review is rare and doesn't need to
+          be prominent). */}
+      <div className="mt-8 pt-4 border-t border-gray-100 flex items-center justify-center">
+        <button onClick={onReview} className="text-[10px] text-gray-300 hover:text-gray-500">
+          Admin review
+        </button>
+      </div>
 
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onLogin={(p) => { onLogin(p); setShowLogin(false); }} />}
     </div>

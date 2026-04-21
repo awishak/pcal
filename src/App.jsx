@@ -1275,7 +1275,6 @@ function AppInner() {
   const [searchPreset, setSearchPreset] = useState(null); // "2025awards" | "2025byTeam" | "topGames" | "firstTeam" | "random10"
   const [searchPresetTeam, setSearchPresetTeam] = useState(null); // team code for "2025byTeam"
   const [searchRandomSeed, setSearchRandomSeed] = useState(0);
-  const [fontSize, setFontSize] = useState(14);
   const [showFontControl, setShowFontControl] = useState(false);
   const [liveInitialGameId, setLiveInitialGameId] = useState(null);
 
@@ -1295,6 +1294,10 @@ function AppInner() {
   const [authSession, setAuthSession] = useState(null);
   const [userRoles, setUserRoles] = useState([]);
   const [authLoading, setAuthLoading] = useState(true);
+  // Display name for the signed-in user. Derived from registrations by
+  // email match; falls back to the email prefix if no registration exists.
+  // Used in the top header next to the logout button.
+  const [authDisplayName, setAuthDisplayName] = useState("");
 
   // Refresh the current user's roles from Supabase. Called after login and
   // when the session changes.
@@ -1307,6 +1310,31 @@ function AppInner() {
     }
   }, []);
 
+  // Look up a friendly display name from registrations for the current
+  // session. Runs when the session changes. Also exposes the first name
+  // alone for compact display.
+  const refreshDisplayName = useCallback(async (session) => {
+    if (!session || !session.user || !session.user.email) {
+      setAuthDisplayName("");
+      return;
+    }
+    const email = session.user.email;
+    try {
+      const { data } = await supabase
+        .from("registrations")
+        .select("first_name, last_name")
+        .ilike("email", email)
+        .limit(1);
+      if (data && data.length > 0) {
+        const r = data[0];
+        setAuthDisplayName(`${r.first_name || ""} ${r.last_name || ""}`.trim());
+        return;
+      }
+    } catch {}
+    // Fallback to email prefix.
+    setAuthDisplayName(email.split("@")[0]);
+  }, []);
+
   // Initial session check + subscribe to auth state changes.
   useEffect(() => {
     let cancelled = false;
@@ -1316,6 +1344,7 @@ function AppInner() {
       setAuthSession(s);
       if (s) {
         await refreshUserRoles();
+        await refreshDisplayName(s);
       }
       setAuthLoading(false);
     })();
@@ -1324,6 +1353,7 @@ function AppInner() {
       setAuthSession(s);
       if (s) {
         await refreshUserRoles();
+        await refreshDisplayName(s);
         // On fresh sign-in (not token refresh), restore the section the user
         // was on before they started the login flow. Supabase fires
         // SIGNED_IN both for brand-new logins and for session restoration on
@@ -1345,10 +1375,11 @@ function AppInner() {
         }
       } else {
         setUserRoles([]);
+        setAuthDisplayName("");
       }
     });
     return () => { cancelled = true; unsub(); };
-  }, [refreshUserRoles]);
+  }, [refreshUserRoles, refreshDisplayName]);
 
   // Helper: does the current user have a specific role?
   const hasRole = useCallback((role, teamScope = null) => {
@@ -2445,7 +2476,7 @@ function AppInner() {
   };
 
   return (
-    <div className="min-h-screen bg-white pb-24" style={{ fontFamily: "'Outfit', sans-serif", fontSize: `${fontSize}px` }}>
+    <div className="min-h-screen bg-white pb-24" style={{ fontFamily: "'Outfit', sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 
       {/* Top header */}
@@ -2460,27 +2491,40 @@ function AppInner() {
             <img src="/favicon.ico" alt="" width="24" height="24" className="flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">PCAL</h1>
           </div>
-          <button onClick={() => setShowFontControl(!showFontControl)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="Font size">
-            <span className="text-sm font-bold text-gray-500">Aa</span>
-          </button>
-          <button onClick={() => window.location.reload()} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="Refresh">
-            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992V4.356m-.102 4.992a8.25 8.25 0 10.035 5.304m-.035-5.304a8.287 8.287 0 01-16.547-.348" /></svg>
-          </button>
-          <button onClick={randomPlayer} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="Random player">
-            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5h4l10 14h4m0-14l-4 4m4-4h-4M4 19h4l2-3m4-5l2-3" /></svg>
-          </button>
+          {/* Auth area: when not signed in, show a Log in button.
+              When signed in, show the user's name + a Log out button. */}
+          {authSession ? (
+            <>
+              {authDisplayName && (
+                <span className="text-xs font-bold text-gray-700 truncate max-w-[120px]" title={authDisplayName}>
+                  {authDisplayName}
+                </span>
+              )}
+              <button
+                onClick={async () => {
+                  setAdminToken(null);
+                  await signOutUser();
+                  setAdminUnlocked(false);
+                }}
+                className="text-xs font-bold text-gray-600 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 active:scale-[0.98] transition">
+                Log out
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => {
+                try {
+                  window.localStorage.setItem("pcal_pending_section", JSON.stringify({
+                    section, tab, ts: Date.now(),
+                  }));
+                } catch {}
+                setAdminPasswordModal(true);
+              }}
+              className="text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] transition">
+              Log in
+            </button>
+          )}
         </div>
-        {showFontControl && (
-          <div className="max-w-lg mx-auto px-4 pb-3 flex items-center gap-3">
-            <span className="text-xs text-gray-400">A</span>
-            <input type="range" min="10" max="20" step="0.5" value={fontSize}
-              onChange={e => setFontSize(parseFloat(e.target.value))}
-              className="flex-1 h-1 accent-gray-900" />
-            <span className="text-base font-bold text-gray-400">A</span>
-            <span className="text-xs text-gray-400 w-8 text-right">{fontSize}</span>
-            <button onClick={() => setFontSize(14)} className="text-[10px] text-gray-400 font-bold px-2 py-0.5 rounded bg-gray-100 active:bg-gray-200">Reset</button>
-          </div>
-        )}
       </div>
 
       {/* Content area */}
