@@ -1324,6 +1324,25 @@ function AppInner() {
       setAuthSession(s);
       if (s) {
         await refreshUserRoles();
+        // On fresh sign-in (not token refresh), restore the section the user
+        // was on before they started the login flow. Supabase fires
+        // SIGNED_IN both for brand-new logins and for session restoration on
+        // page load, so we only honor the stored section if it was recently
+        // saved (within 10 minutes).
+        if (event === "SIGNED_IN") {
+          try {
+            const raw = window.localStorage.getItem("pcal_pending_section");
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              const age = Date.now() - (parsed.ts || 0);
+              if (age < 10 * 60 * 1000 && parsed.section) {
+                setSection(parsed.section);
+                if (parsed.tab) setTab(parsed.tab);
+              }
+              window.localStorage.removeItem("pcal_pending_section");
+            }
+          } catch {}
+        }
       } else {
         setUserRoles([]);
       }
@@ -2569,7 +2588,20 @@ function AppInner() {
               ))}
             </div>
             <div className="mt-8 pt-4 border-t border-gray-100 text-center">
-              <button onClick={() => { if (adminUnlocked) { setTab("admin"); } else { setAdminPasswordModal(true); } }}
+              <button
+                onClick={() => {
+                  if (adminUnlocked) {
+                    setTab("admin");
+                  } else {
+                    // Remember where we were so we can come back here after login.
+                    try {
+                      window.localStorage.setItem("pcal_pending_section", JSON.stringify({
+                        section, tab, ts: Date.now(),
+                      }));
+                    } catch {}
+                    setAdminPasswordModal(true);
+                  }
+                }}
                 className="text-[10px] text-gray-300 hover:text-gray-500">
                 {adminUnlocked ? "Admin Panel" : "Admin"}
               </button>

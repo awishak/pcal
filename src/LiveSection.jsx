@@ -557,7 +557,17 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
         ) : (
           <>
             <div className="flex-1 text-sm text-gray-600">Not signed in</div>
-            <button onClick={() => setShowLogin(true)} className="text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-emerald-500 active:bg-emerald-600">
+            <button
+              onClick={() => {
+                // Remember we were on the Live section so we return here after login.
+                try {
+                  window.localStorage.setItem("pcal_pending_section", JSON.stringify({
+                    section: "live", tab: "live", ts: Date.now(),
+                  }));
+                } catch {}
+                setShowLogin(true);
+              }}
+              className="text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-emerald-500 active:bg-emerald-600">
               Log in
             </button>
           </>
@@ -1956,7 +1966,14 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
           <div className="text-sm text-gray-700 mb-3">Log in to score this game.</div>
           <button
-            onClick={() => setShowInlineLogin(true)}
+            onClick={() => {
+              try {
+                window.localStorage.setItem("pcal_pending_section", JSON.stringify({
+                  section: "live", tab: "live", ts: Date.now(),
+                }));
+              } catch {}
+              setShowInlineLogin(true);
+            }}
             className="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold text-sm active:bg-emerald-600"
           >
             Log in
