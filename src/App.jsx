@@ -3653,15 +3653,13 @@ function LiveHomeCard({ openLiveGame }) {
 
   return (
     <div className="rounded-2xl bg-white border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Games</p>
-          <h3 className="text-base font-black text-gray-900 mt-0.5">{weekLabel}</h3>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{fmtDate(weekMeta.game_date)}</p>
-          {weekMeta.location && <p className="text-[10px] text-gray-500 mt-0.5">{weekMeta.location}</p>}
-        </div>
+      {/* Prominent week header: eyebrow + big date + location */}
+      <div className="mb-4">
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Games &middot; {weekLabel}</p>
+        <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(weekMeta.game_date)}</h3>
+        {weekMeta.location && (
+          <p className="text-sm text-gray-600 font-semibold mt-0.5">{weekMeta.location}</p>
+        )}
       </div>
 
       {liveGame && (
@@ -3767,7 +3765,7 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
     const [hh, mm] = game.game_time.split(":");
     const h = parseInt(hh, 10);
     const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    const ampm = h >= 12 ? "p" : "a";
+    const ampm = h >= 12 ? "pm" : "am";
     return `${hour12}${ampm}`;
   })();
   const scoringTeam = game.scoring_team;
@@ -3778,18 +3776,18 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   // For not-ended games the right side stays empty so the layout matches.
   const teamRow = (team, score, won, showScore) => (
     <div className="flex items-center justify-between gap-1">
-      <div className="flex items-center gap-1">
-        <TeamLogo team={team} size={16} />
-        <span className="text-[10px] font-black text-gray-900">{team}</span>
+      <div className="flex items-center gap-1.5">
+        <TeamLogo team={team} size={20} />
+        <span className="text-xs font-black text-gray-900">{team}</span>
       </div>
       {showScore && (
         <div className="flex items-center gap-0.5">
           {won && (
-            <svg className="w-2 h-2 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
+            <svg className="w-2.5 h-2.5 text-gray-900" viewBox="0 0 8 8" fill="currentColor">
               <path d="M0 1 L8 4 L0 7 Z" />
             </svg>
           )}
-          <span className={`text-sm font-black tabular-nums ${
+          <span className={`text-base font-black tabular-nums ${
             won ? "text-gray-900" : "text-gray-400"
           }`}>{score}</span>
         </div>
@@ -3800,36 +3798,37 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   return (
     <div className="flex flex-col gap-1">
       <button onClick={onTap}
-        className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1 ${
+        className={`rounded-lg p-2 active:scale-95 transition flex flex-col items-center gap-1.5 ${
           isEnded
             ? "bg-white border-2 border-gray-900"
             : "bg-gray-50 border border-gray-200"
         }`}>
-        <div className="flex items-center justify-center gap-1">
-          <span className="text-[11px] text-gray-500 font-bold">{timeStr}</span>
+        <div className="flex items-center justify-center gap-1.5">
+          <span className="text-sm text-gray-600 font-bold">{timeStr}</span>
           {isEnded && (
-            <span className="text-[11px] font-black text-gray-900 uppercase tracking-wide">
+            <span className="text-xs font-black text-gray-900 uppercase tracking-wide">
               Final
             </span>
           )}
         </div>
-        <div className="flex flex-col gap-0.5 w-full">
-          {teamRow(home, homeScore, homeWon, isEnded)}
+        <div className="flex flex-col gap-1 w-full">
           {teamRow(away, awayScore, awayWon, isEnded)}
+          {teamRow(home, homeScore, homeWon, isEnded)}
         </div>
-      </button>
-      {scoringTeam && (
-        <div className="px-0.5 text-[9px] leading-tight text-gray-500 space-y-0.5">
-          <div>
-            <span className="text-gray-400">Scoring Team:</span>{" "}
+        {/* Scoring team label inside the card. */}
+        {scoringTeam && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
+            <span className="uppercase tracking-wide">Scoring:</span>
             <span className="font-bold text-gray-700">{scoringTeam}</span>
           </div>
-          {coordShort && (
-            <div>
-              <span className="text-gray-400">Coord:</span>{" "}
-              <span className="text-gray-700">{coordShort}</span>
-            </div>
-          )}
+        )}
+      </button>
+      {/* Coordinator name below the card (extra detail only available on
+          the home-page card; the Games page drops this to stay compact). */}
+      {scoringTeam && coordShort && (
+        <div className="px-0.5 text-[9px] leading-tight text-gray-500">
+          <span className="text-gray-400">Coord:</span>{" "}
+          <span className="text-gray-700">{coordShort}</span>
         </div>
       )}
     </div>
