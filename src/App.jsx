@@ -1567,7 +1567,7 @@ function AppInner() {
     { key: "home", label: "Home", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
     { key: "stats", label: "Stats & History", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
     { key: "schedule", label: "Schedule", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
-    { key: "live", label: "Games", icon: "M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" },
+    { key: "live", label: "Games", icon: "M12 2a10 10 0 100 20 10 10 0 000-20zM2 12h20M12 2v20M4.93 4.93c3.9 3.9 3.9 10.24 0 14.14M19.07 4.93c-3.9 3.9-3.9 10.24 0 14.14" },
     { key: "register", label: "Register", icon: "M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" },
   ];
   const NAV_ITEMS = ALL_NAV_ITEMS.filter(item => {
@@ -3815,11 +3815,12 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
           {teamRow(away, awayScore, awayWon, isEnded)}
           {teamRow(home, homeScore, homeWon, isEnded)}
         </div>
-        {/* Scoring team label inside the card. */}
+        {/* Scoring team as a yellow pill. Always shown so users see who's
+            keeping book at a glance. */}
         {scoringTeam && (
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
-            <span className="uppercase tracking-wide">Scoring:</span>
-            <span className="font-bold text-gray-700">{scoringTeam}</span>
+          <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-[10px]">
+            <span className="uppercase tracking-wide text-yellow-800 font-bold">Scoring:</span>
+            <span className="font-black text-yellow-900">{scoringTeam}</span>
           </div>
         )}
       </button>

@@ -629,39 +629,16 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
 
   return (
     <div>
-      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Games</p>
-
-      {/* Identity bar */}
-      <div className="mb-4 rounded-2xl border border-gray-100 bg-gray-50 p-3 flex items-center gap-3">
-        {me ? (
-          <>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-bold text-gray-900">{formatName(me.name)}</div>
-              <div className="text-[11px] text-gray-500">
-                {me.team ? (TEAM_NAMES[me.team] || me.team) : (me.email || "Signed in")}
-              </div>
-            </div>
-            <button onClick={onLogout} className="text-[11px] font-bold text-gray-500 px-3 py-1.5 rounded-lg bg-white border border-gray-200 active:bg-gray-100">
-              Log out
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="flex-1 text-sm text-gray-600">Not signed in</div>
-            <button
-              onClick={() => {
-                try {
-                  window.localStorage.setItem("pcal_pending_section", JSON.stringify({
-                    section: "live", tab: "live", ts: Date.now(),
-                  }));
-                } catch {}
-                setShowLogin(true);
-              }}
-              className="text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-emerald-500 active:bg-emerald-600">
-              Log in
-            </button>
-          </>
-        )}
+      {/* Tentative-schedule warning banner. Shown at the very top of the
+          Games page until the schedule is finalized. Remove or toggle via
+          code change once finalized. */}
+      <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
+        <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <p className="text-xs text-amber-800 font-medium leading-relaxed">
+          This is a tentative schedule with placeholder games. The schedule will be confirmed in late May.
+        </p>
       </div>
 
       {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading...</div>}
@@ -915,16 +892,15 @@ function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false
     </div>
   );
 
-  // Card background: three states.
-  //   highlightScoring: light yellow (user filtered by a team and this
-  //     game is one that team is scoring)
+  // Card background: two states.
   //   isEnded: white with black border (completed game)
   //   default: light gray
-  const cardClass = highlightScoring
-    ? "bg-yellow-50 border border-yellow-300"
-    : isEnded
-      ? "bg-white border-2 border-gray-900"
-      : "bg-gray-50 border border-gray-200";
+  // Note: previously we highlighted the whole card yellow when filtered
+  // to a team's scoring duties; now we always highlight the scoring team
+  // label itself with a yellow pill regardless of filter. More scannable.
+  const cardClass = isEnded
+    ? "bg-white border-2 border-gray-900"
+    : "bg-gray-50 border border-gray-200";
 
   return (
     <button onClick={onTap}
@@ -941,12 +917,12 @@ function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false
         {teamRow(away, awayScore, awayWon, isEnded)}
         {teamRow(home, homeScore, homeWon, isEnded)}
       </div>
-      {/* Scoring team label: always show, so users know who is keeping
-          the book. Tiny, muted, at the bottom of the card. */}
+      {/* Scoring team as a yellow pill. Always shown so users see who's
+          keeping book at a glance. */}
       {game.scoring_team && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
-          <span className="uppercase tracking-wide">Scoring:</span>
-          <span className="font-bold text-gray-700">{game.scoring_team}</span>
+        <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-[10px]">
+          <span className="uppercase tracking-wide text-yellow-800 font-bold">Scoring:</span>
+          <span className="font-black text-yellow-900">{game.scoring_team}</span>
         </div>
       )}
     </button>
