@@ -8894,6 +8894,8 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
     announceRegistration: true,
     regQuote: "",
     gender: "",
+    jerseyNumberLastYear: "",
+    tshirtSize: "",
   });
 
   const resetForm = () => {
@@ -8905,6 +8907,7 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
       confirmed: false, emailVerified: false, verificationPin: "", pinSent: false,
       adminOverride: false, wrongEmail: false, conflictsNote: "", headshotUrl: "",
       announceRegistration: true, regQuote: "", gender: "",
+      jerseyNumberLastYear: "", tshirtSize: "",
     });
     setAgreed(false);
   };
@@ -8940,6 +8943,8 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
       announce_registration: !!form.announceRegistration,
       reg_quote: form.regQuote || null,
       gender: form.gender || null,
+      jersey_number_last_year: form.jerseyNumberLastYear === "" ? null : parseInt(form.jerseyNumberLastYear, 10),
+      tshirt_size: form.tshirtSize || null,
     };
     const res = await submitRegistration(payload, pin);
     setSubmitting(false);
@@ -9400,6 +9405,37 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
             </div>
           ))}
 
+          {/* Jersey number (optional). If they played last year, let them
+              request their number from that season. Integer 0-99. */}
+          <div>
+            <label className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1 block">
+              Jersey Number Last Year <span className="text-gray-400 normal-case">(optional)</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="99"
+              value={form.jerseyNumberLastYear}
+              onChange={e => setForm(f => ({ ...f, jerseyNumberLastYear: e.target.value }))}
+              placeholder="e.g. 23"
+              className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white"
+            />
+          </div>
+
+          {/* T-shirt size (optional). Free text so women's sizes, XXL etc. all work. */}
+          <div>
+            <label className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1 block">
+              T-Shirt Size <span className="text-gray-400 normal-case">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={form.tshirtSize}
+              onChange={e => setForm(f => ({ ...f, tshirtSize: e.target.value }))}
+              placeholder="e.g. M, L, XL"
+              className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-medium text-gray-900 placeholder-gray-300 outline-none focus:border-gray-400 transition-colors bg-white"
+            />
+          </div>
+
           {/* Headshot upload (optional) */}
           <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 space-y-3">
             <div>
@@ -9721,6 +9757,8 @@ function RegistrationEditMode() {
       buyout_volunteer: !!reg.buyout_volunteer,
       conflicts_note: reg.conflicts_note || "",
       eligibility: reg.eligibility || "",
+      jersey_number_last_year: reg.jersey_number_last_year === "" || reg.jersey_number_last_year == null ? null : parseInt(reg.jersey_number_last_year, 10),
+      tshirt_size: reg.tshirt_size || "",
     };
     const res = await updateOwnRegistration(email, pin, payload);
     setBusy(false);
@@ -9833,6 +9871,36 @@ function RegistrationEditMode() {
             className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50 disabled:text-gray-500" />
         </div>
       ))}
+
+      {/* Jersey number (optional) */}
+      <div>
+        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+          Jersey number last year <span className="text-gray-400 normal-case">(optional)</span>
+        </label>
+        <input
+          type="number"
+          min="0"
+          max="99"
+          value={reg.jersey_number_last_year == null ? "" : reg.jersey_number_last_year}
+          disabled={readOnly}
+          onChange={e => setReg(r => ({ ...r, jersey_number_last_year: e.target.value }))}
+          className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+        />
+      </div>
+
+      {/* T-shirt size (optional) */}
+      <div>
+        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+          T-shirt size <span className="text-gray-400 normal-case">(optional)</span>
+        </label>
+        <input
+          type="text"
+          value={reg.tshirt_size || ""}
+          disabled={readOnly}
+          onChange={e => setReg(r => ({ ...r, tshirt_size: e.target.value }))}
+          className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+        />
+      </div>
 
       {/* Team preference - selectable tiles */}
       <div>
