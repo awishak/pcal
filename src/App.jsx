@@ -3919,15 +3919,31 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
           {teamRow(away, awayScore, awayWon, awayLeading, showScore)}
           {teamRow(home, homeScore, homeWon, homeLeading, showScore)}
         </div>
-        {/* Scoring team label inside the card. Muted gray; the home
-            page has no team filter so no yellow state here. */}
-        {scoringTeam && (
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
-            <span className="uppercase tracking-wide">Scoring:</span>
-            <TeamLogo team={scoringTeam} size={14} />
-            <span className="font-bold text-gray-700">{scoringTeam}</span>
-          </div>
-        )}
+        {/* Scoring team label inside the card. Orange pill + "self-score"
+            label when the scoring team is one of the playing teams,
+            otherwise muted gray. */}
+        {scoringTeam && (() => {
+          const isSelfScore = scoringTeam === home || scoringTeam === away;
+          if (isSelfScore) {
+            return (
+              <div className="mt-0.5 flex flex-col items-center gap-0.5">
+                <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-100 border border-orange-300 text-[10px]">
+                  <span className="uppercase tracking-wide text-orange-800 font-bold">Scoring:</span>
+                  <TeamLogo team={scoringTeam} size={14} />
+                  <span className="font-black text-orange-900">{scoringTeam}</span>
+                </div>
+                <span className="text-[9px] text-orange-700 font-semibold italic">self-score</span>
+              </div>
+            );
+          }
+          return (
+            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
+              <span className="uppercase tracking-wide">Scoring:</span>
+              <TeamLogo team={scoringTeam} size={14} />
+              <span className="font-bold text-gray-700">{scoringTeam}</span>
+            </div>
+          );
+        })()}
       </button>
       {/* Coordinator name below the card (extra detail only available on
           the home-page card; the Games page drops this to stay compact). */}

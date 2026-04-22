@@ -1195,25 +1195,42 @@ function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false
         {teamRow(away, awayScore, awayWon, isEnded)}
         {teamRow(home, homeScore, homeWon, isEnded)}
       </div>
-      {/* Scoring team. Normally muted gray; turns yellow when a team
-          filter is active and this is a game that team is scoring (not
-          playing). Helps the scorekeeper's games stand out when drilling
-          into one team. */}
-      {game.scoring_team && (
-        highlightScoring ? (
-          <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-[10px]">
-            <span className="uppercase tracking-wide text-yellow-800 font-bold">Scoring:</span>
-            <TeamLogoLocal team={game.scoring_team} size={14} />
-            <span className="font-black text-yellow-900">{game.scoring_team}</span>
-          </div>
-        ) : (
+      {/* Scoring team. Three states:
+          - Self-score (scoring team is playing in this game): orange pill
+            with "self-score" label below it.
+          - Team filter highlights this as scoring-only duty: yellow pill.
+          - Otherwise: muted gray text. */}
+      {game.scoring_team && (() => {
+        const isSelfScore = game.scoring_team === game.home_team || game.scoring_team === game.away_team;
+        if (isSelfScore) {
+          return (
+            <div className="mt-0.5 flex flex-col items-center gap-0.5">
+              <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-100 border border-orange-300 text-[10px]">
+                <span className="uppercase tracking-wide text-orange-800 font-bold">Scoring:</span>
+                <TeamLogoLocal team={game.scoring_team} size={14} />
+                <span className="font-black text-orange-900">{game.scoring_team}</span>
+              </div>
+              <span className="text-[9px] text-orange-700 font-semibold italic">self-score</span>
+            </div>
+          );
+        }
+        if (highlightScoring) {
+          return (
+            <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-[10px]">
+              <span className="uppercase tracking-wide text-yellow-800 font-bold">Scoring:</span>
+              <TeamLogoLocal team={game.scoring_team} size={14} />
+              <span className="font-black text-yellow-900">{game.scoring_team}</span>
+            </div>
+          );
+        }
+        return (
           <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
             <span className="uppercase tracking-wide">Scoring:</span>
             <TeamLogoLocal team={game.scoring_team} size={14} />
             <span className="font-bold text-gray-700">{game.scoring_team}</span>
           </div>
-        )
-      )}
+        );
+      })()}
     </button>
   );
 }
