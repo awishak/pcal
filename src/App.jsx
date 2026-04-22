@@ -3629,8 +3629,20 @@ function LiveHomeCard({ openLiveGame }) {
         setLoaded(true);
         return;
       }
-      // Pick the "current week": the earliest (season, week) present in window
+      // Pick the "current week": the earliest (season, week) present in window.
+      // If the earliest game is more than 7 days away, hide the card entirely
+      // (no point in showing a schedule preview far in advance). Users can
+      // always see the full schedule on the Games tab.
       const first = sched[0];
+      const firstGameTs = new Date(`${first.game_date}T${first.game_time || "00:00:00"}`).getTime();
+      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+      if (firstGameTs - nowMs > SEVEN_DAYS) {
+        setGames([]);
+        setLiveStates({});
+        setLiveScores({});
+        setLoaded(true);
+        return;
+      }
       const weekGames = sched.filter(g => g.season === first.season && g.week === first.week);
       setGames(weekGames);
 
@@ -4508,37 +4520,8 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         );
       })()}
 
-      {/* Week 1 Schedule */}
-      {isVisible("weekOneSchedule") && (
-        <div className="rounded-2xl bg-white border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Opening Day</p>
-              <h3 className="text-base font-black text-gray-900 mt-0.5">Week 1 Schedule</h3>
-            </div>
-            <span className="text-[9px] font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">TENTATIVE</span>
-          </div>
-          <div className="text-xs text-gray-600 mb-3">
-            <span className="font-bold">{WEEK_1_2026.date}</span> · {WEEK_1_2026.location} · Bye: <span className="font-bold">{WEEK_1_2026.bye}</span>
-          </div>
-          <div className="space-y-1.5">
-            {WEEK_1_2026.games.map((g, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <span className="text-gray-400 tabular-nums w-14 font-medium">{g.time}</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-black"
-                  style={{ backgroundColor: TEAM_BADGE_COLORS[g.t1].bg, color: TEAM_BADGE_COLORS[g.t1].text }}>{g.t1}</span>
-                <span className="text-gray-400 text-[10px]">vs</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-black"
-                  style={{ backgroundColor: TEAM_BADGE_COLORS[g.t2].bg, color: TEAM_BADGE_COLORS[g.t2].text }}>{g.t2}</span>
-              </div>
-            ))}
-          </div>
-          <button onClick={() => switchSection("schedule")}
-            className="mt-3 text-xs font-bold text-blue-600 hover:text-blue-700">
-            Full season schedule →
-          </button>
-        </div>
-      )}
+      {/* Week 1 Schedule block removed per commissioner request. Users
+          can see the full schedule on the Games tab. */}
 
       {/* Photo cards */}
       {isVisible("photos") && photoCards.length > 0 && (
