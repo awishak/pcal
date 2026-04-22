@@ -182,6 +182,17 @@ export async function updateOwnRegistration(email, pin, payload) {
 }
 
 export async function adminListRegistrations() {
+  // Prefer the auth-based RPC when the user has a Supabase Auth session
+  // with admin/commissioner role. Fall back to the token-based RPC for
+  // legacy admin-password flows.
+  const session = await getCurrentSession();
+  if (session) {
+    const { data, error } = await supabase.rpc("admin_list_registrations_auth");
+    if (!error) return data || [];
+    // If auth RPC fails (user isn't admin, or RPC missing), fall through
+    // to token fallback.
+    console.error("admin_list_registrations_auth error:", error);
+  }
   const token = getAdminToken();
   if (!token) return [];
   const { data, error } = await supabase.rpc("admin_list_registrations", { p_token: token });
@@ -190,6 +201,14 @@ export async function adminListRegistrations() {
 }
 
 export async function adminUpdateRegistration(id, payload) {
+  const session = await getCurrentSession();
+  if (session) {
+    const { data, error } = await supabase.rpc("admin_update_registration_auth", {
+      p_id: id, p_payload: payload,
+    });
+    if (!error) return data;
+    console.error("admin_update_registration_auth error:", error);
+  }
   const token = getAdminToken();
   if (!token) return { error: "not admin" };
   const { data, error } = await supabase.rpc("admin_update_registration", {
@@ -200,6 +219,12 @@ export async function adminUpdateRegistration(id, payload) {
 }
 
 export async function adminDeleteRegistration(id) {
+  const session = await getCurrentSession();
+  if (session) {
+    const { data, error } = await supabase.rpc("admin_delete_registration_auth", { p_id: id });
+    if (!error) return data;
+    console.error("admin_delete_registration_auth error:", error);
+  }
   const token = getAdminToken();
   if (!token) return { error: "not admin" };
   const { data, error } = await supabase.rpc("admin_delete_registration", {
