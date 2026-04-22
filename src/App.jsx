@@ -1735,10 +1735,17 @@ function AppInner() {
         if (gl[5] === "C") teamYearMap[k].playedInChampGame = true;
       });
       let champWins = 0;
+      // List of championships with year + winning team, for rendering
+      // year chips on the Championships leaderboard. Sorted by year asc.
+      const championships = [];
       Object.values(teamYearMap).forEach(({ year, team, games, playedInChampGame }) => {
         if (champsByYear[year] !== team) return;
-        if (games >= 5 || playedInChampGame) champWins++;
+        if (games >= 5 || playedInChampGame) {
+          champWins++;
+          championships.push({ year, team });
+        }
       });
+      championships.sort((a, b) => a.year - b.year);
 
       const playoffAppearances = playoffYears.size;
       const winPct = g > 0 ? wins / g : 0;
@@ -1758,7 +1765,7 @@ function AppInner() {
         ts: (2*(fga+0.44*fta)) > 0 ? pts/(2*(fga+0.44*fta)) : 0,
         highPpg, highRpg,
         bigPts, bigReb, bigAst, bigStl, bigBlk,
-        wins, playoffWins, champWins, playoffGames, playoffAppearances, winPct,
+        wins, playoffWins, champWins, championships, playoffGames, playoffAppearances, winPct,
         mvps: rs.filter(r => r.award === "MVP").length,
         allPcal: rs.filter(r => r.award === "All-PCAL" || r.award === "MVP").length,
         teams: [...new Set(rs.map(r => r.team))],
@@ -14153,8 +14160,13 @@ function CareerLeadersTab({ leaders, goToPlayer }) {
     let eligible = [...leaders];
     if (spec.min) eligible = eligible.filter(p => p.g >= spec.min);
     if (spec.shotMin) eligible = eligible.filter(p => p[spec.shotMin.key] >= spec.shotMin.val);
+    // Championships: include every player with at least one ring, no
+    // 25-player cap. Other leaderboards keep the usual top-25 slice.
+    if (cat === "champWins") {
+      return eligible.filter(p => p.champWins >= 1).sort((a, b) => b[sortKey] - a[sortKey]);
+    }
     return eligible.sort((a, b) => b[sortKey] - a[sortKey]).slice(0, 25);
-  }, [leaders, sortKey, spec]);
+  }, [leaders, sortKey, spec, cat]);
 
   // Compute ranks with ties
   const ranks = useMemo(() => {
@@ -14226,7 +14238,7 @@ function CareerLeadersTab({ leaders, goToPlayer }) {
 
           return (
             <div key={i} className={`rounded-xl bg-white overflow-hidden ${isActive ? "border-2 border-blue-200" : "border border-gray-100"}`}>
-              <div className="flex items-center gap-2.5 px-3 py-2 cursor-pointer active:bg-gray-50" onClick={() => goToPlayer(p.player)}>
+              <div className="flex items-start gap-2.5 px-3 py-2 cursor-pointer active:bg-gray-50" onClick={() => goToPlayer(p.player)}>
                 <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-black ${isTop3 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
                   {ri.tied ? "T" + ri.rank : ri.rank}
                 </div>
@@ -14243,6 +14255,27 @@ function CareerLeadersTab({ leaders, goToPlayer }) {
                       <span key={si}><span className="font-bold text-gray-700">{s.v}</span> <span className="text-[9px] text-gray-400">{s.l}</span></span>
                     ))}
                   </div>
+                  {/* Championship year chips: one chip per title, colored
+                      by the winning team's accent color. Only shown on
+                      the Championships leaderboard. */}
+                  {cat === "champWins" && p.championships && p.championships.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {p.championships.map((c, ci) => {
+                        const bg = TEAM_COLORS[c.team] || "#374151";
+                        // Yellowish team colors need black text for contrast.
+                        const isLight = c.team === "PLE" || c.team === "SJK";
+                        const txt = isLight ? "#000000" : "#ffffff";
+                        return (
+                          <span key={ci}
+                            className="text-[10px] font-black px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: bg, color: txt }}
+                            title={`${c.year} ${TEAM_NAMES[c.team] || c.team}`}>
+                            {c.year}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div className={`text-right flex-shrink-0 ${isTop3 ? "text-lg" : "text-base"} font-black text-gray-900 tabular-nums`}>
                   {fmtVal(p[sortKey])}
