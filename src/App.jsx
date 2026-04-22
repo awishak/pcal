@@ -1399,6 +1399,12 @@ function AppInner() {
   const [tileComingDates, setTileComingDates] = useState({});
   const [groupOrder, setGroupOrder] = useState(null);
   const [groupTitles, setGroupTitles] = useState({});
+  // tileTitles: per-tile label override. Maps tileKey -> string. If a
+  // tileKey isn't present, the built-in label is used. Set via admin
+  // panel and persisted like the other config.
+  const [tileTitles, setTileTitles] = useState({});
+  // tileDescs: per-tile description override. Same shape as tileTitles.
+  const [tileDescs, setTileDescs] = useState({});
   const [tileOrderInGroup, setTileOrderInGroup] = useState({});
   const [announcement, setAnnouncement] = useState("");
 
@@ -1449,6 +1455,8 @@ function AppInner() {
         if (parsed.tileComingDates) setTileComingDates(parsed.tileComingDates);
         if (parsed.groupOrder !== undefined) setGroupOrder(parsed.groupOrder);
         if (parsed.groupTitles) setGroupTitles(parsed.groupTitles);
+        if (parsed.tileTitles) setTileTitles(parsed.tileTitles);
+        if (parsed.tileDescs) setTileDescs(parsed.tileDescs);
         if (parsed.tileOrderInGroup) setTileOrderInGroup(parsed.tileOrderInGroup);
         if (parsed.announcement !== undefined) setAnnouncement(parsed.announcement);
         if (parsed.commissionerMessages) setCommissionerMessages(parsed.commissionerMessages);
@@ -1475,6 +1483,8 @@ function AppInner() {
         if (config.tileComingDates) setTileComingDates(config.tileComingDates);
         if (config.groupOrder !== undefined) setGroupOrder(config.groupOrder);
         if (config.groupTitles) setGroupTitles(config.groupTitles);
+        if (config.tileTitles) setTileTitles(config.tileTitles);
+        if (config.tileDescs) setTileDescs(config.tileDescs);
         if (config.tileOrderInGroup) setTileOrderInGroup(config.tileOrderInGroup);
         if (config.announcement !== undefined) setAnnouncement(config.announcement);
         if (config.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...config.homeCardVisibility }));
@@ -1535,7 +1545,7 @@ function AppInner() {
   useEffect(() => {
     if (!configLoaded) return;
     const config = {
-      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning,
+      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning,
     };
     try {
       if (typeof window !== "undefined" && window.localStorage) {
@@ -1550,7 +1560,7 @@ function AppInner() {
     if (adminUnlocked) {
       saveAdminConfig(config); // fire-and-forget
     }
-  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, adminUnlocked, configLoaded,
+  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, adminUnlocked, configLoaded,
       commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards]);
 
   // Scroll to top whenever the active page changes
@@ -2517,7 +2527,17 @@ function AppInner() {
       title: groupTitles[groupKey] !== undefined ? groupTitles[groupKey] : group.title,
       cards: cards.map(c => {
         const state = tileStates[c.key] || "visible";
-        return { ...c, _state: state, _comingDate: tileComingDates[c.key] || "" };
+        // Apply admin-set label/description overrides. Empty string is
+        // treated as "use the default" so clearing the input resets.
+        const labelOverride = tileTitles[c.key];
+        const descOverride = tileDescs[c.key];
+        return {
+          ...c,
+          label: (labelOverride !== undefined && labelOverride !== "") ? labelOverride : c.label,
+          desc: (descOverride !== undefined && descOverride !== "") ? descOverride : c.desc,
+          _state: state,
+          _comingDate: tileComingDates[c.key] || "",
+        };
       }).filter(c => isAdminView || c._state !== "invisible"),
     };
   }).filter(g => isAdminView || g.cards.length > 0);
@@ -2739,6 +2759,8 @@ function AppInner() {
             tileComingDates={tileComingDates} setTileComingDates={setTileComingDates}
             groupOrder={groupOrder} setGroupOrder={setGroupOrder}
             groupTitles={groupTitles} setGroupTitles={setGroupTitles}
+            tileTitles={tileTitles} setTileTitles={setTileTitles}
+            tileDescs={tileDescs} setTileDescs={setTileDescs}
             tileOrderInGroup={tileOrderInGroup} setTileOrderInGroup={setTileOrderInGroup}
             announcement={announcement} setAnnouncement={setAnnouncement}
             commissionerMessages={commissionerMessages} setCommissionerMessages={setCommissionerMessages}
@@ -10061,7 +10083,7 @@ function RegistrationEditMode() {
   );
 }
 
-function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates, setTileStates, tileComingDates, setTileComingDates, groupOrder, setGroupOrder, groupTitles, setGroupTitles, tileOrderInGroup, setTileOrderInGroup, announcement, setAnnouncement, commissionerMessages, setCommissionerMessages, stickyLinks, setStickyLinks, quickLinks, setQuickLinks, livestreamUrls, setLivestreamUrls, photoCards, setPhotoCards, homeCardVisibility, setHomeCardVisibility, scheduleWarning, setScheduleWarning, adminPreviewMode, setAdminPreviewMode, STATS_GROUPS, onLogout }) {
+function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates, setTileStates, tileComingDates, setTileComingDates, groupOrder, setGroupOrder, groupTitles, setGroupTitles, tileTitles, setTileTitles, tileDescs, setTileDescs, tileOrderInGroup, setTileOrderInGroup, announcement, setAnnouncement, commissionerMessages, setCommissionerMessages, stickyLinks, setStickyLinks, quickLinks, setQuickLinks, livestreamUrls, setLivestreamUrls, photoCards, setPhotoCards, homeCardVisibility, setHomeCardVisibility, scheduleWarning, setScheduleWarning, adminPreviewMode, setAdminPreviewMode, STATS_GROUPS, onLogout }) {
   const [section, setSection] = useState("toggles");
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
@@ -10228,7 +10250,7 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
 
       {section === "tiles" && (
         <div className="space-y-4">
-          <p className="text-[11px] text-gray-500 leading-relaxed">Toggle each tile between visible, coming soon (with date), or invisible. Use arrows to reorder tiles within a group, or to reorder groups.</p>
+          <p className="text-[11px] text-gray-500 leading-relaxed">Rename tile labels and descriptions by editing the fields. Toggle each tile between visible, coming soon (with date), or invisible. Use arrows to reorder tiles within a group, or to reorder groups. Clear a field to reset to the built-in text.</p>
           {orderedGroups.map((group, gIdx) => {
             const groupKey = group.title || "_featured";
             const displayTitle = groupTitles[groupKey] !== undefined ? groupTitles[groupKey] : group.title;
@@ -10251,26 +10273,45 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
                 <div className="space-y-1.5">
                   {orderedCards.map(card => {
                     const state = tileStates[card.key] || "visible";
+                    const labelVal = tileTitles[card.key] !== undefined ? tileTitles[card.key] : card.label;
+                    const descVal = tileDescs[card.key] !== undefined ? tileDescs[card.key] : (card.desc || "");
                     return (
-                      <div key={card.key} className="flex items-center gap-2 bg-gray-50 rounded-lg p-2">
-                        <div className="flex flex-col gap-0.5">
+                      <div key={card.key} className="flex items-start gap-2 bg-gray-50 rounded-lg p-2">
+                        <div className="flex flex-col gap-0.5 mt-1">
                           <button onClick={() => moveTileInGroup(groupKey, card.key, -1)} className="text-gray-400 hover:text-gray-700 text-xs font-bold leading-none">▲</button>
                           <button onClick={() => moveTileInGroup(groupKey, card.key, 1)} className="text-gray-400 hover:text-gray-700 text-xs font-bold leading-none">▼</button>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-gray-900 truncate">{card.label}</p>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          {/* Editable label */}
+                          <input
+                            type="text"
+                            value={labelVal}
+                            onChange={e => setTileTitles(t => ({ ...t, [card.key]: e.target.value }))}
+                            placeholder={card.label}
+                            className="w-full px-2 py-1 rounded border border-gray-200 text-xs font-bold text-gray-900 bg-white outline-none focus:border-gray-400"
+                          />
+                          {/* Editable description */}
+                          <input
+                            type="text"
+                            value={descVal}
+                            onChange={e => setTileDescs(t => ({ ...t, [card.key]: e.target.value }))}
+                            placeholder={card.desc || "Description"}
+                            className="w-full px-2 py-1 rounded border border-gray-200 text-[11px] text-gray-600 bg-white outline-none focus:border-gray-400"
+                          />
                         </div>
-                        <select value={state} onChange={e => setTileState(card.key, e.target.value)}
-                          className="px-2 py-1 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 bg-white outline-none">
-                          <option value="visible">Visible</option>
-                          <option value="coming">Coming</option>
-                          <option value="invisible">Hidden</option>
-                        </select>
-                        {state === "coming" && (
-                          <input type="text" value={tileComingDates[card.key] || ""} onChange={e => setTileComingDate(card.key, e.target.value)}
-                            placeholder="June 1"
-                            className="w-20 px-2 py-1 rounded-lg border border-gray-200 text-[11px] font-medium text-gray-700 bg-white outline-none" />
-                        )}
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <select value={state} onChange={e => setTileState(card.key, e.target.value)}
+                            className="px-2 py-1 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 bg-white outline-none">
+                            <option value="visible">Visible</option>
+                            <option value="coming">Coming</option>
+                            <option value="invisible">Hidden</option>
+                          </select>
+                          {state === "coming" && (
+                            <input type="text" value={tileComingDates[card.key] || ""} onChange={e => setTileComingDate(card.key, e.target.value)}
+                              placeholder="June 1"
+                              className="w-20 px-2 py-1 rounded-lg border border-gray-200 text-[11px] font-medium text-gray-700 bg-white outline-none" />
+                          )}
+                        </div>
                       </div>
                     );
                   })}

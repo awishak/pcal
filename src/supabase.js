@@ -59,6 +59,14 @@ export async function loadAdminConfig() {
 }
 
 export async function saveAdminConfig(config) {
+  // Prefer the auth-based RPC when user has a Supabase Auth session with
+  // admin/commissioner role. Fall back to token-based for legacy flows.
+  const session = await getCurrentSession();
+  if (session) {
+    const { data, error } = await supabase.rpc("admin_save_config_auth", { p_config: config });
+    if (!error) return data;
+    console.error("admin_save_config_auth error:", error);
+  }
   const token = getAdminToken();
   if (!token) return { error: "not admin" };
   const { data, error } = await supabase.rpc("admin_save_config", { p_token: token, p_config: config });
