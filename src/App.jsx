@@ -3504,7 +3504,7 @@ function AdminPasswordModal({ onClose, onUnlock, inputValue, setInputValue }) {
 // ========== HOME TAB ==========
 
 // Constants for home tab
-const REG_DEADLINE_MS = new Date("2026-05-08T23:59:00-07:00").getTime(); // Thursday May 8 2026, 11:59 PM Pacific
+const REG_DEADLINE_MS = new Date("2026-05-11T23:59:00-07:00").getTime(); // Sunday May 11 2026, 11:59 PM Pacific
 const TEAM_BADGE_COLORS = {
   SAC: { bg: "#7c3aed", text: "#ffffff", name: "Sacramento" },
   PDF: { bg: "#0d9488", text: "#ffffff", name: "Pleasanton/Dublin/Fremont" },
@@ -4189,7 +4189,7 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
               <p className="text-[10px] text-emerald-200 font-bold uppercase tracking-wide">days left</p>
             </div>
           </div>
-          <p className="text-xs text-emerald-100 mb-3">Registration closes <strong className="text-white">Thursday, May 8 at 11:59 PM Pacific</strong> ({hoursLeft}h remaining today).</p>
+          <p className="text-xs text-emerald-100 mb-3">Registration closes <strong className="text-white">Sunday, May 11 at 11:59 PM Pacific</strong>.</p>
           <button onClick={() => switchSection("register")}
             className="w-full py-2.5 rounded-xl bg-white text-emerald-900 font-bold text-sm active:scale-95 transition">
             Register Now
@@ -9276,7 +9276,7 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
         <div className="space-y-4">
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-2">2026 Season Registration</p>
-            <p className="text-sm text-gray-600 leading-relaxed">Register here for the 2026 PCAL Summer Basketball League. Registration closes Thursday, May 8 at 11:59 pm Pacific time.</p>
+            <p className="text-sm text-gray-600 leading-relaxed">Register here for the 2026 PCAL Summer Basketball League. Registration closes Sunday, May 11 at 11:59 pm Pacific time.</p>
             <p className="text-sm text-gray-500 leading-relaxed mt-2">Registration is not a guarantee of being placed on any particular team, nor is selection of a particular team.</p>
           </div>
           <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
@@ -9803,7 +9803,7 @@ function RegistrationView({ onSubmitRegistration, switchSection }) {
 
 // ========== REGISTRATION EDIT MODE ==========
 // Lets returning players look up and edit their registration with email + PIN.
-// Enforces May 8 lockout and field-level editability (some fields locked).
+// Enforces May 11 lockout and field-level editability (some fields locked).
 // Shared registration constants (used by both RegistrationView and RegistrationEditMode)
 const REG_DATES = ["June 7", "June 14", "June 28", "July 5", "July 12", "July 26", "Aug 2", "Aug 9", "Aug 16"];
 const REG_TEAMS = [
