@@ -1388,6 +1388,15 @@ function AppInner() {
     );
   }, [userRoles]);
 
+  // Belt-and-suspenders: the admin panel must check BOTH adminUnlocked
+  // (legacy flag) AND the actual user's role in userRoles. Previously
+  // a stale admin token in a user's localStorage could unlock the UI
+  // without any role check. Now the panel requires an authenticated
+  // commissioner/admin every render.
+  const isRealAdmin = useMemo(() => {
+    return userRoles.some(r => r.role === "commissioner" || r.role === "admin");
+  }, [userRoles]);
+
   const [registrations, setRegistrations] = useState([]);
   const [tabVisibility, setTabVisibility] = useState({
     register: "visible",
@@ -1571,7 +1580,7 @@ function AppInner() {
   }, [tab, section]);
 
   const addRegistration = (reg) => setRegistrations(rs => [...rs, { ...reg, submittedAt: new Date().toISOString() }]);
-  const isAdminView = adminUnlocked && !adminPreviewMode;
+  const isAdminView = adminUnlocked && !adminPreviewMode && isRealAdmin;
 
   const ALL_NAV_ITEMS = [
     { key: "home", label: "Home", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -2708,7 +2717,7 @@ function AppInner() {
             <div className="mt-8 pt-4 border-t border-gray-100 text-center">
               <button
                 onClick={() => {
-                  if (adminUnlocked) {
+                  if (adminUnlocked && isRealAdmin) {
                     setTab("admin");
                   } else {
                     // Remember where we were so we can come back here after login.
@@ -2721,7 +2730,7 @@ function AppInner() {
                   }
                 }}
                 className="text-[10px] text-gray-300 hover:text-gray-500">
-                {adminUnlocked ? "Admin Panel" : "Admin"}
+                {adminUnlocked && isRealAdmin ? "Admin Panel" : "Admin"}
               </button>
             </div>
           </div>
@@ -2751,7 +2760,7 @@ function AppInner() {
         {tab === "register" && (
           <RegistrationView onSubmitRegistration={addRegistration} switchSection={switchSection} />
         )}
-        {tab === "admin" && adminUnlocked && (
+        {tab === "admin" && adminUnlocked && isRealAdmin && (
           <AdminPanel
             registrations={registrations}
             tabVisibility={tabVisibility} setTabVisibility={setTabVisibility}
