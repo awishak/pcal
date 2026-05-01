@@ -1304,8 +1304,9 @@ function AppInner() {
   const refreshUserRoles = useCallback(async () => {
     const roles = await loadCurrentUserRoles();
     setUserRoles(roles);
-    // If the signed-in user has commissioner or admin role, unlock admin UI.
-    if (roles.some(r => r.role === "commissioner" || r.role === "admin")) {
+    // If the signed-in user has commissioner, admin, or registrar role,
+    // unlock admin UI.
+    if (roles.some(r => r.role === "commissioner" || r.role === "admin" || r.role === "registrar")) {
       setAdminUnlocked(true);
     }
   }, []);
@@ -1392,9 +1393,12 @@ function AppInner() {
   // (legacy flag) AND the actual user's role in userRoles. Previously
   // a stale admin token in a user's localStorage could unlock the UI
   // without any role check. Now the panel requires an authenticated
-  // commissioner/admin every render.
+  // commissioner/admin/registrar every render. Registrars share the
+  // admin UI for now (mainly to access the registrations list).
   const isRealAdmin = useMemo(() => {
-    return userRoles.some(r => r.role === "commissioner" || r.role === "admin");
+    return userRoles.some(r =>
+      r.role === "commissioner" || r.role === "admin" || r.role === "registrar"
+    );
   }, [userRoles]);
 
   const [registrations, setRegistrations] = useState([]);
