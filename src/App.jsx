@@ -2560,6 +2560,7 @@ function AppInner() {
 
   const goBack = () => {
     if (section === "stats") setTab("stats_home");
+    else if (section === "home") setTab("home");
   };
 
   return (
@@ -2637,6 +2638,7 @@ function AppInner() {
             switchSection={switchSection}
             openLiveGame={(gameId) => { setLiveInitialGameId(gameId); switchSection("live"); }}
             isAdminView={isAdminView}
+            onOpenRules={() => setTab("rules")}
           />
         )}
 
@@ -2644,6 +2646,22 @@ function AppInner() {
         {tab === "stats_home" && (
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Stats & History</p>
+            <button
+              onClick={() => setTab("rules")}
+              className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-amber-50 to-white p-3.5 mb-2.5 hover:border-amber-300 active:scale-[0.99] transition-all">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-black text-gray-900 mb-0.5">PCAL Rules and Regulations</div>
+                  <div className="text-[11px] text-gray-600 leading-snug">
+                    The full rulebook covering eligibility, discipline, season structure, and game rules.
+                  </div>
+                  <div className="text-[10px] text-amber-700 font-bold mt-1.5">Read the rules →</div>
+                </div>
+              </div>
+            </button>
             <button
               onClick={() => setTab("stat_explainers")}
               className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-indigo-50 to-white p-3.5 mb-5 hover:border-indigo-300 active:scale-[0.99] transition-all">
@@ -2763,6 +2781,9 @@ function AppInner() {
         )}
         {tab === "register" && (
           <RegistrationView onSubmitRegistration={addRegistration} switchSection={switchSection} />
+        )}
+        {tab === "rules" && (
+          <RulesView />
         )}
         {tab === "admin" && adminUnlocked && isRealAdmin && (
           <AdminPanel
@@ -3970,8 +3991,189 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   );
 }
 
+function RulesView() {
+  // Rules content preserved exactly as provided. Each section is a top-level
+  // group (1, 2). Each group has subsections (1.0, 1.1, etc.) which contain
+  // a header line and one or more numbered rule entries.
+  // Numbering inconsistencies are intentional and preserved as-is.
+
+  const SECTIONS = [
+    {
+      heading: "1. LAWS OF PCAL",
+      blocks: [
+        {
+          intro: { num: "1.0", text: "All rules, laws, and statements below are subject to change at any time by decision of the PCAL Board." },
+        },
+        {
+          title: "1.1  BOARD",
+          rules: [
+            { num: "1.11", text: "Describe board makeup" },
+          ],
+        },
+        {
+          title: "1.1  ELIGIBILITY AND ROSTERS",
+          rules: [
+            { num: "1.11", text: "Players must be Coptic or in communion. To be eligible for PCAL, a player must either be: (a) baptized in the Coptic Orthodox Church, (b) baptised in a church that is in communion with the Coptic Orthodox church AND active in a Coptic Orthodox church community, or (c) intending to be baptised in the Coptic Orthodox Church in the next 365 days from registration. A player may only declare this intention once." },
+            { num: "1.12", text: "Players must be in good standing with the league. To be eligible for PCAL, a player must be in good standing with the league. A player who is currently suspended must first dutifully serve their suspension before playing or coaching in a PCAL game." },
+            { num: "1.13", text: "Priority age is 18-35. Players aged 18-35 who meet the above eligibility requirements will be prioritized when determining rosters, and should also be prioritized by their captains when determining playing time. Players who are outside this age bracket are not guaranteed to be placed on a roster." },
+            { num: "1.14", text: "Playing for one's local team. A player is expected to register for the team of the church that they attend regularly or that they live closest to." },
+            { num: "1.15", text: "Players from outside Northern California. Eligible players with a primary residence from outside Northern California are eligible to play in games, provided that they establish a residence during the season due to reasons such as employment, education, or family." },
+            { num: "1.16", text: "Playoff eligibility: A player must attend or play in at least three games during a season to be eligible for playoffs, or serve as their team's representative. Games attended for suspensions do not count towards a player's eligibility." },
+            { num: "1.17", text: "Rosters will be created by the board after registration has been completed. No team shall have fewer than eight players on their roster. Priority will be given to players age 18-35." },
+            { num: "1.18", text: "Guest players. A team that has three to five players eligible for a game may add one to three guest players (up to six players total) to their roster for that game. Guest players must first be requested from the league's Reserve List, and then the team(s) that is currently on its bye week. Then, players may be requested from other teams. Guest players from other teams must be agreed upon and should not include players who will dramatically change the nature of the game, such as another team's top scorers or players with little to no basketball experience." },
+          ],
+        },
+        {
+          title: "1.2  DISCIPLINE AND SPIRITUAL FOULS",
+          rules: [
+            { num: "1.21", text: "All actions are subject to discipline by the board, regardless of if a spiritual foul is assessed by an official during a game." },
+            { num: "1.22", text: "Career spiritual fouls lead to suspensions. A player who is assessed a spiritual foul is subject to a minimum consequence as stated below. Note that these are minimum suspensions, a player may be subject to a longer suspension and/or other consequences, such as meetings and tasks, as deemed appropriate by the board. A shorter suspension is not possible unless the spiritual foul is rescinded.", lines: [
+              "First SF: 0-game suspension",
+              "Second SF: 1-game suspension",
+              "Third SF: 3-game suspension",
+              "Fourth SF: 6-game suspension",
+              "Fifth SF: 10-game suspension",
+              "Sixth SF: 15-game suspension",
+              "Seventh SF: 21-game suspension",
+            ] },
+            { num: "1.23", text: "Spiritual fouls are served at the discretion of the board. Suspensions must be served in person, and players may not play or coach while serving their suspension. They may be asked to provide a league function such as serving as scorekeeper to dutifully serve their suspension. A player who attempts to coach discretely may be subject to additional consequences, such as that game not counting towards their suspension served." },
+            { num: "1.24", text: "Reducing the spiritual foul minimum consequence. A player who plays in 25 games without receiving a spiritual foul will have their level of consequence as listed in 1.12 reduced by one level." },
+          ],
+        },
+        {
+          title: "1.3  SEASON STRUCTURE",
+          rules: [
+            { num: "1.31", text: "Each team shall face each other team in the league one to three times in the regular season. In the case of 5 teams, the regular season will be 8 or 10 games per team, with each team facing each other team 2 or 3 times. In the case of 6 teams, the regular season will be 10 games, with each team facing each other team 2 times. In the case of 7 teams, the regular season will be 10 games, with each team facing each other team 1 or 2 times." },
+            { num: "1.32", text: "Playoffs will match the 1st seed vs the 4th seed and the 2nd seed vs the 3rd seed, with the winners of each game to face off in the final. The 1st seed chooses if their semifinal is played first or second." },
+            { num: "1.33", text: "Efforts will be made to have each team host one week of games, subject to gym availability and travel possibilities." },
+          ],
+        },
+      ],
+    },
+    {
+      heading: "2. GAME RULES",
+      blocks: [
+        {
+          intro: {
+            num: "2.0",
+            text: "All on-court play, unless otherwise noted below, will be guided by the NCAA Men's Basketball Rulebook for the current year. In case of persisting uncertainty, the officials will make a call of best judgment.",
+            link: { url: "https://cdn1.sportngin.com/attachments/document/e0d1-2810991/2023-2024_Mens_BBall_Rules_Book.pdf", label: "NCAA Men's Basketball Rulebook (PDF)" },
+          },
+        },
+        {
+          title: "2.0  STARTING THE GAME",
+          rules: [
+            { num: "2.01", text: "Minimum number of players to start is 4: Each team must have at least four players on the court to start the game, including at least three players from their own roster. See Guest Player regulations in Section 1." },
+            { num: "2.02", text: "The on-time team will start with foul shots: Until a team is able to start the game, the clock will start, and the the other team will be granted a foul shot every fifteen (15) seconds, starting with 20:00. Each player on the other team must shoot in succession until the first player shoots again. When both teams are ready, the clock will continue to run and possession will be granted to the team shooting foul shots." },
+            { num: "2.03", text: "The on-time team will start with possession: If a team is not ready to start the game at the listed start time, the game will start with possession for the other team." },
+          ],
+        },
+        {
+          title: "2.1  GAME CLOCK",
+          rules: [
+            { num: "2.11", text: "Regulation length is 40 minutes: Each game will be divided into two twenty-minute (20) halves." },
+            { num: "2.12", text: "Overtime is played to 7: if two teams are tied at the end of regulation, the first to score seven (7) more points wins the game. Each team has one (1) timeout in overtime. There is no clock in overtime." },
+            { num: "2.13", text: "Halftime is 3 minutes maximum: Halftime is three (3) minutes long, maximum. It may be shortened if both teams agree, or if deemed necessary by the league or officials due to being behind schedule." },
+            { num: "2.14", text: "Running clock for first 38 minutes: A running clock will be used for the first thirty-eight (38) minutes of the game. The clock will stop for all team timeouts, as well as any official timeouts for injury or other extended breaks in play." },
+            { num: "2.15", text: "Stopping clock for last 2 minutes: A stopping clock will be used for the last two (2) minutes of the second half. If a lead of 12 pts is achieved at any time in the last two minutes, a running clock (and associated rules) will be enacted for the remainder of the game, regardless of lead changes." },
+            { num: "2.16", text: "Timeouts: each team gets 3 timeouts per half, as well as 1 in overtime. They do not roll over." },
+            { num: "2.17", text: "No shot clock. There is no official shot clock in PCAL." },
+          ],
+        },
+        {
+          title: "2.2  PERSONAL FOULS",
+          rules: [
+            { num: "2.21", text: "Personal foul limit is 6: A player shall be removed from the game upon their sixth (6th) personal foul of the game, regardless of if it occurs in regulation or overtime, except in the case of Rule 2.22" },
+            { num: "2.22", text: "Exception in case of a limited roster: If a player receives their sixth (6th) foul without a viable substitute to take their place, the team of that player can either choose to (a) have the player removed from the game, or (b) keep the player in the game and grant the other team two foul shots and possession." },
+            { num: "2.23", text: "Shooting foul is two shots: A shooting foul during a running clock results in two foul shots. Players may not line up for foul shots, and possession will be given to the team that did not take the foul shots. Teams may not line up for foul shots during a running clock." },
+            { num: "2.24", text: "Explanation of non-shooting fouls and foul limits: A non-shooting foul during a running clock results in possession for the fouled team, unless that team is over the limit. During a running clock, a team's 10th foul in a half will result in two foul shots for the other team, regardless of if it is a shooting or non-shooting foul. There is no one-and-one." },
+            { num: "2.25", text: "All possession fouls in the last two minutes result in foul shots: During a stopping clock, all possession fouls will result in two foul shots, with the exceptions of being fouled on a missed three-point attempt (3 shots) or a made field goal attempt (1 shot). Non-possession fouls will result in possession for the fouled team. Teams will line up in the foul lanes for foul shots during a stopping clock." },
+          ],
+        },
+        {
+          title: "2.3  SPIRITUAL FOULS/TECHNICAL FOULS",
+          rules: [
+            { num: "2.31", text: "Spiritual fouls for inappropriate behavior: Any play deemed to be outside the bounds of appropriate behavior will be penalized with a spiritual foul. This includes, but is not limited to: trash-talking, verbal or physical assault, instigation, vulgarity, arguing with the officials, complaining, flagrant fouls, and intentionally dangerous play. A spiritual foul may be given to a player, coach, or team." },
+            { num: "2.32", text: "Spiritual fouls result in five shots and possession: A spiritual foul will result in five (5) foul shots and possession for the opposing team, in addition to any foul shots granted for a personal foul, if called. Each on-court player for the opposing team will take one foul shot." },
+            { num: "2.33", text: "A spiritual foul does not equal a personal foul: A spiritual foul is not itself counted as a personal foul, unless a personal foul was called by the officials." },
+            { num: "2.34", text: "Spiritual fouls may result in ejections: An official may determine that a single spiritual foul is worthy of an ejection. Two (2) spiritual fouls in one game results in an automatic ejection. In addition, an ejection given by an official for behavior is, by definition, a spiritual foul, including the results of rule 2.33. Please see the rules regarding career spiritual fouls in Section 1 of the rulebook." },
+            { num: "2.37", text: "Technical fouls are not spiritual fouls: Technical fouls that are not related to behavior, such as six men on the court, are treated as NCAA technical fouls (one foul shot and possession). A behavioral foul that is called a technical foul in the game may later be changed to a spiritual foul." },
+          ],
+        },
+        {
+          title: "2.4  OTHER RULES",
+          rules: [
+            { num: "2.41", text: "Three in the key is called on offense only: 3-seconds-in-the-key is in effect on offensive players only." },
+          ],
+        },
+      ],
+    },
+  ];
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">PCAL Rules and Regulations</p>
+
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-3">
+        <p className="text-xs text-gray-700 leading-relaxed">
+          Pacific Coptic Athletic League. Rules and Regulations.
+        </p>
+      </div>
+
+      {SECTIONS.map((section) => (
+        <div key={section.heading} className="mb-5">
+          <p className="text-xs font-black text-gray-900 mb-2">{section.heading}</p>
+
+          {section.blocks.map((block, bIdx) => (
+            <div key={bIdx} className="mb-3">
+              {block.title && (
+                <p className="text-xs font-bold text-gray-900 mb-1.5">{block.title}</p>
+              )}
+
+              {block.intro && (
+                <div className="rounded-2xl border border-gray-100 bg-white p-3 mb-2">
+                  <p className="text-xs text-gray-700 leading-relaxed">
+                    <span className="font-bold text-gray-900">{block.intro.num}</span>{" "}
+                    {block.intro.text}
+                  </p>
+                  {block.intro.link && (
+                    <a href={block.intro.link.url} target="_blank" rel="noopener noreferrer"
+                      className="inline-block mt-2 text-xs text-blue-600 underline break-all">
+                      {block.intro.link.label}
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {block.rules && block.rules.map((rule) => (
+                <div key={rule.num} className="rounded-2xl border border-gray-100 bg-white p-3 mb-2">
+                  <p className="text-xs text-gray-700 leading-relaxed">
+                    <span className="font-bold text-gray-900">{rule.num}</span>{" "}
+                    {rule.text}
+                  </p>
+                  {rule.lines && (
+                    <div className="mt-2 pl-2 border-l-2 border-gray-200">
+                      {rule.lines.map((line, lIdx) => (
+                        <p key={lIdx} className="text-xs text-gray-700 leading-relaxed">{line}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <p className="text-[10px] text-gray-400 text-center pt-2 pb-4">
+        All rules subject to change by decision of the PCAL Board.
+      </p>
+    </div>
+  );
+}
+
 function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards,
-                   homeCardVisibility, tileStates, DISPLAY_GROUPS, switchSection, openLiveGame, isAdminView }) {
+                   homeCardVisibility, tileStates, DISPLAY_GROUPS, switchSection, openLiveGame, isAdminView, onOpenRules }) {
   const [nowMs, setNowMs] = useState(Date.now());
   const [expandedGame, setExpandedGame] = useState(null);
 
@@ -4206,6 +4408,24 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
           ))}
         </div>
       )}
+
+      {/* Rules link card (top of home) */}
+      <button
+        onClick={onOpenRules}
+        className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-amber-50 to-white p-3.5 hover:border-amber-300 active:scale-[0.99] transition-all">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-4 h-4 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-black text-gray-900 mb-0.5">PCAL Rules and Regulations</div>
+            <div className="text-[11px] text-gray-600 leading-snug">
+              The full rulebook covering eligibility, discipline, season structure, and game rules.
+            </div>
+            <div className="text-[10px] text-amber-700 font-bold mt-1.5">Read the rules →</div>
+          </div>
+        </div>
+      </button>
 
       {/* Quick links row */}
       {isVisible("quickLinks") && quickLinks.length > 0 && (
