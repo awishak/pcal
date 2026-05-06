@@ -14601,11 +14601,360 @@ function ErrorScreen({ error, onRetry }) {
   );
 }
 
+// ============================================================================
+// PUBLIC REGISTRATIONS DASHBOARD
+// ============================================================================
+// Standalone shareable page at ?view=registrations. Reads ONLY name + team_pref
+// + dates from the registrations table (public read). Annotations live in a
+// separate registration_annotations table (public read+write). Anyone with the
+// link can view; clicking the View/Edit toggle lets anyone edit annotations.
+//
+// Required Supabase setup (run these in the SQL editor before this page works):
+//
+//   -- Public read of name+team+dates from registrations
+//   CREATE POLICY "Public read minimal reg fields" ON registrations
+//     FOR SELECT USING (true);
+//   -- (RLS must be on; this policy lets anonymous role read all rows. Since
+//   -- we only SELECT first_name, last_name, team_pref, dates client-side,
+//   -- the other columns are not exposed in this app, but to be strict you
+//   -- can create a view "public_registrations" with just those columns and
+//   -- grant SELECT on the view.)
+//
+//   -- Annotations table
+//   CREATE TABLE registration_annotations (
+//     team_pref TEXT NOT NULL,
+//     date TEXT NOT NULL,
+//     state TEXT NOT NULL CHECK (state IN ('boxed','grayed')),
+//     updated_at TIMESTAMPTZ DEFAULT now(),
+//     PRIMARY KEY (team_pref, date)
+//   );
+//   ALTER TABLE registration_annotations ENABLE ROW LEVEL SECURITY;
+//   CREATE POLICY "Public read annotations" ON registration_annotations
+//     FOR SELECT USING (true);
+//   CREATE POLICY "Public write annotations" ON registration_annotations
+//     FOR INSERT WITH CHECK (true);
+//   CREATE POLICY "Public update annotations" ON registration_annotations
+//     FOR UPDATE USING (true) WITH CHECK (true);
+//   CREATE POLICY "Public delete annotations" ON registration_annotations
+//     FOR DELETE USING (true);
+//
+function RegistrationsDashboard() {
+  const REG_DATES = ["June 7", "June 14", "June 28", "July 5", "July 12", "July 26", "Aug 2", "Aug 9", "Aug 16"];
+
+  const TEAM_COLORS = {
+    "Sacramento": "#7c3aed",
+    "San Jose": "#7f1d1d",
+    "Hayward": "#2563eb",
+    "Modesto": "#dc2626",
+    "Pleasanton": "#facc15",
+    "Concord": "#065f46",
+    "Monterey": "#0891b2",
+    "Redwood City": "#ea580c",
+    "Other (community team)": "#6b7280",
+  };
+
+  const [rows, setRows] = useState([]);
+  const [annotations, setAnnotations] = useState({}); // { "team|date": "boxed" | "grayed" }
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [filterTeam, setFilterTeam] = useState("all");
+
+  // Load registrations (name + team + dates only) and annotations in parallel.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [regRes, annRes] = await Promise.all([
+          supabase.from("registrations").select("first_name, last_name, team_pref, dates"),
+          supabase.from("registration_annotations").select("team_pref, date, state"),
+        ]);
+        if (cancelled) return;
+        if (regRes.error) throw regRes.error;
+        // Annotations table may not exist yet, allow it to fail silently.
+        const annMap = {};
+        if (!annRes.error && Array.isArray(annRes.data)) {
+          annRes.data.forEach(a => {
+            annMap[`${a.team_pref}|${a.date}`] = a.state;
+          });
+        }
+        setRows(regRes.data || []);
+        setAnnotations(annMap);
+        setError(null);
+      } catch (e) {
+        if (cancelled) return;
+        console.error("Dashboard load failed:", e);
+        setError(e.message || String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Cycle annotation state for a (team, date) cell. default -> boxed -> grayed -> default.
+  const cycleAnnotation = useCallback(async (team, date) => {
+    const key = `${team}|${date}`;
+    const current = annotations[key] || null;
+    const next = current === null ? "boxed" : current === "boxed" ? "grayed" : null;
+
+    // Optimistic update
+    setAnnotations(prev => {
+      const copy = { ...prev };
+      if (next === null) delete copy[key];
+      else copy[key] = next;
+      return copy;
+    });
+
+    try {
+      if (next === null) {
+        await supabase.from("registration_annotations").delete().eq("team_pref", team).eq("date", date);
+      } else {
+        await supabase.from("registration_annotations").upsert({
+          team_pref: team, date, state: next, updated_at: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      console.error("Annotation save failed:", e);
+      // Roll back optimistic update on failure
+      setAnnotations(prev => {
+        const copy = { ...prev };
+        if (current === null) delete copy[key];
+        else copy[key] = current;
+        return copy;
+      });
+    }
+  }, [annotations]);
+
+  // Group rows by team_pref. Teams ordered with known teams first, "Other" last.
+  const teamGroups = useMemo(() => {
+    const map = {};
+    rows.forEach(r => {
+      const team = r.team_pref || "(no team selected)";
+      if (!map[team]) map[team] = [];
+      map[team].push(r);
+    });
+    const teamOrder = [
+      "Sacramento", "San Jose", "Hayward", "Modesto", "Pleasanton",
+      "Concord", "Monterey", "Redwood City", "Other (community team)", "(no team selected)"
+    ];
+    const ordered = [];
+    teamOrder.forEach(t => {
+      if (map[t]) ordered.push({ team: t, players: map[t] });
+    });
+    // Add any teams not in the canonical order
+    Object.keys(map).forEach(t => {
+      if (!teamOrder.includes(t)) ordered.push({ team: t, players: map[t] });
+    });
+    // Sort players within each team by last name
+    ordered.forEach(g => {
+      g.players.sort((a, b) => (a.last_name || "").localeCompare(b.last_name || ""));
+    });
+    return ordered;
+  }, [rows]);
+
+  const totalCount = rows.length;
+  const visibleGroups = filterTeam === "all" ? teamGroups : teamGroups.filter(g => g.team === filterTeam);
+
+  // Available filter chips (only teams that have at least one player)
+  const teamChips = useMemo(() => teamGroups.map(g => g.team), [teamGroups]);
+
+  return (
+    <div className="min-h-screen bg-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+      <div className="max-w-4xl mx-auto px-4 py-6">
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">PCAL 2026</p>
+            <h1 className="text-xs font-bold text-gray-900">Registration Dashboard</h1>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-bold text-gray-900 tabular-nums">{totalCount}</p>
+            <p className="text-xs text-gray-500">registered</p>
+          </div>
+        </div>
+
+        {loading && (
+          <p className="text-xs text-gray-500">Loading registrations...</p>
+        )}
+
+        {error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 mb-3">
+            <p className="text-xs text-red-700">Could not load registrations. {error}</p>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            {/* Controls row */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <button
+                onClick={() => setFilterTeam("all")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${filterTeam === "all" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>
+                All teams
+              </button>
+              {teamChips.map(t => (
+                <button key={t} onClick={() => setFilterTeam(t)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${filterTeam === t ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>
+                  {t}
+                </button>
+              ))}
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-xs text-gray-500">Mode:</span>
+                <button
+                  onClick={() => setEditMode(false)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${!editMode ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>
+                  View
+                </button>
+                <button
+                  onClick={() => setEditMode(true)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${editMode ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>
+                  Edit
+                </button>
+              </div>
+            </div>
+
+            {editMode && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 mb-4">
+                <p className="text-xs text-amber-900">
+                  Edit mode is on. Click any cell in the grid to cycle: default, boxed (locked in), grayed (not necessary), back to default. Changes save immediately and are visible to everyone.
+                </p>
+              </div>
+            )}
+
+            {/* One grid per team */}
+            {visibleGroups.length === 0 && (
+              <p className="text-xs text-gray-500">No registrations match this filter.</p>
+            )}
+
+            {visibleGroups.map(group => (
+              <TeamGrid
+                key={group.team}
+                team={group.team}
+                players={group.players}
+                dates={REG_DATES}
+                color={TEAM_COLORS[group.team] || "#6b7280"}
+                annotations={annotations}
+                editMode={editMode}
+                onCellClick={cycleAnnotation}
+              />
+            ))}
+
+            <div className="text-center pt-6 pb-4">
+              <p className="text-xs text-gray-400">
+                PCAL 2026. Names and preferred teams shown. No other personal info displayed on this page.
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// One team's grid. Rows = players, columns = dates. Bottom row shows availability count
+// per date and is the cell that gets boxed/grayed in edit mode.
+function TeamGrid({ team, players, dates, color, annotations, editMode, onCellClick }) {
+  // Count of available players per date for this team
+  const counts = dates.map(d => players.filter(p => (p.dates || []).includes(d)).length);
+
+  const getAnnState = (date) => annotations[`${team}|${date}`] || null;
+
+  const cellClass = (state) => {
+    if (state === "boxed") return "border-2 border-emerald-500 bg-emerald-50 text-emerald-900";
+    if (state === "grayed") return "bg-gray-100 text-gray-300 line-through";
+    return "bg-white text-gray-900 border border-gray-200";
+  };
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-4 overflow-x-auto">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-3 h-3 rounded-full" style={{ background: color }} />
+          <h2 className="text-xs font-bold text-gray-900">{team}</h2>
+        </div>
+        <p className="text-xs text-gray-500">{players.length} {players.length === 1 ? "player" : "players"}</p>
+      </div>
+
+      <table className="text-xs w-full" style={{ borderCollapse: "separate", borderSpacing: "2px" }}>
+        <thead>
+          <tr>
+            <th className="text-left text-xs font-bold text-gray-500 px-2 py-1 sticky left-0 bg-white">Player</th>
+            {dates.map(d => (
+              <th key={d} className="text-xs font-bold text-gray-500 px-2 py-1 whitespace-nowrap">{d}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {players.map((p, i) => {
+            const fullName = `${p.first_name || ""} ${p.last_name || ""}`.trim();
+            return (
+              <tr key={i}>
+                <td className="text-xs text-gray-900 px-2 py-1 sticky left-0 bg-white whitespace-nowrap">{fullName || "(no name)"}</td>
+                {dates.map(d => {
+                  const available = (p.dates || []).includes(d);
+                  const annState = getAnnState(d);
+                  // Player cells follow column annotation (grayed/boxed) for visual continuity
+                  const baseStyle = available
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-gray-50 text-gray-300";
+                  const overrideStyle = annState === "grayed"
+                    ? "opacity-30"
+                    : annState === "boxed"
+                    ? ""
+                    : "";
+                  return (
+                    <td key={d} className={`text-xs text-center px-2 py-1 rounded ${baseStyle} ${overrideStyle}`}>
+                      {available ? "Y" : ""}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+          {/* Count + annotation row */}
+          <tr>
+            <td className="text-xs font-bold text-gray-700 px-2 py-1 sticky left-0 bg-white">Total</td>
+            {dates.map((d, i) => {
+              const annState = getAnnState(d);
+              return (
+                <td key={d} className={`text-xs font-bold text-center px-2 py-1 rounded tabular-nums ${cellClass(annState)} ${editMode ? "cursor-pointer hover:opacity-80" : ""}`}
+                  onClick={editMode ? () => onCellClick(team, d) : undefined}
+                  title={editMode ? "Click to cycle: default -> boxed -> grayed -> default" : undefined}>
+                  {counts[i]}
+                </td>
+              );
+            })}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AppLoader() {
+  // Standalone dashboard route. If the URL has ?view=registrations, render the
+  // public registrations dashboard instead of the full app. No GAME_LOG load,
+  // no nav, no top header. This page is meant to be shareable to anyone.
+  const isDashboardRoute = (() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("view") === "registrations";
+    } catch {
+      return false;
+    }
+  })();
+
   const [state, setState] = useState({ status: "loading", error: null });
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
+    if (isDashboardRoute) return; // skip GAME_LOG load on dashboard route
     let cancelled = false;
     (async () => {
       try {
@@ -14623,7 +14972,11 @@ export default function AppLoader() {
       }
     })();
     return () => { cancelled = true; };
-  }, [loadAttempt]);
+  }, [loadAttempt, isDashboardRoute]);
+
+  if (isDashboardRoute) {
+    return <RegistrationsDashboard />;
+  }
 
   if (state.status === "loading") {
     return <LoadingScreen message="Loading game log..." />;
