@@ -14654,33 +14654,44 @@ function RegistrationsDashboard() {
   };
 
   const [rows, setRows] = useState([]);
-  const [annotations, setAnnotations] = useState({}); // { "team|date": "boxed" | "grayed" }
+  const [annotations, setAnnotations] = useState({}); // { "team|date": "boxed" | "grayed" }, where team can be "__LEAGUE__"
+  const [locations, setLocations] = useState({}); // { date: "Hayward gym" }
+  const [editingLocation, setEditingLocation] = useState(null); // date currently being edited, or null
+  const [editingLocationValue, setEditingLocationValue] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [filterTeam, setFilterTeam] = useState("all");
 
-  // Load registrations (name + team + dates only) and annotations in parallel.
+  // Load registrations (name + team + dates only), annotations, and date locations in parallel.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const [regRes, annRes] = await Promise.all([
+        const [regRes, annRes, locRes] = await Promise.all([
           supabase.from("registrations").select("first_name, last_name, team_pref, dates"),
           supabase.from("registration_annotations").select("team_pref, date, state"),
+          supabase.from("registration_date_locations").select("date, location"),
         ]);
         if (cancelled) return;
         if (regRes.error) throw regRes.error;
-        // Annotations table may not exist yet, allow it to fail silently.
+        // Annotations and locations tables may not exist yet, allow them to fail silently.
         const annMap = {};
         if (!annRes.error && Array.isArray(annRes.data)) {
           annRes.data.forEach(a => {
             annMap[`${a.team_pref}|${a.date}`] = a.state;
           });
         }
+        const locMap = {};
+        if (!locRes.error && Array.isArray(locRes.data)) {
+          locRes.data.forEach(l => {
+            if (l.location) locMap[l.date] = l.location;
+          });
+        }
         setRows(regRes.data || []);
         setAnnotations(annMap);
+        setLocations(locMap);
         setError(null);
       } catch (e) {
         if (cancelled) return;
@@ -14726,6 +14737,57 @@ function RegistrationsDashboard() {
       });
     }
   }, [annotations]);
+
+  // Save a location for a date. Trim, treat empty as delete.
+  const saveLocation = useCallback(async (date, value) => {
+    const trimmed = (value || "").trim();
+    const previous = locations[date] || "";
+
+    // Optimistic update
+    setLocations(prev => {
+      const copy = { ...prev };
+      if (trimmed === "") delete copy[date];
+      else copy[date] = trimmed;
+      return copy;
+    });
+
+    try {
+      if (trimmed === "") {
+        await supabase.from("registration_date_locations").delete().eq("date", date);
+      } else {
+        await supabase.from("registration_date_locations").upsert({
+          date, location: trimmed, updated_at: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      console.error("Location save failed:", e);
+      // Roll back
+      setLocations(prev => {
+        const copy = { ...prev };
+        if (previous === "") delete copy[date];
+        else copy[date] = previous;
+        return copy;
+      });
+    }
+  }, [locations]);
+
+  const startEditingLocation = (date) => {
+    setEditingLocation(date);
+    setEditingLocationValue(locations[date] || "");
+  };
+
+  const commitLocationEdit = () => {
+    if (editingLocation !== null) {
+      saveLocation(editingLocation, editingLocationValue);
+    }
+    setEditingLocation(null);
+    setEditingLocationValue("");
+  };
+
+  const cancelLocationEdit = () => {
+    setEditingLocation(null);
+    setEditingLocationValue("");
+  };
 
   // Group rows by team_pref. Teams ordered with known teams first, "Other" last.
   const teamGroups = useMemo(() => {
@@ -14821,10 +14883,27 @@ function RegistrationsDashboard() {
             {editMode && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 mb-4">
                 <p className="text-xs text-amber-900">
-                  Edit mode is on. Click any cell in the grid to cycle: default, boxed (locked in), grayed (not necessary), back to default. Changes save immediately and are visible to everyone.
+                  Edit mode is on. Click any count cell to cycle: default, boxed (locked in), grayed (not necessary), back to default. Click a date header in the summary to set or edit its location. Changes save immediately and are visible to everyone.
                 </p>
               </div>
             )}
+
+            {/* Summary table */}
+            <SummaryTable
+              dates={REG_DATES}
+              teamGroups={teamGroups}
+              annotations={annotations}
+              locations={locations}
+              editMode={editMode}
+              editingLocation={editingLocation}
+              editingLocationValue={editingLocationValue}
+              setEditingLocationValue={setEditingLocationValue}
+              startEditingLocation={startEditingLocation}
+              commitLocationEdit={commitLocationEdit}
+              cancelLocationEdit={cancelLocationEdit}
+              onCellClick={cycleAnnotation}
+              teamColors={TEAM_COLORS}
+            />
 
             {/* One grid per team */}
             {visibleGroups.length === 0 && (
@@ -14839,6 +14918,7 @@ function RegistrationsDashboard() {
                 dates={REG_DATES}
                 color={TEAM_COLORS[group.team] || "#6b7280"}
                 annotations={annotations}
+                locations={locations}
                 editMode={editMode}
                 onCellClick={cycleAnnotation}
               />
@@ -14856,9 +14936,141 @@ function RegistrationsDashboard() {
   );
 }
 
+// Summary table at top of dashboard. Two sections:
+//   1. League-wide totals row, with annotations under the special team key __LEAGUE__
+//   2. One row per team showing the per-team count for that date
+// Date headers are clickable in edit mode to set/edit a free-text location.
+// Count cells are clickable in edit mode to cycle annotations (same action as
+// in each team's individual grid below).
+function SummaryTable({
+  dates, teamGroups, annotations, locations,
+  editMode, editingLocation, editingLocationValue,
+  setEditingLocationValue, startEditingLocation,
+  commitLocationEdit, cancelLocationEdit,
+  onCellClick, teamColors,
+}) {
+  const LEAGUE_KEY = "__LEAGUE__";
+
+  // League-wide totals: sum across all teams of available players for each date
+  const leagueTotals = dates.map(d => {
+    let n = 0;
+    teamGroups.forEach(g => {
+      n += g.players.filter(p => (p.dates || []).includes(d)).length;
+    });
+    return n;
+  });
+
+  const getAnnState = (team, date) => annotations[`${team}|${date}`] || null;
+
+  const cellClass = (state) => {
+    if (state === "boxed") return "border-2 border-emerald-500 bg-emerald-50 text-emerald-900";
+    if (state === "grayed") return "bg-gray-100 text-gray-300 line-through";
+    return "bg-white text-gray-900 border border-gray-200";
+  };
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-4 overflow-x-auto">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h2 className="text-xs font-bold text-gray-900">Summary</h2>
+        {editMode && (
+          <p className="text-xs text-gray-500">Click a date header to set a location.</p>
+        )}
+      </div>
+
+      <table className="text-xs w-full" style={{ borderCollapse: "separate", borderSpacing: "2px" }}>
+        <thead>
+          <tr>
+            <th className="text-left text-xs font-bold text-gray-500 px-2 py-1 sticky left-0 bg-white">Team</th>
+            {dates.map(d => {
+              const loc = locations[d] || "";
+              const isEditing = editingLocation === d;
+              return (
+                <th key={d} className="text-xs font-bold text-gray-500 px-2 py-1 whitespace-nowrap align-top min-w-[90px]">
+                  <div>{d}</div>
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={editingLocationValue}
+                      placeholder="Location"
+                      onChange={(e) => setEditingLocationValue(e.target.value)}
+                      onBlur={commitLocationEdit}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitLocationEdit();
+                        else if (e.key === "Escape") cancelLocationEdit();
+                      }}
+                      className="mt-0.5 w-full text-xs font-normal px-1.5 py-0.5 rounded border border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  ) : (
+                    <div
+                      className={`text-xs font-normal mt-0.5 ${editMode ? "cursor-pointer hover:bg-gray-50 rounded px-1" : ""} ${loc ? "text-gray-700" : "text-gray-300 italic"}`}
+                      onClick={editMode ? () => startEditingLocation(d) : undefined}
+                      title={editMode ? "Click to set location" : undefined}>
+                      {loc || (editMode ? "set location" : "")}
+                    </div>
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {/* League-wide row */}
+          <tr>
+            <td className="text-xs font-bold text-gray-900 px-2 py-1 sticky left-0 bg-white whitespace-nowrap">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-full bg-gray-900" />
+                <span>All teams</span>
+              </div>
+            </td>
+            {dates.map((d, i) => {
+              const annState = getAnnState(LEAGUE_KEY, d);
+              return (
+                <td key={d}
+                  className={`text-xs font-bold text-center px-2 py-1 rounded tabular-nums ${cellClass(annState)} ${editMode ? "cursor-pointer hover:opacity-80" : ""}`}
+                  onClick={editMode ? () => onCellClick(LEAGUE_KEY, d) : undefined}
+                  title={editMode ? "Click to cycle: default -> boxed -> grayed -> default" : undefined}>
+                  {leagueTotals[i]}
+                </td>
+              );
+            })}
+          </tr>
+
+          {/* Per-team rows */}
+          {teamGroups.map(g => {
+            const teamCounts = dates.map(d => g.players.filter(p => (p.dates || []).includes(d)).length);
+            const color = teamColors[g.team] || "#6b7280";
+            return (
+              <tr key={g.team}>
+                <td className="text-xs text-gray-700 px-2 py-1 sticky left-0 bg-white whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 rounded-full" style={{ background: color }} />
+                    <span>{g.team}</span>
+                  </div>
+                </td>
+                {dates.map((d, i) => {
+                  const annState = getAnnState(g.team, d);
+                  return (
+                    <td key={d}
+                      className={`text-xs text-center px-2 py-1 rounded tabular-nums ${cellClass(annState)} ${editMode ? "cursor-pointer hover:opacity-80" : ""}`}
+                      onClick={editMode ? () => onCellClick(g.team, d) : undefined}
+                      title={editMode ? "Click to cycle: default -> boxed -> grayed -> default" : undefined}>
+                      {teamCounts[i]}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // One team's grid. Rows = players, columns = dates. Bottom row shows availability count
 // per date and is the cell that gets boxed/grayed in edit mode.
-function TeamGrid({ team, players, dates, color, annotations, editMode, onCellClick }) {
+function TeamGrid({ team, players, dates, color, annotations, locations, editMode, onCellClick }) {
   // Count of available players per date for this team
   const counts = dates.map(d => players.filter(p => (p.dates || []).includes(d)).length);
 
@@ -14884,9 +15096,15 @@ function TeamGrid({ team, players, dates, color, annotations, editMode, onCellCl
         <thead>
           <tr>
             <th className="text-left text-xs font-bold text-gray-500 px-2 py-1 sticky left-0 bg-white">Player</th>
-            {dates.map(d => (
-              <th key={d} className="text-xs font-bold text-gray-500 px-2 py-1 whitespace-nowrap">{d}</th>
-            ))}
+            {dates.map(d => {
+              const loc = (locations && locations[d]) || "";
+              return (
+                <th key={d} className="text-xs font-bold text-gray-500 px-2 py-1 whitespace-nowrap align-top">
+                  <div>{d}</div>
+                  {loc && <div className="text-xs font-normal text-gray-400 mt-0.5">{loc}</div>}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
