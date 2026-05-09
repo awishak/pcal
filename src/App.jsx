@@ -4343,6 +4343,8 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
     "john hanna": "Working on the next hit record in between games.",
     "mario yany": "Every player's favorite player is back.",
     "george hanna": "Straight from Space Mountain to the hardwood.",
+    "george nashed": "Shaq is back! Large tuna, jalapeño chips, double toasted!",
+    "george shehata": "The man, the myth, the legend! Suiting up one more time.",
   };
 
   // Player-specific season-count replacements. When present, these REPLACE the generic
