@@ -6249,8 +6249,10 @@ function GameSearchView({ goToPlayer }) {
   const [typeSel, setTypeSel] = useState([]); // R, P, C
   const [dateFrom, setDateFrom] = useState(""); // YYYY-MM-DD
   const [dateTo, setDateTo] = useState("");
+  const [ageMin, setAgeMin] = useState("");
+  const [ageMax, setAgeMax] = useState("");
   const [statRows, setStatRows] = useState([]); // [{stat, op, val}]
-  const [view, setView] = useState("cards"); // cards | table
+  const [view, setView] = useState("cards"); // cards | simple | extended
   const [sortKey, setSortKey] = useState("gmsc"); // for both views
   const [sortDir, setSortDir] = useState("desc");
   const [limit, setLimit] = useState(50);
@@ -6267,6 +6269,13 @@ function GameSearchView({ goToPlayer }) {
     const s = new Set();
     GAME_LOG.forEach(g => { if (g[20]) s.add(g[20]); });
     return [...s].sort((a, b) => b - a);
+  }, []);
+
+  // Age lookup: RAW[0]=name, RAW[2]=year, RAW[4]=age
+  const ageLookup = useMemo(() => {
+    const m = {};
+    RAW.forEach(r => { m[r[0] + "-" + r[2]] = r[4]; });
+    return m;
   }, []);
 
   // Player autocomplete suggestions
@@ -6347,6 +6356,12 @@ function GameSearchView({ goToPlayer }) {
           if (dateTo && iso > dateTo) continue;
         }
       }
+      if (ageMin !== "" || ageMax !== "") {
+        const age = ageLookup[g[0] + "-" + g[20]];
+        if (age === undefined || age === null || age === 0) continue;
+        if (ageMin !== "" && age < parseFloat(ageMin)) continue;
+        if (ageMax !== "" && age > parseFloat(ageMax)) continue;
+      }
       let ok = true;
       for (const r of statRows) {
         if (!r.stat || r.val === "" || r.val === undefined || r.val === null) continue;
@@ -6376,7 +6391,7 @@ function GameSearchView({ goToPlayer }) {
       return 0;
     });
     return filtered;
-  }, [playerQ, teamSel, oppSel, yearSel, weekMin, weekMax, typeSel, dateFrom, dateTo, statRows, sortKey, sortDir]);
+  }, [playerQ, teamSel, oppSel, yearSel, weekMin, weekMax, typeSel, dateFrom, dateTo, ageMin, ageMax, statRows, sortKey, sortDir]);
 
   // Quick presets
   const PRESETS = [
@@ -6399,12 +6414,14 @@ function GameSearchView({ goToPlayer }) {
     { key: "gmsc20", label: "20+ Game Score", apply: () => setStatRows([{stat:"gmsc",op:">=",val:20}]) },
     { key: "champonly", label: "Championships only", apply: () => setTypeSel(["C"]) },
     { key: "playoffsonly", label: "Playoffs only", apply: () => setTypeSel(["P", "C"]) },
+    { key: "teens", label: "Teen seasons (under 20)", apply: () => { setAgeMin(""); setAgeMax("19"); } },
+    { key: "fortyplus", label: "40+ club", apply: () => { setAgeMin("40"); setAgeMax(""); } },
   ];
 
   const clearAll = () => {
     setPlayerQ(""); setTeamSel([]); setOppSel([]); setYearSel([]);
     setWeekMin(""); setWeekMax(""); setTypeSel([]);
-    setDateFrom(""); setDateTo(""); setStatRows([]);
+    setDateFrom(""); setDateTo(""); setAgeMin(""); setAgeMax(""); setStatRows([]);
   };
 
   const toggleInArr = (arr, val, setter) => {
@@ -6418,7 +6435,8 @@ function GameSearchView({ goToPlayer }) {
   const activeFilterCount =
     (playerQ ? 1 : 0) + (teamSel.length ? 1 : 0) + (oppSel.length ? 1 : 0) +
     (yearSel.length ? 1 : 0) + (weekMin !== "" || weekMax !== "" ? 1 : 0) +
-    (typeSel.length ? 1 : 0) + (dateFrom || dateTo ? 1 : 0) + statRows.length;
+    (typeSel.length ? 1 : 0) + (dateFrom || dateTo ? 1 : 0) +
+    (ageMin !== "" || ageMax !== "" ? 1 : 0) + statRows.length;
 
   const shown = results.slice(0, limit);
 
@@ -6544,6 +6562,16 @@ function GameSearchView({ goToPlayer }) {
             </div>
           </div>
           <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Age</p>
+            <div className="flex gap-2 items-center">
+              <input type="number" placeholder="Min" value={ageMin} onChange={e => setAgeMin(e.target.value)}
+                className="w-20 px-2 py-1 rounded-lg border border-gray-200 text-xs" />
+              <span className="text-xs text-gray-400">to</span>
+              <input type="number" placeholder="Max" value={ageMax} onChange={e => setAgeMax(e.target.value)}
+                className="w-20 px-2 py-1 rounded-lg border border-gray-200 text-xs" />
+            </div>
+          </div>
+          <div>
             <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Stat Filters (AND)</p>
             <div className="space-y-1.5">
               {statRows.map((r, i) => (
@@ -6578,8 +6606,10 @@ function GameSearchView({ goToPlayer }) {
         <div className="flex gap-1">
           <button onClick={() => setView("cards")}
             className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${view === "cards" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Cards</button>
-          <button onClick={() => setView("table")}
-            className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${view === "table" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Table</button>
+          <button onClick={() => setView("simple")}
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${view === "simple" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Simple</button>
+          <button onClick={() => setView("extended")}
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${view === "extended" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Extended</button>
         </div>
       </div>
 
@@ -6614,7 +6644,7 @@ function GameSearchView({ goToPlayer }) {
             );
           })}
         </div>
-      ) : (
+      ) : view === "simple" ? (
         <div className="overflow-x-auto -mx-3 px-3">
           <table className="w-full text-[10px]">
             <thead>
@@ -6650,6 +6680,89 @@ function GameSearchView({ goToPlayer }) {
                   <td className="py-1 pr-2 text-right font-bold">{g[19]}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="overflow-x-auto -mx-3 px-3" style={{ position: "relative" }}>
+          <table className="text-[10px]" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "100%" }}>
+            <thead>
+              <tr className="text-gray-500 uppercase tracking-wide">
+                <th className="text-left py-1.5 pr-2 pl-2 cursor-pointer bg-white border-b border-gray-200" onClick={() => handleSort("player")}
+                  style={{ position: "sticky", left: 0, zIndex: 2, boxShadow: "1px 0 0 #e5e7eb" }}>Player</th>
+                <th className="text-left py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("team")}>Tm</th>
+                <th className="text-left py-1.5 px-1.5 border-b border-gray-200">Opp</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("year")}>Yr</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("week")}>Wk</th>
+                <th className="text-left py-1.5 px-1.5 border-b border-gray-200">Date</th>
+                <th className="text-left py-1.5 px-1.5 border-b border-gray-200">Type</th>
+                <th className="text-right py-1.5 px-1.5 border-b border-gray-200">Age</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("pts")}>PTS</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("reb")}>REB</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("ast")}>AST</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("stl")}>STL</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("blk")}>BLK</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("fgm")}>FGM</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("fga")}>FGA</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("fgpct")}>FG%</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("tpm")}>3PM</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("tpa")}>3PA</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("tppct")}>3P%</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("ftm")}>FTM</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("fta")}>FTA</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("ftpct")}>FT%</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("foul")}>FOUL</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("asb")}>ASB</th>
+                <th className="text-right py-1.5 px-1.5 cursor-pointer border-b border-gray-200" onClick={() => handleSort("gmsc")}>GmSc</th>
+                <th className="text-left py-1.5 px-1.5 border-b border-gray-200">Result</th>
+                <th className="text-left py-1.5 px-1.5 border-b border-gray-200">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((g, i) => {
+                const { mine, opp } = getGameScores(g);
+                const won = mine > opp;
+                const fgPct = g[13] > 0 ? Math.round((g[12] / g[13]) * 100) : null;
+                const tpPct = g[17] > 0 ? Math.round((g[16] / g[17]) * 100) : null;
+                const ftPct = g[15] > 0 ? Math.round((g[14] / g[15]) * 100) : null;
+                const asb = g[10] + g[9] + g[11];
+                const age = ageLookup[g[0] + "-" + g[20]];
+                const typeLabel = g[5] === "C" ? "C" : g[5] === "P" ? "P" : g[5] === "X" ? "X" : "R";
+                const typeClass = g[5] === "C" ? "text-yellow-700 font-bold" : g[5] === "P" ? "text-gray-700 font-bold" : "text-gray-500";
+                return (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="py-1 pr-2 pl-2 font-bold text-gray-900 cursor-pointer bg-white border-b border-gray-50"
+                      onClick={() => goToPlayer(g[0])}
+                      style={{ position: "sticky", left: 0, zIndex: 1, boxShadow: "1px 0 0 #f3f4f6", whiteSpace: "nowrap" }}>{formatName(g[0])}</td>
+                    <td className="py-1 px-1.5 text-gray-700 border-b border-gray-50">{g[1]}</td>
+                    <td className="py-1 px-1.5 text-gray-700 border-b border-gray-50">{g[2]}</td>
+                    <td className="py-1 px-1.5 text-right text-gray-700 border-b border-gray-50">{g[20]}</td>
+                    <td className="py-1 px-1.5 text-right text-gray-700 border-b border-gray-50">{g[3]}</td>
+                    <td className="py-1 px-1.5 text-gray-700 border-b border-gray-50" style={{ whiteSpace: "nowrap" }}>{g[4]}</td>
+                    <td className={`py-1 px-1.5 border-b border-gray-50 ${typeClass}`}>{typeLabel}</td>
+                    <td className="py-1 px-1.5 text-right text-gray-700 border-b border-gray-50">{age || ""}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[7]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[8]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[10]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[9]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[11]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[12]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[13]}</td>
+                    <td className="py-1 px-1.5 text-right text-gray-600 border-b border-gray-50">{fgPct === null ? "" : `${fgPct}%`}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[16]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[17]}</td>
+                    <td className="py-1 px-1.5 text-right text-gray-600 border-b border-gray-50">{tpPct === null ? "" : `${tpPct}%`}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[14]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[15]}</td>
+                    <td className="py-1 px-1.5 text-right text-gray-600 border-b border-gray-50">{ftPct === null ? "" : `${ftPct}%`}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{g[18]}</td>
+                    <td className="py-1 px-1.5 text-right border-b border-gray-50">{asb}</td>
+                    <td className="py-1 px-1.5 text-right font-bold border-b border-gray-50">{g[19]}</td>
+                    <td className={`py-1 px-1.5 border-b border-gray-50 ${won ? "text-emerald-700 font-bold" : "text-gray-500"}`}>{mine > 0 || opp > 0 ? (won ? "W" : "L") : ""}</td>
+                    <td className="py-1 px-1.5 text-gray-700 border-b border-gray-50" style={{ whiteSpace: "nowrap" }}>{mine > 0 || opp > 0 ? `${mine}${"\u2013"}${opp}` : ""}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
