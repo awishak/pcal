@@ -2497,6 +2497,7 @@ function AppInner() {
       { key: "gamestats", label: "Box Scores", desc: "Game-by-game player stats" },
       { key: "allgames", label: "View All Games by Week", desc: "Browse the full season schedule" },
       { key: "matchups", label: "Matchup History", desc: "Head-to-head team records" },
+      { key: "gamesearch", label: "Game Search", desc: "Filter every game by player, team, stats, and more" },
     ]},
     { title: "AI Analysis", cards: [
       { key: "stat_explainers", label: "Explaining AI Score and Game Score", desc: "How we measure player value" },
@@ -3288,6 +3289,9 @@ function AppInner() {
         )}
         {tab === "bestgames" && (
           <BestGamesView goToPlayer={goToPlayer} />
+        )}
+        {tab === "gamesearch" && (
+          <GameSearchView goToPlayer={goToPlayer} />
         )}
         {tab === "peaks" && (
           <PeakPerformanceView data={DATA} teamSeasons={TEAM_SEASONS} years={YEARS} goToPlayer={goToPlayer} />
@@ -6229,6 +6233,434 @@ function BestGamesView({ goToPlayer }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+
+function GameSearchView({ goToPlayer }) {
+  // Filters
+  const [playerQ, setPlayerQ] = useState("");
+  const [teamSel, setTeamSel] = useState([]); // multi-select team codes
+  const [oppSel, setOppSel] = useState([]); // multi-select opponent codes
+  const [yearSel, setYearSel] = useState([]); // multi-select years
+  const [weekMin, setWeekMin] = useState("");
+  const [weekMax, setWeekMax] = useState("");
+  const [typeSel, setTypeSel] = useState([]); // R, P, C
+  const [dateFrom, setDateFrom] = useState(""); // YYYY-MM-DD
+  const [dateTo, setDateTo] = useState("");
+  const [statRows, setStatRows] = useState([]); // [{stat, op, val}]
+  const [view, setView] = useState("cards"); // cards | table
+  const [sortKey, setSortKey] = useState("gmsc"); // for both views
+  const [sortDir, setSortDir] = useState("desc");
+  const [limit, setLimit] = useState(50);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Build team list from GAME_LOG (avoids depending on TEAMS for older teams)
+  const allTeams = useMemo(() => {
+    const s = new Set();
+    GAME_LOG.forEach(g => { if (g[1]) s.add(g[1]); if (g[2]) s.add(g[2]); });
+    return [...s].sort();
+  }, []);
+
+  const allYears = useMemo(() => {
+    const s = new Set();
+    GAME_LOG.forEach(g => { if (g[20]) s.add(g[20]); });
+    return [...s].sort((a, b) => b - a);
+  }, []);
+
+  // Player autocomplete suggestions
+  const playerSuggestions = useMemo(() => {
+    if (!playerQ || playerQ.length < 2) return [];
+    const lc = playerQ.toLowerCase();
+    const seen = new Set();
+    const out = [];
+    for (const g of GAME_LOG) {
+      const name = g[0];
+      if (seen.has(name)) continue;
+      const formatted = formatName(name).toLowerCase();
+      if (name.toLowerCase().includes(lc) || formatted.includes(lc)) {
+        seen.add(name);
+        out.push(name);
+        if (out.length >= 8) break;
+      }
+    }
+    return out;
+  }, [playerQ]);
+
+  // Stat filter helpers
+  const STAT_OPTIONS = [
+    { key: "pts", label: "PTS", idx: 7 },
+    { key: "reb", label: "REB", idx: 8 },
+    { key: "ast", label: "AST", idx: 10 },
+    { key: "stl", label: "STL", idx: 9 },
+    { key: "blk", label: "BLK", idx: 11 },
+    { key: "fgm", label: "FGM", idx: 12 },
+    { key: "fga", label: "FGA", idx: 13 },
+    { key: "ftm", label: "FTM", idx: 14 },
+    { key: "fta", label: "FTA", idx: 15 },
+    { key: "tpm", label: "3PM", idx: 16 },
+    { key: "tpa", label: "3PA", idx: 17 },
+    { key: "foul", label: "FOUL", idx: 18 },
+    { key: "gmsc", label: "GmSc", idx: 19 },
+    { key: "fgpct", label: "FG%", computed: true },
+    { key: "ftpct", label: "FT%", computed: true },
+    { key: "tppct", label: "3P%", computed: true },
+    { key: "asb", label: "ASB (A+S+B)", computed: true },
+  ];
+
+  const getStatValue = (g, key) => {
+    const opt = STAT_OPTIONS.find(o => o.key === key);
+    if (!opt) return 0;
+    if (!opt.computed) return g[opt.idx];
+    if (key === "fgpct") return g[13] > 0 ? (g[12] / g[13]) * 100 : 0;
+    if (key === "ftpct") return g[15] > 0 ? (g[14] / g[15]) * 100 : 0;
+    if (key === "tppct") return g[17] > 0 ? (g[16] / g[17]) * 100 : 0;
+    if (key === "asb") return g[10] + g[9] + g[11];
+    return 0;
+  };
+
+  // Filtering
+  const results = useMemo(() => {
+    const lcQ = playerQ.toLowerCase().trim();
+    const filtered = [];
+    for (const g of GAME_LOG) {
+      if (g[6] !== 1) continue;
+      if (lcQ) {
+        const name = g[0].toLowerCase();
+        const formatted = formatName(g[0]).toLowerCase();
+        if (!name.includes(lcQ) && !formatted.includes(lcQ)) continue;
+      }
+      if (teamSel.length && !teamSel.includes(g[1])) continue;
+      if (oppSel.length && !oppSel.includes(g[2])) continue;
+      if (yearSel.length && !yearSel.includes(g[20])) continue;
+      if (weekMin !== "" && g[3] < parseInt(weekMin)) continue;
+      if (weekMax !== "" && g[3] > parseInt(weekMax)) continue;
+      if (typeSel.length && !typeSel.includes(g[5])) continue;
+      if (dateFrom || dateTo) {
+        const parts = String(g[4] || "").split("/");
+        if (parts.length === 2) {
+          const mm = parts[0].padStart(2, "0");
+          const dd = parts[1].padStart(2, "0");
+          const iso = `${g[20]}-${mm}-${dd}`;
+          if (dateFrom && iso < dateFrom) continue;
+          if (dateTo && iso > dateTo) continue;
+        }
+      }
+      let ok = true;
+      for (const r of statRows) {
+        if (!r.stat || r.val === "" || r.val === undefined || r.val === null) continue;
+        const v = getStatValue(g, r.stat);
+        const target = parseFloat(r.val);
+        if (isNaN(target)) continue;
+        if (r.op === ">=" && !(v >= target)) { ok = false; break; }
+        if (r.op === ">" && !(v > target)) { ok = false; break; }
+        if (r.op === "<=" && !(v <= target)) { ok = false; break; }
+        if (r.op === "<" && !(v < target)) { ok = false; break; }
+        if (r.op === "=" && !(v === target)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      filtered.push(g);
+    }
+    const sortIdx = STAT_OPTIONS.find(o => o.key === sortKey);
+    filtered.sort((a, b) => {
+      let av, bv;
+      if (sortKey === "year") { av = a[20]; bv = b[20]; }
+      else if (sortKey === "week") { av = a[3]; bv = b[3]; }
+      else if (sortKey === "player") { av = a[0]; bv = b[0]; }
+      else if (sortKey === "team") { av = a[1]; bv = b[1]; }
+      else if (sortIdx) { av = getStatValue(a, sortKey); bv = getStatValue(b, sortKey); }
+      else { av = a[19]; bv = b[19]; }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return filtered;
+  }, [playerQ, teamSel, oppSel, yearSel, weekMin, weekMax, typeSel, dateFrom, dateTo, statRows, sortKey, sortDir]);
+
+  // Quick presets
+  const PRESETS = [
+    { key: "td", label: "Triple-doubles", apply: () => setStatRows([{stat:"pts",op:">=",val:10},{stat:"reb",op:">=",val:10},{stat:"ast",op:">=",val:10}]) },
+    { key: "40p", label: "40+ points", apply: () => setStatRows([{stat:"pts",op:">=",val:40}]) },
+    { key: "30p", label: "30+ points", apply: () => setStatRows([{stat:"pts",op:">=",val:30}]) },
+    { key: "20r", label: "20+ rebounds", apply: () => setStatRows([{stat:"reb",op:">=",val:20}]) },
+    { key: "15r", label: "15+ rebounds", apply: () => setStatRows([{stat:"reb",op:">=",val:15}]) },
+    { key: "10a", label: "10+ assists", apply: () => setStatRows([{stat:"ast",op:">=",val:10}]) },
+    { key: "5b", label: "5+ blocks", apply: () => setStatRows([{stat:"blk",op:">=",val:5}]) },
+    { key: "5s", label: "5+ steals", apply: () => setStatRows([{stat:"stl",op:">=",val:5}]) },
+    { key: "5t", label: "5+ threes", apply: () => setStatRows([{stat:"tpm",op:">=",val:5}]) },
+    { key: "3010", label: "30-10 games", apply: () => setStatRows([{stat:"pts",op:">=",val:30},{stat:"reb",op:">=",val:10}]) },
+    { key: "2055", label: "20-5-5 games", apply: () => setStatRows([{stat:"pts",op:">=",val:20},{stat:"reb",op:">=",val:5},{stat:"ast",op:">=",val:5}]) },
+    { key: "pcaltd", label: "PCAL Triple Dbl (10 ASB)", apply: () => setStatRows([{stat:"asb",op:">=",val:10}]) },
+    { key: "ftperfect", label: "Perfect FT (5+ FTM)", apply: () => setStatRows([{stat:"ftm",op:">=",val:5},{stat:"ftpct",op:"=",val:100}]) },
+    { key: "efficient", label: "Efficient (10+ FGM, 70% FG)", apply: () => setStatRows([{stat:"fgm",op:">=",val:10},{stat:"fgpct",op:">=",val:70}]) },
+    { key: "goose", label: "Goose egg (0 points)", apply: () => setStatRows([{stat:"pts",op:"=",val:0}]) },
+    { key: "foulout", label: "Foul outs (5+ fouls)", apply: () => setStatRows([{stat:"foul",op:">=",val:5}]) },
+    { key: "gmsc20", label: "20+ Game Score", apply: () => setStatRows([{stat:"gmsc",op:">=",val:20}]) },
+    { key: "champonly", label: "Championships only", apply: () => setTypeSel(["C"]) },
+    { key: "playoffsonly", label: "Playoffs only", apply: () => setTypeSel(["P", "C"]) },
+  ];
+
+  const clearAll = () => {
+    setPlayerQ(""); setTeamSel([]); setOppSel([]); setYearSel([]);
+    setWeekMin(""); setWeekMax(""); setTypeSel([]);
+    setDateFrom(""); setDateTo(""); setStatRows([]);
+  };
+
+  const toggleInArr = (arr, val, setter) => {
+    setter(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
+  };
+
+  const addStatRow = () => setStatRows([...statRows, { stat: "pts", op: ">=", val: "" }]);
+  const updateStatRow = (i, patch) => setStatRows(statRows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const removeStatRow = (i) => setStatRows(statRows.filter((_, idx) => idx !== i));
+
+  const activeFilterCount =
+    (playerQ ? 1 : 0) + (teamSel.length ? 1 : 0) + (oppSel.length ? 1 : 0) +
+    (yearSel.length ? 1 : 0) + (weekMin !== "" || weekMax !== "" ? 1 : 0) +
+    (typeSel.length ? 1 : 0) + (dateFrom || dateTo ? 1 : 0) + statRows.length;
+
+  const shown = results.slice(0, limit);
+
+  // Team score lookup for win/loss
+  const scoreMap = useMemo(() => {
+    const m = {};
+    GAME_LOG.filter(g => g[6] === 1).forEach(g => {
+      const key = `${[g[1], g[2]].sort().join('-')}-${g[3]}-${g[20]}-${g[5]}`;
+      if (!m[key]) m[key] = {};
+      m[key][g[1]] = (m[key][g[1]] || 0) + g[7];
+    });
+    return m;
+  }, []);
+
+  const getGameScores = (g) => {
+    const key = `${[g[1], g[2]].sort().join('-')}-${g[3]}-${g[20]}-${g[5]}`;
+    const scores = scoreMap[key] || {};
+    return { mine: scores[g[1]] || 0, opp: scores[g[2]] || 0 };
+  };
+
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir(sortDir === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Game Search</p>
+      <p className="text-[10px] text-gray-400 mb-3">Filter every game in PCAL history by any criteria.</p>
+
+      {/* Quick presets */}
+      <div className="mb-3">
+        <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1.5">Quick Filters</p>
+        <div className="flex gap-1.5 overflow-x-auto pb-1.5" style={{ scrollbarWidth: "none" }}>
+          {PRESETS.map(p => (
+            <button key={p.key} onClick={() => { clearAll(); p.apply(); }}
+              className="flex-shrink-0 text-[10px] font-bold bg-gray-900 text-white px-2.5 py-1.5 rounded-full hover:bg-gray-700 active:scale-95">
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Player search */}
+      <div className="mb-2 relative">
+        <input value={playerQ} onChange={e => setPlayerQ(e.target.value)} placeholder="Search player name..."
+          className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400" />
+        {playerSuggestions.length > 0 && playerQ.length >= 2 && (
+          <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+            {playerSuggestions.map(name => (
+              <button key={name} onClick={() => setPlayerQ(formatName(name))}
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 border-b border-gray-50 last:border-b-0">
+                {formatName(name)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Filter toggle */}
+      <button onClick={() => setFiltersOpen(!filtersOpen)}
+        className="w-full mb-2 flex items-center justify-between px-3 py-2 rounded-xl bg-gray-100 text-xs font-bold text-gray-700 hover:bg-gray-200">
+        <span>{filtersOpen ? "Hide Filters" : "Show Filters"}{activeFilterCount > 0 && ` (${activeFilterCount} active)`}</span>
+        <span className="text-gray-400">{filtersOpen ? "▲" : "▼"}</span>
+      </button>
+
+      {filtersOpen && (
+        <div className="space-y-3 mb-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+          <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Team</p>
+            <div className="flex flex-wrap gap-1">
+              {allTeams.map(t => (
+                <button key={t} onClick={() => toggleInArr(teamSel, t, setTeamSel)}
+                  className={`text-[10px] font-bold px-2 py-1 rounded-full ${teamSel.includes(t) ? "bg-gray-900 text-white" : "bg-white text-gray-600 border border-gray-200"}`}>{t}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Opponent</p>
+            <div className="flex flex-wrap gap-1">
+              {allTeams.map(t => (
+                <button key={t} onClick={() => toggleInArr(oppSel, t, setOppSel)}
+                  className={`text-[10px] font-bold px-2 py-1 rounded-full ${oppSel.includes(t) ? "bg-gray-900 text-white" : "bg-white text-gray-600 border border-gray-200"}`}>{t}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Year</p>
+            <div className="flex flex-wrap gap-1">
+              {allYears.map(y => (
+                <button key={y} onClick={() => toggleInArr(yearSel, y, setYearSel)}
+                  className={`text-[10px] font-bold px-2 py-1 rounded-full ${yearSel.includes(y) ? "bg-gray-900 text-white" : "bg-white text-gray-600 border border-gray-200"}`}>{y}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Week</p>
+            <div className="flex gap-2 items-center">
+              <input type="number" placeholder="Min" value={weekMin} onChange={e => setWeekMin(e.target.value)}
+                className="w-20 px-2 py-1 rounded-lg border border-gray-200 text-xs" />
+              <span className="text-xs text-gray-400">to</span>
+              <input type="number" placeholder="Max" value={weekMax} onChange={e => setWeekMax(e.target.value)}
+                className="w-20 px-2 py-1 rounded-lg border border-gray-200 text-xs" />
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Game Type</p>
+            <div className="flex gap-1">
+              {[["R", "Regular"], ["P", "Playoff"], ["C", "Championship"]].map(([k, l]) => (
+                <button key={k} onClick={() => toggleInArr(typeSel, k, setTypeSel)}
+                  className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${typeSel.includes(k) ? "bg-gray-900 text-white" : "bg-white text-gray-600 border border-gray-200"}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Date Range</p>
+            <div className="flex gap-2 items-center">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="px-2 py-1 rounded-lg border border-gray-200 text-xs" />
+              <span className="text-xs text-gray-400">to</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="px-2 py-1 rounded-lg border border-gray-200 text-xs" />
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Stat Filters (AND)</p>
+            <div className="space-y-1.5">
+              {statRows.map((r, i) => (
+                <div key={i} className="flex gap-1 items-center">
+                  <select value={r.stat} onChange={e => updateStatRow(i, { stat: e.target.value })}
+                    className="px-2 py-1 rounded-lg border border-gray-200 text-xs bg-white">
+                    {STAT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                  </select>
+                  <select value={r.op} onChange={e => updateStatRow(i, { op: e.target.value })}
+                    className="px-2 py-1 rounded-lg border border-gray-200 text-xs bg-white">
+                    <option value=">=">{"\u2265"}</option>
+                    <option value=">">{">"}</option>
+                    <option value="<=">{"\u2264"}</option>
+                    <option value="<">{"<"}</option>
+                    <option value="=">{"="}</option>
+                  </select>
+                  <input type="number" value={r.val} onChange={e => updateStatRow(i, { val: e.target.value })}
+                    className="w-20 px-2 py-1 rounded-lg border border-gray-200 text-xs" placeholder="value" />
+                  <button onClick={() => removeStatRow(i)} className="text-xs text-red-500 px-1">{"\u00d7"}</button>
+                </div>
+              ))}
+              <button onClick={addStatRow} className="text-[10px] font-bold text-gray-700 bg-white border border-gray-200 px-2.5 py-1 rounded-full hover:bg-gray-100">+ Add stat filter</button>
+            </div>
+          </div>
+          <button onClick={clearAll} className="text-[10px] font-bold text-gray-700 bg-white border border-gray-200 px-3 py-1.5 rounded-full hover:bg-gray-100">Clear All Filters</button>
+        </div>
+      )}
+
+      {/* Results header */}
+      <div className="flex items-center justify-between mb-2 pt-1">
+        <p className="text-xs text-gray-500"><span className="font-bold text-gray-900">{results.length.toLocaleString()}</span> {results.length === 1 ? "game" : "games"} found</p>
+        <div className="flex gap-1">
+          <button onClick={() => setView("cards")}
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${view === "cards" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Cards</button>
+          <button onClick={() => setView("table")}
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${view === "table" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Table</button>
+        </div>
+      </div>
+
+      {results.length === 0 ? (
+        <div className="text-center py-8 text-xs text-gray-400">No games match these filters. Try the quick filters above or loosen criteria.</div>
+      ) : view === "cards" ? (
+        <div className="space-y-1.5">
+          {shown.map((g, i) => {
+            const { mine, opp } = getGameScores(g);
+            const won = mine > opp;
+            const fgPct = g[13] > 0 ? Math.round((g[12] / g[13]) * 100) : 0;
+            const tpPct = g[17] > 0 ? Math.round((g[16] / g[17]) * 100) : 0;
+            const statParts = [g[7] > 0 ? `${g[7]}p` : null, g[8] > 0 ? `${g[8]}r` : null, g[10] > 0 ? `${g[10]}a` : null, g[9] > 0 ? `${g[9]}s` : null, g[11] > 0 ? `${g[11]}b` : null].filter(Boolean).join("/");
+            const borderClass = g[5] === "C" ? "border-2 border-yellow-400" : g[5] === "P" ? "border-2 border-gray-300" : "border border-gray-100";
+            return (
+              <div key={i} className={`rounded-xl bg-white px-3 py-2.5 ${borderClass}`}>
+                <div className="flex items-center gap-2">
+                  <TeamLogo team={g[1]} year={g[20]} size={22} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={() => goToPlayer(g[0])}>{formatName(g[0])}</span>
+                    <span className="text-[10px] text-gray-400 ml-1.5">{g[1]} vs {g[2]} {"\u00b7"} {g[4]} {g[20]}</span>
+                    {g[5] === "C" && <span className="font-black uppercase text-yellow-800 bg-yellow-100 border border-yellow-300 rounded ml-1.5 inline-block align-middle" style={{ fontSize: 6, padding: "1px 4px" }}>CHAMPIONSHIP</span>}
+                    {g[5] === "P" && <span className="font-black uppercase text-gray-500 bg-gray-100 border border-gray-300 rounded ml-1.5 inline-block align-middle" style={{ fontSize: 6, padding: "1px 4px" }}>PLAYOFF</span>}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-base font-black text-gray-900">{g[19]}</div>
+                    <div className="text-[9px] text-gray-400">GmSc</div>
+                  </div>
+                </div>
+                <div className="text-[10px] text-gray-500 ml-9 mt-0.5">{statParts || "no stats"} {"\u00b7"} {g[12]}-{g[13]} FG ({fgPct}%){g[17] > 0 ? ` ${"\u00b7"} ${g[16]}-${g[17]} 3P (${tpPct}%)` : ""}{g[14] > 0 ? ` ${"\u00b7"} ${g[14]}-${g[15]} FT` : ""}{mine > 0 || opp > 0 ? ` ${"\u00b7"} ${won ? "W" : "L"} ${mine}${"\u2013"}${opp}` : ""}</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="overflow-x-auto -mx-3 px-3">
+          <table className="w-full text-[10px]">
+            <thead>
+              <tr className="border-b border-gray-200 text-gray-500 uppercase tracking-wide">
+                <th className="text-left py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("player")}>Player</th>
+                <th className="text-left py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("team")}>Tm</th>
+                <th className="text-left py-1.5 pr-2">Opp</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("year")}>Yr</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("week")}>Wk</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("pts")}>P</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("reb")}>R</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("ast")}>A</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("stl")}>S</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("blk")}>B</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("tpm")}>3M</th>
+                <th className="text-right py-1.5 pr-2 cursor-pointer" onClick={() => handleSort("gmsc")}>GmSc</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((g, i) => (
+                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="py-1 pr-2 font-bold text-gray-900 cursor-pointer" onClick={() => goToPlayer(g[0])}>{formatName(g[0])}</td>
+                  <td className="py-1 pr-2 text-gray-700">{g[1]}</td>
+                  <td className="py-1 pr-2 text-gray-700">{g[2]}</td>
+                  <td className="py-1 pr-2 text-right text-gray-700">{g[20]}</td>
+                  <td className="py-1 pr-2 text-right text-gray-700">{g[3]}</td>
+                  <td className="py-1 pr-2 text-right">{g[7]}</td>
+                  <td className="py-1 pr-2 text-right">{g[8]}</td>
+                  <td className="py-1 pr-2 text-right">{g[10]}</td>
+                  <td className="py-1 pr-2 text-right">{g[9]}</td>
+                  <td className="py-1 pr-2 text-right">{g[11]}</td>
+                  <td className="py-1 pr-2 text-right">{g[16]}</td>
+                  <td className="py-1 pr-2 text-right font-bold">{g[19]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {results.length > limit && (
+        <button onClick={() => setLimit(limit + 50)}
+          className="w-full mt-3 py-2 rounded-xl bg-gray-100 text-xs font-bold text-gray-700 hover:bg-gray-200">
+          Show {Math.min(50, results.length - limit)} more ({results.length - limit} remaining)
+        </button>
+      )}
     </div>
   );
 }
