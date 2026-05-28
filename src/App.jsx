@@ -8107,7 +8107,7 @@ function POTWStatsView({ goToPlayer }) {
     return { nomList, winList };
   }, []);
 
-  const [tab, setTab] = useState("wins");
+  const [tab, setTab] = useState("byweek");
   const [expanded, setExpanded] = useState(null);
 
   return (
@@ -8115,10 +8115,12 @@ function POTWStatsView({ goToPlayer }) {
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Player of the Week</p>
       <p className="text-[11px] text-gray-400 mb-3">All-time POTW wins and nominations across every week of every season</p>
       <div className="flex gap-1.5 mb-4">
-        {[["wins", "POTW Wins"], ["noms", "Nominations"]].map(([k, l]) => (
+        {[["byweek", "By Week"], ["wins", "POTW Wins"], ["noms", "Nominations"]].map(([k, l]) => (
           <button key={k} onClick={() => { setTab(k); setExpanded(null); }} className={`px-3 py-1.5 rounded-xl text-xs font-bold ${tab === k ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>{l}</button>
         ))}
       </div>
+
+      {tab === "byweek" && <PlayerOfWeekView embedded />}
 
       {tab === "wins" && (
         <div>
@@ -12624,7 +12626,7 @@ function PhotosAdmin({ photos, setPhotos, genId }) {
   );
 }
 
-function PlayerOfWeekView() {
+function PlayerOfWeekView({ embedded = false } = {}) {
   const allYears = useMemo(() => [...new Set(GAME_LOG.map(g => g[20]))].sort((a,b) => b - a), []);
   const [selYear, setSelYear] = useState(2025);
   const [selWeek, setSelWeek] = useState(1);
@@ -12635,9 +12637,13 @@ function PlayerOfWeekView() {
   const data = weekData[selWeek] || { nominees: [], leapfrogged: [] };
 
   return (
-    <div className="max-w-lg mx-auto px-4 pt-4 pb-24">
-      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Player of the Week</p>
-      <p className="text-[11px] text-gray-400 mb-2">Top 5 nominees each week</p>
+    <div className={embedded ? "" : "max-w-lg mx-auto px-4 pt-4 pb-24"}>
+      {!embedded && (
+        <>
+          <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Player of the Week</p>
+          <p className="text-[11px] text-gray-400 mb-2">Top 5 nominees each week</p>
+        </>
+      )}
       <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">Each week, 5 players are nominated based on their combined stats across all games that week. One nominee for each category: highest overall game score, top scorer, top rebounder, top playmaker (steals + assists + blocks), and the best performer on a team that went undefeated. All cards are sorted by total game score.</p>
 
       {/* Year selector */}
