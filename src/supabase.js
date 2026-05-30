@@ -556,6 +556,7 @@ async function fetchAllGameLogRows() {
       .select("*")
       .order("year", { ascending: true })
       .order("date", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, to);
     if (error) throw new Error("game_log fetch failed: " + error.message);
     if (!data || data.length === 0) break;
