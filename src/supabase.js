@@ -799,3 +799,20 @@ export async function adminDeleteGameLogForGame({ year, week, date, homeTeam, aw
   if (error) { console.error("adminDeleteGameLogForGame error:", error); return { ok: false, error: error.message }; }
   return data;
 }
+
+// ============================================================================
+// SCHEDULE (admin edit, auth-backed)
+// ============================================================================
+// Update editable fields on a single schedule game. Gated server-side by
+// has_admin_or_commish(), so the caller must have a Supabase Auth session
+// with an admin or commissioner role (not just the admin password token).
+// Pass only the fields you want to change; omitted fields are left as-is.
+// To clear location or scoring_team, pass an empty string for that field.
+export async function adminUpdateScheduleGame(gameId, fields) {
+  const { data, error } = await supabase.rpc("admin_update_schedule_game", {
+    p_game_id: gameId,
+    p_data: fields,
+  });
+  if (error) { console.error("adminUpdateScheduleGame error:", error); return { ok: false, error: error.message }; }
+  return data;
+}

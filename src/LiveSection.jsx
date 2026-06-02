@@ -22,7 +22,7 @@
 // ============================================================
 
 import React, { useEffect, useMemo, useState, useCallback, useRef, createContext, useContext } from "react";
-import { supabase, adminInsertGameLog, adminDeleteGameLogForGame, bumpGameLogCache,
+import { supabase, adminInsertGameLog, adminDeleteGameLogForGame, adminUpdateScheduleGame, bumpGameLogCache,
   requestLoginCode, verifyLoginCode, signOutUser, getCurrentSession, onAuthStateChange } from "./supabase.js";
 
 // Context carries the base64 team logo map from App.jsx down to
@@ -492,7 +492,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
     return () => { cancelled = true; unsub(); };
   }, []);
 
-  // View state: 'home' | 'game' | 'review'
+  // View state: 'home' | 'game' | 'review' | 'schedule_edit'
   const [view, setView] = useState("home");
   const [activeGameId, setActiveGameId] = useState(null);
 
@@ -529,13 +529,16 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
     <LogosContext.Provider value={logos}>
       <div>
         {view === "home" && (
-          <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} />
+          <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} onEditSchedule={() => setView("schedule_edit")} />
         )}
         {view === "game" && activeGameId && (
           <LiveGameView gameId={activeGameId} me={me} onLogin={login} onBack={() => { setView("home"); setActiveGameId(null); }} />
         )}
         {view === "review" && (
           <ReviewQueue onBack={() => setView("home")} onOpen={openGame} />
+        )}
+        {view === "schedule_edit" && (
+          <ScheduleEditor onBack={() => setView("home")} />
         )}
       </div>
     </LogosContext.Provider>
@@ -546,7 +549,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
 // Live Home: Games page with current-window scoreboard, upcoming
 // 2026 games, and past 2026 games.
 // ============================================================
-function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
+function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule }) {
   // allGames: full 2026 season from schedule.
   // liveStates: game_id -> live_games row (used for live/ended status + scorer names)
   // liveScores: game_id -> { [team]: points } derived from live_events
@@ -842,9 +845,12 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview }) {
       {/* Admin review link at the bottom of the page (moved from top to
           declutter the header; admin review is rare and doesn't need to
           be prominent). */}
-      <div className="mt-8 pt-4 border-t border-gray-100 flex items-center justify-center">
+      <div className="mt-8 pt-4 border-t border-gray-100 flex items-center justify-center gap-4">
         <button onClick={onReview} className="text-[10px] text-gray-300 hover:text-gray-500">
           Admin review
+        </button>
+        <button onClick={onEditSchedule} className="text-[10px] text-gray-300 hover:text-gray-500">
+          Edit schedule
         </button>
       </div>
 
@@ -3447,6 +3453,378 @@ function EditEventModal({ ev, onClose, onSave }) {
           className="flex-1 py-3 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">Save</button>
       </div>
     </ModalShell>
+  );
+}
+
+// ============================================================
+// Schedule Editor (admin): edit time, location, teams, scorer, date,
+// week, and status for 2026 games. Gated by the admin password on the
+// client (reveal), while the write RPC enforces has_admin_or_commish()
+// server-side (authority). Soft warnings on save; never blocks.
+// ============================================================
+const SCHEDULE_STATUSES = ["scheduled", "live", "ended", "approved"];
+const SCHED_INPUT_CLS = "w-full py-2 px-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:border-gray-900";
+
+// Minutes-since-midnight from a "HH:MM" or "HH:MM:SS" time string.
+function schedTimeToMin(t) {
+  if (!t) return null;
+  const p = String(t).split(":");
+  const h = parseInt(p[0], 10);
+  const m = parseInt(p[1] || "0", 10);
+  if (isNaN(h)) return null;
+  return h * 60 + m;
+}
+
+function schedTimeLabel(t) {
+  const m = schedTimeToMin(t);
+  if (m == null) return "";
+  let h = Math.floor(m / 60);
+  const min = m % 60;
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${String(min).padStart(2, "0")} ${ap}`;
+}
+
+// Module-level field wrapper so its component identity is stable across
+// renders (inline components would remount inputs and drop focus).
+function SchedField({ label, children }) {
+  return (
+    <div className="mb-2.5">
+      <div className="text-[10px] text-gray-400 uppercase tracking-wide font-medium mb-1">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+// Soft schedule warnings. Returns human-readable strings. Evaluated
+// against the full season with `proposed` substituted in for its
+// game_id. Never blocks. Byes are implicit here (a team simply has no
+// game that week), so there is no explicit bye-conflict check.
+// SAC/SJO/MOD are skipped in the 3 PM + 7 PM check because their home
+// week sanctions that pattern and home weeks are not stored.
+function scheduleWarnings(proposed, allGames) {
+  const warnings = [];
+  const season = allGames.map(g => (g.game_id === proposed.game_id ? proposed : g));
+  const pair = (a, b) => [a, b].sort().join("-");
+  const SEVEN_PM = 19 * 60;
+  const THREE_PM = 15 * 60;
+
+  const pHome = proposed.home_team;
+  const pAway = proposed.away_team;
+  const pWeek = Number(proposed.week);
+  const pTimeMin = schedTimeToMin(proposed.game_time);
+  const pDate = proposed.game_date;
+  const pPair = pair(pHome, pAway);
+
+  if (pHome && pAway && pHome === pAway) {
+    warnings.push(`${pHome} is listed as both home and away.`);
+  }
+
+  // 8. Duplicate time slot on the same date.
+  const sameSlot = season.filter(g => g.game_id !== proposed.game_id
+    && g.game_date === pDate && schedTimeToMin(g.game_time) === pTimeMin);
+  if (pDate && pTimeMin != null && sameSlot.length > 0) {
+    warnings.push(`Another game is already at ${schedTimeLabel(proposed.game_time)} on ${formatGameDateShort(pDate)}.`);
+  }
+
+  // 1. Back-to-back / under one hour between a team's games on the same date.
+  [pHome, pAway].filter(Boolean).forEach(team => {
+    const times = season
+      .filter(g => g.game_date === pDate && (g.home_team === team || g.away_team === team))
+      .map(g => schedTimeToMin(g.game_time))
+      .filter(v => v != null)
+      .sort((a, b) => a - b);
+    for (let i = 1; i < times.length; i++) {
+      if (times[i] - times[i - 1] < 120) {
+        warnings.push(`${team} has games less than an hour apart (no full game in between) on ${formatGameDateShort(pDate)}.`);
+        break;
+      }
+    }
+  });
+
+  // 2. Rematch in weeks 1-2 (these should be first meetings only).
+  if (pWeek === 1 || pWeek === 2) {
+    const early = season.filter(g => (g.week === 1 || g.week === 2) && pair(g.home_team, g.away_team) === pPair);
+    if (early.length > 1) {
+      warnings.push(`${pAway} vs ${pHome} appears more than once in weeks 1-2 (first meetings only).`);
+    }
+  }
+
+  // 3. New unique matchup in weeks 5-6 (all 15 should be done by week 4).
+  if (pWeek === 5 || pWeek === 6) {
+    const seenEarlier = season.some(g => g.game_id !== proposed.game_id
+      && g.week >= 1 && g.week <= 4 && pair(g.home_team, g.away_team) === pPair);
+    if (!seenEarlier) {
+      warnings.push(`${pAway} vs ${pHome} is a new matchup in week ${pWeek} (matchups should finish by week 4).`);
+    }
+  }
+
+  // 4. A team in the 7 PM slot more than 3 times across the season.
+  [pHome, pAway].filter(Boolean).forEach(team => {
+    const count = season.filter(g => schedTimeToMin(g.game_time) === SEVEN_PM
+      && (g.home_team === team || g.away_team === team)).length;
+    if (count > 3) {
+      warnings.push(`${team} plays the 7 PM slot ${count} times this season (limit is 3).`);
+    }
+  });
+
+  // 5. Scorer not slotted between its own two games that day.
+  if (proposed.scoring_team) {
+    const st = proposed.scoring_team;
+    const playTimes = season
+      .filter(g => g.game_date === pDate && (g.home_team === st || g.away_team === st))
+      .map(g => schedTimeToMin(g.game_time))
+      .filter(v => v != null)
+      .sort((a, b) => a - b);
+    if (playTimes.length >= 2 && pTimeMin != null) {
+      const lo = playTimes[0];
+      const hi = playTimes[playTimes.length - 1];
+      if (!(pTimeMin > lo && pTimeMin < hi)) {
+        warnings.push(`${st} is scoring at ${schedTimeLabel(proposed.game_time)}, which is not between its two games on ${formatGameDateShort(pDate)}.`);
+      }
+    }
+  }
+
+  // 6. A team with both a 3 PM and a 7 PM commitment (playing or scoring)
+  // in more than one week. SAC/SJO/MOD are exempt (home week).
+  const checkSpread = (team) => {
+    if (["SAC", "SJO", "MOD"].includes(team)) return;
+    let weeksWithBoth = 0;
+    const weeks = [...new Set(season.map(g => g.week))];
+    weeks.forEach(w => {
+      const wg = season.filter(g => g.week === w);
+      const involved = (g) => g.home_team === team || g.away_team === team || g.scoring_team === team;
+      const has3 = wg.some(g => schedTimeToMin(g.game_time) === THREE_PM && involved(g));
+      const has7 = wg.some(g => schedTimeToMin(g.game_time) === SEVEN_PM && involved(g));
+      if (has3 && has7) weeksWithBoth++;
+    });
+    if (weeksWithBoth > 1) {
+      warnings.push(`${team} has both a 3 PM and a 7 PM commitment in ${weeksWithBoth} different weeks.`);
+    }
+  };
+  [pHome, pAway, proposed.scoring_team].filter(Boolean).forEach(checkSpread);
+
+  return [...new Set(warnings)];
+}
+
+function ScheduleEditor({ onBack }) {
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [needPw, setNeedPw] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+
+  const reload = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("schedule")
+      .select("*")
+      .eq("season", CURRENT_SEASON)
+      .order("week", { ascending: true })
+      .order("game_date", { ascending: true })
+      .order("game_time", { ascending: true });
+    if (error) console.error(error);
+    setGames(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (needPw) return;
+    reload();
+  }, [needPw]);
+
+  if (needPw) {
+    return (
+      <div>
+        <BackRow onBack={onBack} />
+        <AdminPasswordModal onClose={onBack} onOk={() => setNeedPw(false)}
+          title="Admin password required" subtitle="Edit the 2026 schedule." />
+      </div>
+    );
+  }
+
+  const byWeek = {};
+  games.forEach(g => { (byWeek[g.week] = byWeek[g.week] || []).push(g); });
+  const weekNums = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
+
+  return (
+    <div>
+      <BackRow onBack={onBack} />
+      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Edit Schedule</p>
+      <p className="text-[11px] text-gray-400 mb-3">Saving requires a signed-in admin or commissioner account.</p>
+      {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading...</div>}
+      {!loading && games.length === 0 && (
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
+          No 2026 games found.
+        </div>
+      )}
+      {!loading && weekNums.map(wn => (
+        <div key={wn} className="mb-5">
+          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">
+            {wn === 0 ? "Preseason" : `Week ${wn}`}
+          </div>
+          {byWeek[wn].map(g => (
+            <ScheduleGameRow
+              key={g.game_id}
+              game={g}
+              allGames={games}
+              expanded={editingId === g.game_id}
+              onToggle={() => setEditingId(editingId === g.game_id ? null : g.game_id)}
+              onSaved={() => { setEditingId(null); reload(); }}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScheduleGameRow({ game, allGames, expanded, onToggle, onSaved }) {
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!expanded) return;
+    setForm({
+      game_date: game.game_date || "",
+      game_time: (game.game_time || "").slice(0, 5),
+      home_team: game.home_team || "",
+      away_team: game.away_team || "",
+      scoring_team: game.scoring_team || "",
+      week: game.week,
+      status: game.status || "scheduled",
+      location: game.location || "",
+    });
+    setErr("");
+  }, [expanded, game]);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = async () => {
+    const proposed = {
+      ...game,
+      game_date: form.game_date,
+      game_time: form.game_time ? form.game_time + ":00" : game.game_time,
+      home_team: form.home_team,
+      away_team: form.away_team,
+      scoring_team: form.scoring_team,
+      week: Number(form.week),
+      status: form.status,
+      location: form.location,
+    };
+
+    const warnings = scheduleWarnings(proposed, allGames);
+    if (warnings.length > 0) {
+      const proceed = confirm(
+        "The following warnings were flagged. These aren't blocking, but you may want to review:\n\n"
+        + warnings.map(w => "  - " + w).join("\n")
+        + "\n\nSave anyway?"
+      );
+      if (!proceed) return;
+    }
+
+    // Only send NOT NULL fields when they have a value (missing leaves
+    // them unchanged). location and scoring_team are always sent so an
+    // empty string clears them.
+    const payload = {};
+    if (form.game_date) payload.game_date = form.game_date;
+    if (form.game_time) payload.game_time = form.game_time;
+    if (form.home_team) payload.home_team = form.home_team;
+    if (form.away_team) payload.away_team = form.away_team;
+    if (form.week !== "" && form.week != null) payload.week = Number(form.week);
+    if (form.status) payload.status = form.status;
+    payload.location = form.location;
+    payload.scoring_team = form.scoring_team;
+
+    setBusy(true); setErr("");
+    const res = await adminUpdateScheduleGame(game.game_id, payload);
+    setBusy(false);
+    if (!res || !res.ok) {
+      setErr((res && res.error) ? res.error
+        : "Save failed. Make sure you are signed in as an admin or commissioner.");
+      return;
+    }
+    onSaved();
+  };
+
+  if (!expanded) {
+    return (
+      <button onClick={onToggle}
+        className="w-full text-left rounded-2xl border border-gray-100 bg-white p-3 mb-2 active:bg-gray-50">
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-bold text-gray-500 tabular-nums w-16 flex-shrink-0">{schedTimeLabel(game.game_time)}</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-gray-900 truncate">{game.away_team} at {game.home_team}</div>
+            <div className="text-[10px] text-gray-400 truncate">
+              {game.scoring_team ? `Scorer ${game.scoring_team}` : "No scorer"}
+              {game.location ? ` \u00b7 ${game.location}` : ""}
+            </div>
+          </div>
+          {game.status !== "scheduled" && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 uppercase">{game.status}</span>
+          )}
+        </div>
+      </button>
+    );
+  }
+
+  if (!form) return null;
+
+  return (
+    <div className="rounded-2xl border border-gray-300 bg-white p-3 mb-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm font-bold text-gray-900">{form.away_team || "?"} at {form.home_team || "?"}</div>
+        <button onClick={onToggle} className="text-gray-400 text-lg leading-none">&times;</button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-3">
+        <SchedField label="Week">
+          <input type="number" value={form.week} onChange={e => set("week", e.target.value)} className={SCHED_INPUT_CLS} />
+        </SchedField>
+        <SchedField label="Status">
+          <select value={form.status} onChange={e => set("status", e.target.value)} className={SCHED_INPUT_CLS}>
+            {SCHEDULE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </SchedField>
+        <SchedField label="Date">
+          <input type="date" value={form.game_date} onChange={e => set("game_date", e.target.value)} className={SCHED_INPUT_CLS} />
+        </SchedField>
+        <SchedField label="Time">
+          <input type="time" value={form.game_time} onChange={e => set("game_time", e.target.value)} className={SCHED_INPUT_CLS} />
+        </SchedField>
+        <SchedField label="Away">
+          <select value={form.away_team} onChange={e => set("away_team", e.target.value)} className={SCHED_INPUT_CLS}>
+            {TEAMS_2026.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </SchedField>
+        <SchedField label="Home">
+          <select value={form.home_team} onChange={e => set("home_team", e.target.value)} className={SCHED_INPUT_CLS}>
+            {TEAMS_2026.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </SchedField>
+        <SchedField label="Scorer">
+          <select value={form.scoring_team} onChange={e => set("scoring_team", e.target.value)} className={SCHED_INPUT_CLS}>
+            <option value="">None</option>
+            {TEAMS_2026.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </SchedField>
+      </div>
+
+      <SchedField label="Location">
+        <input type="text" value={form.location} onChange={e => set("location", e.target.value)}
+          placeholder="e.g. Castillero Middle School, San Jose, CA" className={SCHED_INPUT_CLS} />
+      </SchedField>
+
+      {err && <div className="text-xs text-red-600 mb-2">{err}</div>}
+
+      <div className="flex gap-2 mt-1">
+        <button onClick={onToggle} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">Cancel</button>
+        <button onClick={save} disabled={busy}
+          className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400">
+          {busy ? "Saving..." : "Save"}
+        </button>
+      </div>
+    </div>
   );
 }
 
