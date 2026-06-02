@@ -1596,10 +1596,11 @@ function AppInner() {
     { key: "stats", label: "Stats & History", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
     { key: "schedule", label: "Schedule", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
     { key: "live", label: "Games", icon: "M12 2a10 10 0 100 20 10 10 0 000-20zM2 12h20M12 2v20M4.93 4.93c3.9 3.9 3.9 10.24 0 14.14M19.07 4.93c-3.9 3.9-3.9 10.24 0 14.14" },
+    { key: "teams", label: "Teams", icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87M13 7a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 10-2.83-4" },
     { key: "register", label: "Register", icon: "M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" },
   ];
   const NAV_ITEMS = ALL_NAV_ITEMS.filter(item => {
-    if (item.key === "stats" || item.key === "home") return true;
+    if (item.key === "stats" || item.key === "home" || item.key === "teams") return true;
     return tabVisibility[item.key] !== "invisible";
   });
 
