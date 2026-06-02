@@ -45,6 +45,8 @@ const DATA = RAW.map(r => ({
 }));
 
 const TEAMS = [...new Set(DATA.map(d => d.team))].sort();
+// The six active 2026 franchises, in display order. Used by the Teams hub.
+const TEAMS_2026 = ["SAC", "PDF", "MOD", "SJO", "HAY", "PLE"];
 const YEARS = [...new Set(DATA.map(d => d.year))].sort((a, b) => a - b);
 
 // Game-by-game data: [player, team, opp, week, date, type(R/P/C), gm, pts, reb, stl, ast, blk, fgm, fga, ftm, fta, tpm, tpa, foul, gmSc]
