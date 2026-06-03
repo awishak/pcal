@@ -14329,7 +14329,6 @@ function ThAvatar({ name, size, photoUrl }) {
 function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, hideCareerLinks, photoUrl }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
-  const career = useMemo(() => thAggregate(thRowsFor(name, null)), [name]);
   const s = season.avg;
   const best = useMemo(() => {
     const opts = [["APG", s.apg], ["SPG", s.spg], ["BPG", s.bpg]];
@@ -14349,7 +14348,7 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
 
   return (
     <div className="border-b border-gray-100 last:border-0">
-      <div className="flex items-center gap-2 py-2">
+      <div className="flex items-center gap-1.5 py-1.5">
         {isAdmin ? (
           <input
             value={jerseyValue}
@@ -14357,19 +14356,18 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
             onClick={(e) => e.stopPropagation()}
             inputMode="numeric"
             placeholder="#"
-            className="w-8 text-center text-[11px] font-bold text-gray-700 tabular-nums border border-gray-200 rounded py-0.5 flex-shrink-0"
+            className="w-7 text-center text-[11px] font-bold text-gray-700 tabular-nums border border-gray-200 rounded py-0.5 flex-shrink-0"
           />
         ) : (
-          <span className="w-6 text-center text-[11px] font-bold text-gray-400 tabular-nums flex-shrink-0">{rosterEntry.jersey_number || ""}</span>
+          <span className="w-5 text-center text-[11px] font-bold text-gray-400 tabular-nums flex-shrink-0">{rosterEntry.jersey_number || ""}</span>
         )}
-        <button onClick={onToggle} className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-70">
-          <ThAvatar name={name} size={28} photoUrl={photoUrl} />
+        <button onClick={onToggle} className="flex-1 min-w-0 flex items-center gap-1.5 text-left active:opacity-70">
           <span className="flex-1 text-sm font-bold text-gray-900 truncate min-w-0">{displayName}</span>
-          <span className="w-6 text-right text-[11px] text-gray-500 tabular-nums">{season.g}</span>
-          <span className="w-9 text-right text-[11px] text-gray-700 font-semibold tabular-nums">{th1(s.ppg)}</span>
-          <span className="w-9 text-right text-[11px] text-gray-500 tabular-nums">{th1(s.rpg)}</span>
-          <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{th1(best[1])} {best[0].charAt(0)}</span>
-          <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{thPct(season.ts)}</span>
+          <span className="w-5 text-right text-[10px] text-gray-500 tabular-nums">{season.g}</span>
+          <span className="w-8 text-right text-[10px] text-gray-700 font-semibold tabular-nums">{th1(s.ppg)}</span>
+          <span className="w-8 text-right text-[10px] text-gray-500 tabular-nums">{th1(s.rpg)}</span>
+          <span className="w-10 text-right text-[10px] text-gray-500 tabular-nums">{th1(best[1])}{best[0].charAt(0)}</span>
+          <span className="w-10 text-right text-[10px] text-gray-500 tabular-nums">{thPct(season.ts)}</span>
         </button>
       </div>
 
@@ -14388,7 +14386,15 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
             </div>
           </div>
 
-          <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Season Totals ({season.g}G)</div>
+          <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages ({season.g}G)</div>
+          <div className="grid grid-cols-5 gap-1 mb-3">
+            <Stat label="PPG" value={th1(s.ppg)} />
+            <Stat label="RPG" value={th1(s.rpg)} />
+            <Stat label="APG" value={th1(s.apg)} />
+            <Stat label="SPG" value={th1(s.spg)} />
+            <Stat label="BPG" value={th1(s.bpg)} />
+          </div>
+          <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Season Totals</div>
           <div className="grid grid-cols-5 gap-1 mb-3">
             <Stat label="PTS" value={season.totals.pts} />
             <Stat label="REB" value={season.totals.reb} />
@@ -14404,28 +14410,8 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
             <Stat label="GmSc" value={th1(s.gmsc)} />
           </div>
 
-          {!guest && (
-            <>
-              <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">Career ({career.g}G)</div>
-              <div className="grid grid-cols-6 gap-1 mb-2">
-                <Stat label="G" value={career.g} />
-                <Stat label="PPG" value={th1(career.avg.ppg)} />
-                <Stat label="RPG" value={th1(career.avg.rpg)} />
-                <Stat label="APG" value={th1(career.avg.apg)} />
-                <Stat label="SPG" value={th1(career.avg.spg)} />
-                <Stat label="BPG" value={th1(career.avg.bpg)} />
-              </div>
-              <div className="grid grid-cols-5 gap-1 mb-2">
-                <Stat label="FG%" value={thPct(career.fg)} />
-                <Stat label="3P%" value={thPct(career.tp)} />
-                <Stat label="FT%" value={thPct(career.ft)} />
-                <Stat label="TS%" value={thPct(career.ts)} />
-                <Stat label="GmSc" value={th1(career.avg.gmsc)} />
-              </div>
-              {!hideCareerLinks && (
-                <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
-              )}
-            </>
+          {!guest && !hideCareerLinks && (
+            <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
           )}
         </div>
       )}
@@ -14613,10 +14599,10 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
 
               {open && (
                 <div className="px-3 pb-3">
-                  <div className="flex items-center gap-2 py-1 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
-                    <span className="w-6 text-center">#</span><span className="w-7" /><span className="flex-1">Player</span>
-                    <span className="w-6 text-right">G</span><span className="w-9 text-right">PPG</span>
-                    <span className="w-9 text-right">RPG</span><span className="w-12 text-right">Best</span><span className="w-12 text-right">TS%</span>
+                  <div className="flex items-center gap-1.5 py-1 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                    <span className="w-5 text-center">#</span><span className="flex-1">Player</span>
+                    <span className="w-5 text-right">G</span><span className="w-8 text-right">PPG</span>
+                    <span className="w-8 text-right">RPG</span><span className="w-10 text-right">Best</span><span className="w-10 text-right">TS%</span>
                   </div>
                   {roster.length === 0 && <div className="text-xs text-gray-400 py-3">No active players.</div>}
                   {roster.map(p => (
