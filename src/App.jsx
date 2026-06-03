@@ -14252,8 +14252,21 @@ function thAggregate(rows) {
   };
 }
 
+// Match player names case- and whitespace-insensitively so a roster entry
+// like "ISHAK Andrew" still finds GAME_LOG rows even if either side differs
+// by casing or stray spaces. The index is rebuilt only when GAME_LOG changes.
+function thNorm(s) { return String(s || "").trim().replace(/\s+/g, " ").toUpperCase(); }
+let _thGlIndex = null, _thGlLen = -1;
+function thGlIndex() {
+  if (_thGlIndex && _thGlLen === GAME_LOG.length) return _thGlIndex;
+  const idx = {};
+  for (const r of GAME_LOG) { const k = thNorm(r[0]); (idx[k] = idx[k] || []).push(r); }
+  _thGlIndex = idx; _thGlLen = GAME_LOG.length;
+  return idx;
+}
 function thRowsFor(playerName, yearOnly) {
-  return GAME_LOG.filter(r => r[0] === playerName && (yearOnly == null || r[20] === yearOnly));
+  const rows = thGlIndex()[thNorm(playerName)] || [];
+  return yearOnly == null ? rows : rows.filter(r => r[20] === yearOnly);
 }
 
 const thIsGuest = (name) => /^GUEST\b/.test(name || "");
@@ -14279,7 +14292,7 @@ function thInitials(name) {
 function thExperience(name) {
   if (thIsGuest(name)) return 0;
   const ys = new Set();
-  for (const r of GAME_LOG) { if (r[0] === name && r[6] === 1) ys.add(r[20]); }
+  for (const r of (thGlIndex()[thNorm(name)] || [])) { if (r[6] === 1) ys.add(r[20]); }
   return ys.size;
 }
 function thAgeFromDob(dob) {
