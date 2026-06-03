@@ -1457,6 +1457,10 @@ function AppInner() {
     text: "This is one potential schedule. All 2026 games and dates are subject to change.",
   });
 
+  // When true, the "View full career page" links in the Teams hub are hidden
+  // for everyone. Persisted in the admin config (Supabase).
+  const [hideCareerLinks, setHideCareerLinks] = useState(false);
+
   // Load admin config from Supabase on mount. Falls back to localStorage cache
   // for offline / slow-network scenarios so the app shows something immediately.
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -1484,6 +1488,7 @@ function AppInner() {
         if (parsed.photoCards) setPhotoCards(parsed.photoCards);
         if (parsed.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...parsed.homeCardVisibility }));
         if (parsed.scheduleWarning) setScheduleWarning(prev => ({ ...prev, ...parsed.scheduleWarning }));
+        if (parsed.hideCareerLinks !== undefined) setHideCareerLinks(parsed.hideCareerLinks);
         setConfigSource("cache");
       }
     } catch (e) {}
@@ -1507,6 +1512,7 @@ function AppInner() {
         if (config.announcement !== undefined) setAnnouncement(config.announcement);
         if (config.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...config.homeCardVisibility }));
         if (config.scheduleWarning) setScheduleWarning(prev => ({ ...prev, ...config.scheduleWarning }));
+        if (config.hideCareerLinks !== undefined) setHideCareerLinks(config.hideCareerLinks);
         setCommissionerMessages(home.commissionerMessages);
         setStickyLinks(home.stickyLinks);
         setQuickLinks(home.quickLinks);
@@ -1563,7 +1569,7 @@ function AppInner() {
   useEffect(() => {
     if (!configLoaded) return;
     const config = {
-      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning,
+      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, hideCareerLinks,
     };
     try {
       if (typeof window !== "undefined" && window.localStorage) {
@@ -1578,7 +1584,7 @@ function AppInner() {
     if (adminUnlocked) {
       saveAdminConfig(config); // fire-and-forget
     }
-  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, adminUnlocked, configLoaded,
+  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, hideCareerLinks, adminUnlocked, configLoaded,
       commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards]);
 
   // Scroll to top whenever the active page changes
@@ -2995,7 +3001,7 @@ function AppInner() {
               <TeamsView data={DATA} teamSeasons={TEAM_SEASONS} goToPlayer={goToPlayer} initialTeam={franchiseTeam} />
             </div>
           ) : (
-            <TeamsHubView goToPlayer={goToPlayer} onOpenFranchise={setFranchiseTeam} />
+            <TeamsHubView goToPlayer={goToPlayer} onOpenFranchise={setFranchiseTeam} isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks} />
           )
         )}
 
@@ -14316,9 +14322,8 @@ function ThAvatar({ name, size }) {
   );
 }
 
-function PlayerRosterRow({ rosterEntry, goToPlayer, dob }) {
+function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, hideCareerLinks }) {
   const name = rosterEntry.player_name;
-  const [open, setOpen] = useState(false);
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const career = useMemo(() => thAggregate(thRowsFor(name, null)), [name]);
   const s = season.avg;
@@ -14340,18 +14345,31 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob }) {
 
   return (
     <div className="border-b border-gray-100 last:border-0">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 py-2 text-left active:bg-gray-50">
-        <span className="w-6 text-center text-[11px] font-bold text-gray-400 tabular-nums flex-shrink-0">{rosterEntry.jersey_number || ""}</span>
-        <ThAvatar name={name} size={28} />
-        <span className="flex-1 text-sm font-bold text-gray-900 truncate min-w-0">{thShortName(name)}</span>
-        <span className="w-6 text-right text-[11px] text-gray-500 tabular-nums">{season.g}</span>
-        <span className="w-9 text-right text-[11px] text-gray-700 font-semibold tabular-nums">{th1(s.ppg)}</span>
-        <span className="w-9 text-right text-[11px] text-gray-500 tabular-nums">{th1(s.rpg)}</span>
-        <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{th1(best[1])} {best[0].charAt(0)}</span>
-        <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{thPct(season.ts)}</span>
-      </button>
+      <div className="flex items-center gap-2 py-2">
+        {isAdmin ? (
+          <input
+            value={jerseyValue}
+            onChange={(e) => onJerseyChange(rosterEntry.roster_id, e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+            onClick={(e) => e.stopPropagation()}
+            inputMode="numeric"
+            placeholder="#"
+            className="w-8 text-center text-[11px] font-bold text-gray-700 tabular-nums border border-gray-200 rounded py-0.5 flex-shrink-0"
+          />
+        ) : (
+          <span className="w-6 text-center text-[11px] font-bold text-gray-400 tabular-nums flex-shrink-0">{rosterEntry.jersey_number || ""}</span>
+        )}
+        <button onClick={onToggle} className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-70">
+          <ThAvatar name={name} size={28} />
+          <span className="flex-1 text-sm font-bold text-gray-900 truncate min-w-0">{displayName}</span>
+          <span className="w-6 text-right text-[11px] text-gray-500 tabular-nums">{season.g}</span>
+          <span className="w-9 text-right text-[11px] text-gray-700 font-semibold tabular-nums">{th1(s.ppg)}</span>
+          <span className="w-9 text-right text-[11px] text-gray-500 tabular-nums">{th1(s.rpg)}</span>
+          <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{th1(best[1])} {best[0].charAt(0)}</span>
+          <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{thPct(season.ts)}</span>
+        </button>
+      </div>
 
-      {open && (
+      {isOpen && (
         <div className="pb-3 pt-1">
           <div className="flex items-center gap-3 mb-3">
             <ThAvatar name={name} size={56} />
@@ -14398,7 +14416,9 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob }) {
                 <Stat label="TS%" value={thPct(career.ts)} />
                 <Stat label="GmSc" value={th1(career.avg.gmsc)} />
               </div>
-              <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
+              {!hideCareerLinks && (
+                <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
+              )}
             </>
           )}
         </div>
@@ -14407,12 +14427,53 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob }) {
   );
 }
 
-function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
+// Resolve display names across the full league roster. Default form is
+// "F. Lastname"; when two different players share the same initial and last
+// name, the first name grows one letter at a time until each is unique.
+function thBuildNameMap(names) {
+  const out = {};
+  const byLast = {};
+  for (const name of names) {
+    if (thIsGuest(name)) { out[name] = "Guest Player"; continue; }
+    const parts = String(name).trim().split(/\s+/);
+    const last = parts[0] || "";
+    const first = parts.slice(1).join(" ");
+    const lastKey = last.toUpperCase();
+    (byLast[lastKey] = byLast[lastKey] || []).push({ name, last, first });
+  }
+  for (const lastKey of Object.keys(byLast)) {
+    const group = byLast[lastKey];
+    const lastTitle = (g) => g.last.charAt(0) + g.last.slice(1).toLowerCase();
+    for (const g of group) {
+      if (!g.first) { out[g.name] = lastTitle(g); continue; }
+      // Find the shortest prefix of the first name that is unique among
+      // same-last-name players, comparing case-insensitively.
+      let len = 1;
+      const firstUp = g.first.toUpperCase();
+      for (; len <= g.first.length; len++) {
+        const mine = firstUp.slice(0, len);
+        const clash = group.some(o => o !== g && o.first && o.first.toUpperCase().slice(0, len) === mine);
+        if (!clash) break;
+      }
+      const prefix = g.first.charAt(0).toUpperCase() + g.first.slice(1, len).toLowerCase();
+      // len 1 renders as "A.", longer renders as "An." (still abbreviated)
+      const abbr = (len >= g.first.length) ? prefix : prefix + ".";
+      const dotted = (len === 1) ? prefix + "." : abbr;
+      out[g.name] = dotted + " " + lastTitle(g);
+    }
+  }
+  return out;
+}
+
+function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks }) {
   const standings = useMemo(() => sortStandings(regularOnly), [regularOnly]);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
   const [dobMap, setDobMap] = useState({});
   const [expanded, setExpanded] = useState(null);
+  const [openPlayer, setOpenPlayer] = useState(null);
+  const [jerseyDrafts, setJerseyDrafts] = useState({});
+  const [savingTeam, setSavingTeam] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -14439,11 +14500,44 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
     return m;
   }, [rosters]);
 
+  // League-wide display names (so disambiguation considers every team).
+  const nameMap = useMemo(() => thBuildNameMap((rosters || []).map(r => r.player_name)), [rosters]);
+
   const schedByTeam = useMemo(() => {
     const m = {}; for (const t of TEAMS_2026) m[t] = [];
     (schedule || []).forEach(g => { if (m[g.home_team]) m[g.home_team].push(g); if (m[g.away_team]) m[g.away_team].push(g); });
     return m;
   }, [schedule]);
+
+  const jerseyOf = (r) => (jerseyDrafts[r.roster_id] !== undefined ? jerseyDrafts[r.roster_id] : (r.jersey_number || ""));
+  const onJerseyChange = (id, val) => setJerseyDrafts(d => ({ ...d, [id]: val }));
+
+  const saveJerseys = async (team) => {
+    const roster = rosterByTeam[team] || [];
+    const changed = roster.filter(r => jerseyDrafts[r.roster_id] !== undefined && jerseyDrafts[r.roster_id] !== (r.jersey_number || ""));
+    if (changed.length === 0) return;
+    setSavingTeam(team);
+    try {
+      for (const r of changed) {
+        await supabase.rpc("admin_upsert_roster", { p_roster_id: r.roster_id, p_data: { jersey_number: jerseyDrafts[r.roster_id] } });
+      }
+      setRosters(prev => (prev || []).map(r => {
+        const d = jerseyDrafts[r.roster_id];
+        return (d !== undefined && r.team === team) ? { ...r, jersey_number: d } : r;
+      }));
+      setJerseyDrafts(d => {
+        const next = { ...d };
+        changed.forEach(r => { delete next[r.roster_id]; });
+        return next;
+      });
+    } catch (e) {
+      console.error("saveJerseys failed:", e);
+    } finally {
+      setSavingTeam(null);
+    }
+  };
+
+  const teamHasJerseyEdits = (team) => (rosterByTeam[team] || []).some(r => jerseyDrafts[r.roster_id] !== undefined && jerseyDrafts[r.roster_id] !== (r.jersey_number || ""));
 
   const fmtTime = (t) => {
     if (!t) return "";
@@ -14476,7 +14570,17 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
         ))}
       </div>
 
-      <p className="text-xl font-black text-gray-900 mb-3">Rosters and Season Stats</p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xl font-black text-gray-900">Rosters and Season Stats</p>
+        {isAdmin && (
+          <button
+            onClick={() => setHideCareerLinks && setHideCareerLinks(v => !v)}
+            className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${hideCareerLinks ? "bg-gray-100 text-gray-500" : "bg-gray-900 text-white"}`}>
+            Career links: {hideCareerLinks ? "Off" : "On"}
+          </button>
+        )}
+      </div>
+
       <div className="space-y-2">
         {standings.map(row => {
           const team = row.team;
@@ -14501,8 +14605,29 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
                   </div>
                   {roster.length === 0 && <div className="text-xs text-gray-400 py-3">No active players.</div>}
                   {roster.map(p => (
-                    <PlayerRosterRow key={p.roster_id} rosterEntry={p} goToPlayer={goToPlayer} dob={dobMap[p.player_name]} />
+                    <PlayerRosterRow
+                      key={p.roster_id}
+                      rosterEntry={p}
+                      goToPlayer={goToPlayer}
+                      dob={dobMap[p.player_name]}
+                      displayName={nameMap[p.player_name] || thShortName(p.player_name)}
+                      isOpen={openPlayer === p.roster_id}
+                      onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
+                      isAdmin={isAdmin}
+                      jerseyValue={jerseyOf(p)}
+                      onJerseyChange={onJerseyChange}
+                      hideCareerLinks={hideCareerLinks}
+                    />
                   ))}
+
+                  {isAdmin && (
+                    <button
+                      onClick={() => saveJerseys(team)}
+                      disabled={!teamHasJerseyEdits(team) || savingTeam === team}
+                      className={`mt-3 w-full py-2 rounded-xl font-bold text-sm ${teamHasJerseyEdits(team) && savingTeam !== team ? "bg-gray-900 text-white active:bg-gray-700" : "bg-gray-100 text-gray-400"}`}>
+                      {savingTeam === team ? "Saving..." : "Save jersey numbers"}
+                    </button>
+                  )}
 
                   <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1 mt-4">2026 Schedule</div>
                   {sched.length === 0 && <div className="text-xs text-gray-400 py-2">No games scheduled.</div>}
