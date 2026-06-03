@@ -14376,14 +14376,14 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
       {isOpen && (
         <div className="pb-3 pt-1">
           <div className="flex items-center gap-3 mb-3">
-            <ThAvatar name={name} size={56} photoUrl={photoUrl} />
+            <ThAvatar name={name} size={72} photoUrl={photoUrl} />
             <div>
               <div className="text-base">
                 <span className="font-bold text-gray-900">{guest ? "Guest Player" : formatName(name)}</span>
                 {!guest && age ? <span className="text-gray-400 font-normal"> age {age}</span> : null}
               </div>
               <div className="text-[11px] text-gray-500">
-                {guest ? "Team guest" : `experience: ${thOrdinal(exp + 1)} season`}
+                {guest ? "Team guest" : `Experience: ${thOrdinal(exp + 1)} season`}
               </div>
             </div>
           </div>
@@ -14493,7 +14493,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
       setRosters(ros.data || []);
       setSchedule(sch.data || []);
       const m = {};
-      (reg.data || []).forEach(r => { if (r.linked_player) m[r.linked_player] = r.dob; });
+      (reg.data || []).forEach(r => { if (r.linked_player) m[thNorm(r.linked_player)] = r.dob; });
       setDobMap(m);
     })();
     return () => { alive = false; };
@@ -14624,7 +14624,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                       key={p.roster_id}
                       rosterEntry={p}
                       goToPlayer={goToPlayer}
-                      dob={dobMap[p.player_name]}
+                      dob={dobMap[thNorm(p.player_name)]}
                       displayName={nameMap[p.player_name] || thShortName(p.player_name)}
                       isOpen={openPlayer === p.roster_id}
                       onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
