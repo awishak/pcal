@@ -3001,7 +3001,7 @@ function AppInner() {
               <TeamsView data={DATA} teamSeasons={TEAM_SEASONS} goToPlayer={goToPlayer} initialTeam={franchiseTeam} />
             </div>
           ) : (
-            <TeamsHubView goToPlayer={goToPlayer} onOpenFranchise={setFranchiseTeam} isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks} />
+            <TeamsHubView goToPlayer={goToPlayer} onOpenFranchise={setFranchiseTeam} isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks} photoVersion={photoVersion} />
           )
         )}
 
@@ -14278,6 +14278,11 @@ function thRowsFor(playerName, yearOnly) {
 const thIsGuest = (name) => /^GUEST\b/.test(name || "");
 const th1 = (v) => (v == null ? "0.0" : v.toFixed(1));
 const thPct = (v) => (v == null ? "—" : (v * 100).toFixed(1) + "%");
+function thOrdinal(n) {
+  const m100 = n % 100, m10 = n % 10;
+  const suf = (m100 >= 11 && m100 <= 13) ? "th" : (m10 === 1 ? "st" : m10 === 2 ? "nd" : m10 === 3 ? "rd" : "th");
+  return n + suf;
+}
 
 // Display "F. Lastname" from a "LASTNAME Firstname" string.
 function thShortName(name) {
@@ -14309,11 +14314,10 @@ function thAgeFromDob(dob) {
   return (a > 5 && a < 100) ? a : null;
 }
 
-function ThAvatar({ name, size }) {
-  const photo = PLAYER_PHOTOS[name];
+function ThAvatar({ name, size, photoUrl }) {
   const s = { width: size, height: size };
-  if (photo && !thIsGuest(name)) {
-    return <img src={photo} alt="" style={{ ...s, objectFit: "cover", objectPosition: "top center" }} className="rounded-full flex-shrink-0 bg-gray-100" />;
+  if (photoUrl && !thIsGuest(name)) {
+    return <img src={photoUrl} alt="" style={{ ...s, objectFit: "cover", objectPosition: "top center" }} className="rounded-full flex-shrink-0 bg-gray-100" />;
   }
   return (
     <div style={s} className="rounded-full flex-shrink-0 bg-gray-200 flex items-center justify-center text-gray-500 font-bold" >
@@ -14322,7 +14326,7 @@ function ThAvatar({ name, size }) {
   );
 }
 
-function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, hideCareerLinks }) {
+function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, hideCareerLinks, photoUrl }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const career = useMemo(() => thAggregate(thRowsFor(name, null)), [name]);
@@ -14359,7 +14363,7 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
           <span className="w-6 text-center text-[11px] font-bold text-gray-400 tabular-nums flex-shrink-0">{rosterEntry.jersey_number || ""}</span>
         )}
         <button onClick={onToggle} className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-70">
-          <ThAvatar name={name} size={28} />
+          <ThAvatar name={name} size={28} photoUrl={photoUrl} />
           <span className="flex-1 text-sm font-bold text-gray-900 truncate min-w-0">{displayName}</span>
           <span className="w-6 text-right text-[11px] text-gray-500 tabular-nums">{season.g}</span>
           <span className="w-9 text-right text-[11px] text-gray-700 font-semibold tabular-nums">{th1(s.ppg)}</span>
@@ -14372,12 +14376,14 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
       {isOpen && (
         <div className="pb-3 pt-1">
           <div className="flex items-center gap-3 mb-3">
-            <ThAvatar name={name} size={56} />
+            <ThAvatar name={name} size={56} photoUrl={photoUrl} />
             <div>
-              <div className="text-base font-bold text-gray-900">{guest ? "Guest Player" : formatName(name)}</div>
+              <div className="text-base">
+                <span className="font-bold text-gray-900">{guest ? "Guest Player" : formatName(name)}</span>
+                {!guest && age ? <span className="text-gray-400 font-normal"> age {age}</span> : null}
+              </div>
               <div className="text-[11px] text-gray-500">
-                {age ? `Age ${age}` : ""}{age && !guest ? " · " : ""}
-                {guest ? "Team guest" : (exp > 0 ? `${exp} ${exp === 1 ? "season" : "seasons"} in the league` : "Rookie")}
+                {guest ? "Team guest" : `experience: ${thOrdinal(exp + 1)} season`}
               </div>
             </div>
           </div>
@@ -14465,7 +14471,7 @@ function thBuildNameMap(names) {
   return out;
 }
 
-function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks }) {
+function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, photoVersion = 0 }) {
   const standings = useMemo(() => sortStandings(regularOnly), [regularOnly]);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
@@ -14502,6 +14508,15 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
 
   // League-wide display names (so disambiguation considers every team).
   const nameMap = useMemo(() => thBuildNameMap((rosters || []).map(r => r.player_name)), [rosters]);
+
+  // Resolve player photos case/whitespace-insensitively, and recompute when
+  // photos finish loading (photoVersion) so avatars appear without a reload.
+  const photoIndex = useMemo(() => {
+    const m = {};
+    Object.keys(PLAYER_PHOTOS).forEach(k => { m[thNorm(k)] = PLAYER_PHOTOS[k]; });
+    return m;
+  }, [photoVersion, rosters]);
+  const photoFor = (name) => photoIndex[thNorm(name)] || null;
 
   const schedByTeam = useMemo(() => {
     const m = {}; for (const t of TEAMS_2026) m[t] = [];
@@ -14617,6 +14632,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                       jerseyValue={jerseyOf(p)}
                       onJerseyChange={onJerseyChange}
                       hideCareerLinks={hideCareerLinks}
+                      photoUrl={photoFor(p.player_name)}
                     />
                   ))}
 
