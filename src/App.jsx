@@ -14169,46 +14169,44 @@ function ScheduleView() {
 }
 
 // ============================================================
-// TEAMS HUB (2026 standings + rosters + schedule)
-// ============================================================
-// (2026 averages, totals on player expand), team schedule with
-// scoring, and a link into the franchise history.
+// TEAMS HUB (2026 standings + rosters + season stats)
+// Standings on top, each team expands to a roster table of 2026
+// averages; a player expands to season totals and percentages plus
+// career totals and averages. Franchise history reached per team.
 // ============================================================
 
-// Build 2026 team game results from GAME_LOG player rows.
-// A team-game is keyed on date + team + opp so doubleheaders don't merge.
-// Returns { records, h2h, beaten } where:
-//   records[team] = { w, l }
-//   h2h[a][b]     = wins by a over b
-//   beaten[team]  = Set of distinct teams this team beat
+// GAME_LOG cols: [0]player [1]team [2]opp [4]date [5]game_type [6]g
+// [7]pts [8]reb [9]stl [10]ast [11]blk [12]fgm [13]fga [14]ftm [15]fta
+// [16]tpm [17]tpa [19]gmsc [20]year.
+
+// Build 2026 team game results. A team-game is keyed on date + team +
+// opp so doubleheaders don't merge. Regular season only (game_type R).
 function compute2026Standings(regularOnly = true) {
-  const teamGame = {}; // key -> points scored by `team` in that game
+  const teamGame = {};
   for (const r of GAME_LOG) {
-    if (r[20] !== 2026) continue;        // year
-    if (r[6] !== 1) continue;            // played
-    if (regularOnly && r[5] !== "R") continue; // game_type
+    if (r[20] !== 2026) continue;
+    if (r[6] !== 1) continue;
+    if (regularOnly && r[5] !== "R") continue;
     const team = r[1], opp = r[2], date = r[4];
     if (!team || !opp || !date) continue;
     const key = date + "|" + team + "|" + opp;
-    teamGame[key] = (teamGame[key] || 0) + (r[7] || 0); // pts
+    teamGame[key] = (teamGame[key] || 0) + (r[7] || 0);
   }
-
   const records = {}, h2h = {}, beaten = {};
   for (const t of TEAMS_2026) { records[t] = { w: 0, l: 0 }; h2h[t] = {}; beaten[t] = new Set(); }
-
   const seen = new Set();
   for (const key of Object.keys(teamGame)) {
     const [date, team, opp] = key.split("|");
     const mirror = date + "|" + opp + "|" + team;
-    if (!(mirror in teamGame)) continue; // need both sides to judge a result
+    if (!(mirror in teamGame)) continue;
     const dedupe = [date, team, opp].join("|");
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
-    const ptsFor = teamGame[key], ptsAgainst = teamGame[mirror];
-    if (ptsFor === ptsAgainst) continue; // ties not expected; skip
+    const pf = teamGame[key], pa = teamGame[mirror];
+    if (pf === pa) continue;
     if (!records[team] || !records[opp]) continue;
-    const winner = ptsFor > ptsAgainst ? team : opp;
-    const loser = ptsFor > ptsAgainst ? opp : team;
+    const winner = pf > pa ? team : opp;
+    const loser = pf > pa ? opp : team;
     records[winner].w++; records[loser].l++;
     h2h[winner][loser] = (h2h[winner][loser] || 0) + 1;
     beaten[winner].add(loser);
@@ -14221,94 +14219,173 @@ function sortStandings(regularOnly = true) {
   const wins = (t) => records[t].w;
   // Strength of wins: sum of season win totals of distinct teams beaten.
   const strength = {};
-  for (const t of TEAMS_2026) {
-    let s = 0;
-    beaten[t].forEach(o => { s += wins(o); });
-    strength[t] = s;
-  }
-  const pct = (t) => {
-    const { w, l } = records[t];
-    return (w + l) === 0 ? 0 : w / (w + l);
-  };
+  for (const t of TEAMS_2026) { let s = 0; beaten[t].forEach(o => { s += wins(o); }); strength[t] = s; }
+  const pct = (t) => { const { w, l } = records[t]; return (w + l) === 0 ? 0 : w / (w + l); };
   const order = [...TEAMS_2026].sort((a, b) => {
-    if (pct(b) !== pct(a)) return pct(b) - pct(a);            // 1. win pct
-    if (wins(b) !== wins(a)) return wins(b) - wins(a);        // 2. total wins
-    const hA = (h2h[a] && h2h[a][b]) || 0;                    // 3. head-to-head
-    const hB = (h2h[b] && h2h[b][a]) || 0;                    // (pairwise; non-transitive for 3+ ties)
+    if (pct(b) !== pct(a)) return pct(b) - pct(a);                 // 1 win pct
+    if (wins(b) !== wins(a)) return wins(b) - wins(a);             // 2 total wins
+    const hA = (h2h[a] && h2h[a][b]) || 0;                         // 3 head-to-head (pairwise)
+    const hB = (h2h[b] && h2h[b][a]) || 0;
     if (hB !== hA) return hB - hA;
-    if (strength[b] !== strength[a]) return strength[b] - strength[a]; // 4. strength of wins
+    if (strength[b] !== strength[a]) return strength[b] - strength[a]; // 4 strength of wins
     return a.localeCompare(b);
   });
-  return order.map(t => ({
-    team: t, w: records[t].w, l: records[t].l,
-    pct: pct(t), strength: strength[t],
-  }));
+  return order.map(t => ({ team: t, w: records[t].w, l: records[t].l, pct: pct(t) }));
 }
 
-// Aggregate a player's rows into totals + averages.
-function aggregate(rows) {
-  const t = { g: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0 };
+// Aggregate a player's rows into totals, averages, and shooting splits.
+function thAggregate(rows) {
+  const t = { g: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0, gmsc: 0 };
   for (const r of rows) {
     if (r[6] !== 1) continue;
-    t.g++; t.pts += r[7] || 0; t.reb += r[8] || 0; t.stl += r[9] || 0;
-    t.ast += r[10] || 0; t.blk += r[11] || 0;
+    t.g++; t.pts += r[7] || 0; t.reb += r[8] || 0; t.stl += r[9] || 0; t.ast += r[10] || 0; t.blk += r[11] || 0;
     t.fgm += r[12] || 0; t.fga += r[13] || 0; t.ftm += r[14] || 0; t.fta += r[15] || 0;
-    t.tpm += r[16] || 0; t.tpa += r[17] || 0;
+    t.tpm += r[16] || 0; t.tpa += r[17] || 0; t.gmsc += r[19] || 0;
   }
   const per = (v) => t.g ? v / t.g : 0;
+  const rate = (m, a) => a > 0 ? m / a : null;
   return {
-    totals: t,
-    avg: { ppg: per(t.pts), rpg: per(t.reb), apg: per(t.ast), spg: per(t.stl), bpg: per(t.blk) },
+    g: t.g, totals: t,
+    avg: { ppg: per(t.pts), rpg: per(t.reb), apg: per(t.ast), spg: per(t.stl), bpg: per(t.blk), gmsc: per(t.gmsc) },
+    fg: rate(t.fgm, t.fga), tp: rate(t.tpm, t.tpa), ft: rate(t.ftm, t.fta),
+    ts: (2 * (t.fga + 0.44 * t.fta)) > 0 ? t.pts / (2 * (t.fga + 0.44 * t.fta)) : null,
   };
 }
 
-function rowsFor(playerName, yearOnly) {
+function thRowsFor(playerName, yearOnly) {
   return GAME_LOG.filter(r => r[0] === playerName && (yearOnly == null || r[20] === yearOnly));
 }
 
-const f1 = (v) => (v || 0).toFixed(1);
-const isGuest = (name) => /^GUEST\b/.test(name || "");
-const displayName = (name) => isGuest(name) ? "Guest Player" : formatName(name);
+const thIsGuest = (name) => /^GUEST\b/.test(name || "");
+const th1 = (v) => (v == null ? "0.0" : v.toFixed(1));
+const thPct = (v) => (v == null ? "—" : (v * 100).toFixed(1) + "%");
 
-function PlayerRosterRow({ playerName, goToPlayer }) {
+// Display "F. Lastname" from a "LASTNAME Firstname" string.
+function thShortName(name) {
+  if (thIsGuest(name)) return "Guest Player";
+  const parts = String(name).trim().split(/\s+/);
+  const last = parts[0] || "";
+  const first = parts.slice(1).join(" ");
+  const lastTitle = last.charAt(0) + last.slice(1).toLowerCase();
+  return (first ? first.charAt(0) + ". " : "") + lastTitle;
+}
+function thInitials(name) {
+  if (thIsGuest(name)) return "G";
+  const parts = String(name).trim().split(/\s+/);
+  const last = (parts[0] || "").charAt(0);
+  const first = (parts.slice(1).join(" ") || "").charAt(0);
+  return (first + last).toUpperCase() || "?";
+}
+function thExperience(name) {
+  if (thIsGuest(name)) return 0;
+  const ys = new Set();
+  for (const r of GAME_LOG) { if (r[0] === name && r[6] === 1) ys.add(r[20]); }
+  return ys.size;
+}
+function thAgeFromDob(dob) {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return null;
+  const a = Math.floor((Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000));
+  return (a > 5 && a < 100) ? a : null;
+}
+
+function ThAvatar({ name, size }) {
+  const photo = PLAYER_PHOTOS[name];
+  const s = { width: size, height: size };
+  if (photo && !thIsGuest(name)) {
+    return <img src={photo} alt="" style={{ ...s, objectFit: "cover", objectPosition: "top center" }} className="rounded-full flex-shrink-0 bg-gray-100" />;
+  }
+  return (
+    <div style={s} className="rounded-full flex-shrink-0 bg-gray-200 flex items-center justify-center text-gray-500 font-bold" >
+      <span style={{ fontSize: Math.round(size * 0.36) }}>{thInitials(name)}</span>
+    </div>
+  );
+}
+
+function PlayerRosterRow({ rosterEntry, goToPlayer, dob }) {
+  const name = rosterEntry.player_name;
   const [open, setOpen] = useState(false);
-  const season = useMemo(() => aggregate(rowsFor(playerName, 2026)), [playerName]);
-  const career = useMemo(() => aggregate(rowsFor(playerName, null)), [playerName]);
-  const s = season.avg, st = season.totals, ct = career.totals, ca = career.avg;
+  const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
+  const career = useMemo(() => thAggregate(thRowsFor(name, null)), [name]);
+  const s = season.avg;
+  const best = useMemo(() => {
+    const opts = [["APG", s.apg], ["SPG", s.spg], ["BPG", s.bpg]];
+    opts.sort((a, b) => b[1] - a[1]);
+    return opts[0];
+  }, [s.apg, s.spg, s.bpg]);
+  const exp = useMemo(() => thExperience(name), [name]);
+  const age = thAgeFromDob(dob);
+  const guest = thIsGuest(name);
+
+  const Stat = ({ label, value }) => (
+    <div className="rounded-lg bg-gray-50 py-1.5 text-center">
+      <div className="text-sm font-black text-gray-900 tabular-nums">{value}</div>
+      <div className="text-[9px] text-gray-400">{label}</div>
+    </div>
+  );
+
   return (
     <div className="border-b border-gray-100 last:border-0">
-      <button onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 py-2 text-left active:bg-gray-50">
-        <span className="flex-1 text-sm font-bold text-gray-900 truncate">{displayName(playerName)}</span>
-        <span className="text-[11px] text-gray-500 tabular-nums w-10 text-right">{f1(s.ppg)}</span>
-        <span className="text-[11px] text-gray-500 tabular-nums w-10 text-right">{f1(s.rpg)}</span>
-        <span className="text-[11px] text-gray-500 tabular-nums w-10 text-right">{f1(s.apg)}</span>
-        <svg className={`w-3.5 h-3.5 text-gray-300 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 py-2 text-left active:bg-gray-50">
+        <span className="w-6 text-center text-[11px] font-bold text-gray-400 tabular-nums flex-shrink-0">{rosterEntry.jersey_number || ""}</span>
+        <ThAvatar name={name} size={28} />
+        <span className="flex-1 text-sm font-bold text-gray-900 truncate min-w-0">{thShortName(name)}</span>
+        <span className="w-6 text-right text-[11px] text-gray-500 tabular-nums">{season.g}</span>
+        <span className="w-9 text-right text-[11px] text-gray-700 font-semibold tabular-nums">{th1(s.ppg)}</span>
+        <span className="w-9 text-right text-[11px] text-gray-500 tabular-nums">{th1(s.rpg)}</span>
+        <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{th1(best[1])} {best[0].charAt(0)}</span>
+        <span className="w-12 text-right text-[11px] text-gray-500 tabular-nums">{thPct(season.ts)}</span>
       </button>
+
       {open && (
-        <div className="pb-3 pl-1 pr-1">
-          <div className="text-[10px] text-gray-400 uppercase tracking-widest font-medium mb-1 mt-1">2026 Totals ({st.g}G)</div>
-          <div className="grid grid-cols-5 gap-1 mb-2 text-center">
-            {[["PTS", st.pts], ["REB", st.reb], ["AST", st.ast], ["STL", st.stl], ["BLK", st.blk]].map(([l, v]) => (
-              <div key={l} className="rounded-lg bg-gray-50 py-1">
-                <div className="text-sm font-black text-gray-900 tabular-nums">{v}</div>
-                <div className="text-[9px] text-gray-400">{l}</div>
+        <div className="pb-3 pt-1">
+          <div className="flex items-center gap-3 mb-3">
+            <ThAvatar name={name} size={56} />
+            <div>
+              <div className="text-base font-bold text-gray-900">{guest ? "Guest Player" : formatName(name)}</div>
+              <div className="text-[11px] text-gray-500">
+                {age ? `Age ${age}` : ""}{age && !guest ? " · " : ""}
+                {guest ? "Team guest" : (exp > 0 ? `${exp} ${exp === 1 ? "season" : "seasons"} in the league` : "Rookie")}
               </div>
-            ))}
+            </div>
           </div>
-          {!isGuest(playerName) && (
+
+          <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Season Totals ({season.g}G)</div>
+          <div className="grid grid-cols-5 gap-1 mb-3">
+            <Stat label="PTS" value={season.totals.pts} />
+            <Stat label="REB" value={season.totals.reb} />
+            <Stat label="AST" value={season.totals.ast} />
+            <Stat label="STL" value={season.totals.stl} />
+            <Stat label="BLK" value={season.totals.blk} />
+          </div>
+          <div className="grid grid-cols-5 gap-1 mb-3">
+            <Stat label="FG%" value={thPct(season.fg)} />
+            <Stat label="3P%" value={thPct(season.tp)} />
+            <Stat label="FT%" value={thPct(season.ft)} />
+            <Stat label="TS%" value={thPct(season.ts)} />
+            <Stat label="GmSc" value={th1(s.gmsc)} />
+          </div>
+
+          {!guest && (
             <>
-              <div className="text-[10px] text-gray-400 uppercase tracking-widest font-medium mb-1">Career ({ct.g}G)</div>
-              <div className="grid grid-cols-5 gap-1 mb-2 text-center">
-                {[["PPG", f1(ca.ppg)], ["RPG", f1(ca.rpg)], ["APG", f1(ca.apg)], ["SPG", f1(ca.spg)], ["BPG", f1(ca.bpg)]].map(([l, v]) => (
-                  <div key={l} className="rounded-lg bg-gray-50 py-1">
-                    <div className="text-sm font-black text-gray-900 tabular-nums">{v}</div>
-                    <div className="text-[9px] text-gray-400">{l}</div>
-                  </div>
-                ))}
+              <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">Career ({career.g}G)</div>
+              <div className="grid grid-cols-6 gap-1 mb-2">
+                <Stat label="G" value={career.g} />
+                <Stat label="PPG" value={th1(career.avg.ppg)} />
+                <Stat label="RPG" value={th1(career.avg.rpg)} />
+                <Stat label="APG" value={th1(career.avg.apg)} />
+                <Stat label="SPG" value={th1(career.avg.spg)} />
+                <Stat label="BPG" value={th1(career.avg.bpg)} />
               </div>
-              <button onClick={() => goToPlayer(playerName)}
-                className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
+              <div className="grid grid-cols-5 gap-1 mb-2">
+                <Stat label="FG%" value={thPct(career.fg)} />
+                <Stat label="3P%" value={thPct(career.tp)} />
+                <Stat label="FT%" value={thPct(career.ft)} />
+                <Stat label="TS%" value={thPct(career.ts)} />
+                <Stat label="GmSc" value={th1(career.avg.gmsc)} />
+              </div>
+              <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
             </>
           )}
         </div>
@@ -14321,18 +14398,23 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
   const standings = useMemo(() => sortStandings(regularOnly), [regularOnly]);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
+  const [dobMap, setDobMap] = useState({});
   const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [{ data: ros }, { data: sch }] = await Promise.all([
+      const [ros, sch, reg] = await Promise.all([
         supabase.from("rosters").select("*").eq("season", 2026).eq("active", true).order("player_name", { ascending: true }),
         supabase.from("schedule").select("*").eq("season", 2026).order("game_date", { ascending: true }).order("game_time", { ascending: true }),
+        supabase.from("registrations").select("linked_player, dob"),
       ]);
       if (!alive) return;
-      setRosters(ros || []);
-      setSchedule(sch || []);
+      setRosters(ros.data || []);
+      setSchedule(sch.data || []);
+      const m = {};
+      (reg.data || []).forEach(r => { if (r.linked_player) m[r.linked_player] = r.dob; });
+      setDobMap(m);
     })();
     return () => { alive = false; };
   }, []);
@@ -14340,17 +14422,13 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
   const rosterByTeam = useMemo(() => {
     const m = {}; for (const t of TEAMS_2026) m[t] = [];
     (rosters || []).forEach(r => { if (m[r.team]) m[r.team].push(r); });
-    // guests last
-    for (const t of TEAMS_2026) m[t].sort((a, b) => (isGuest(a.player_name) ? 1 : 0) - (isGuest(b.player_name) ? 1 : 0) || a.player_name.localeCompare(b.player_name));
+    for (const t of TEAMS_2026) m[t].sort((a, b) => (thIsGuest(a.player_name) ? 1 : 0) - (thIsGuest(b.player_name) ? 1 : 0) || a.player_name.localeCompare(b.player_name));
     return m;
   }, [rosters]);
 
   const schedByTeam = useMemo(() => {
     const m = {}; for (const t of TEAMS_2026) m[t] = [];
-    (schedule || []).forEach(g => {
-      if (m[g.home_team]) m[g.home_team].push(g);
-      if (m[g.away_team]) m[g.away_team].push(g);
-    });
+    (schedule || []).forEach(g => { if (m[g.home_team]) m[g.home_team].push(g); if (m[g.away_team]) m[g.away_team].push(g); });
     return m;
   }, [schedule]);
 
@@ -14368,14 +14446,11 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
 
   return (
     <div>
-      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">2026 Standings</p>
-      <div className="space-y-1.5 mb-6">
+      <p className="text-xl font-black text-gray-900 mb-3">2026 Standings</p>
+      <div className="space-y-1.5 mb-7">
         <div className="flex items-center gap-2 px-3 text-[10px] text-gray-400 uppercase tracking-wide">
-          <span className="w-5" />
-          <span className="w-7" />
-          <span className="flex-1">Team</span>
-          <span className="w-12 text-right">W-L</span>
-          <span className="w-10 text-right">Pct</span>
+          <span className="w-5" /><span className="w-7" /><span className="flex-1">Team</span>
+          <span className="w-12 text-right">W-L</span><span className="w-10 text-right">Pct</span>
         </div>
         {standings.map((row, i) => (
           <div key={row.team} className="flex items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2">
@@ -14388,7 +14463,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
         ))}
       </div>
 
-      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Teams</p>
+      <p className="text-xl font-black text-gray-900 mb-3">Rosters and Season Stats</p>
       <div className="space-y-2">
         {standings.map(row => {
           const team = row.team;
@@ -14397,8 +14472,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
           const sched = schedByTeam[team] || [];
           return (
             <div key={team} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-              <button onClick={() => setExpanded(open ? null : team)}
-                className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
+              <button onClick={() => setExpanded(open ? null : team)} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
                 <TeamLogo team={team} size={36} />
                 <span className="flex-1 text-base font-bold text-gray-900">{TEAM_NAMES[team] || team}</span>
                 <span className="text-xs text-gray-400 tabular-nums">{row.w}-{row.l}</span>
@@ -14407,20 +14481,17 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
 
               {open && (
                 <div className="px-3 pb-3">
-                  <div className="text-[10px] text-gray-400 uppercase tracking-widest font-medium mb-1">Roster (2026 averages)</div>
                   <div className="flex items-center gap-2 py-1 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
-                    <span className="flex-1">Player</span>
-                    <span className="w-10 text-right">PPG</span>
-                    <span className="w-10 text-right">RPG</span>
-                    <span className="w-10 text-right">APG</span>
-                    <span className="w-3.5" />
+                    <span className="w-6 text-center">#</span><span className="w-7" /><span className="flex-1">Player</span>
+                    <span className="w-6 text-right">G</span><span className="w-9 text-right">PPG</span>
+                    <span className="w-9 text-right">RPG</span><span className="w-12 text-right">Best</span><span className="w-12 text-right">TS%</span>
                   </div>
                   {roster.length === 0 && <div className="text-xs text-gray-400 py-3">No active players.</div>}
                   {roster.map(p => (
-                    <PlayerRosterRow key={p.roster_id} playerName={p.player_name} goToPlayer={goToPlayer} />
+                    <PlayerRosterRow key={p.roster_id} rosterEntry={p} goToPlayer={goToPlayer} dob={dobMap[p.player_name]} />
                   ))}
 
-                  <div className="text-[10px] text-gray-400 uppercase tracking-widest font-medium mb-1 mt-4">2026 Schedule</div>
+                  <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1 mt-4">2026 Schedule</div>
                   {sched.length === 0 && <div className="text-xs text-gray-400 py-2">No games scheduled.</div>}
                   <div className="space-y-1">
                     {sched.map(g => {
@@ -14431,16 +14502,13 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true }) {
                           <span className="w-12 text-gray-400 tabular-nums">{fmtDate(g.game_date)}</span>
                           <span className="w-14 text-gray-400 tabular-nums">{fmtTime(g.game_time)}</span>
                           <span className="flex-1 font-bold text-gray-800">{home ? "vs" : "at"} {TEAM_NAMES[opp] || opp}</span>
-                          {g.scoring_team && (
-                            <span className="text-[10px] text-gray-400">Scorer {g.scoring_team}</span>
-                          )}
+                          {g.scoring_team && <span className="text-[10px] text-gray-400">Scorer {g.scoring_team}</span>}
                         </div>
                       );
                     })}
                   </div>
 
-                  <button onClick={() => onOpenFranchise && onOpenFranchise(team)}
-                    className="mt-4 w-full py-2.5 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
+                  <button onClick={() => onOpenFranchise && onOpenFranchise(team)} className="mt-4 w-full py-2.5 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
                     Franchise history
                   </button>
                 </div>
