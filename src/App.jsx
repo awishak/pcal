@@ -337,8 +337,11 @@ YEARS.forEach(y => {
   season.forEach((r, i) => { r.aiRank = i + 1; });
 });
 
-// Overwrite CSV-baked `award` field for 2005-2023 based on Claude's computed First/Second Team.
-// 2024-2025 retain their CSV (player vote) values.
+// Single source of truth for awards, written onto the `award` field of DATA. Player profiles,
+// badges, all-time MVP counts, the leaders table, Season Summaries, and the Awards page all read
+// this field. For 2005-2023 the First Team, Second Team, and MVP are computed from Game Score.
+// For 2024-2025 the voted First Team (MVP and All-PCAL) is kept as-is and only the Second Team is
+// recomputed as the next 5 by AI Score. Side awards stay in VOTED_AWARDS_BY_YEAR.
 (() => {
   const MVP_PICKS = {
     2005: ["SHEHATA GEORGE", "HAY"], 2006: ["SHEHATA GEORGE", "HAY"],
@@ -425,6 +428,24 @@ YEARS.forEach(y => {
       }
     });
     secondTeam.forEach(p => { p.award = "Second Team"; });
+  });
+
+  // Voted years (2024-2025): keep the voted First Team (MVP and All-PCAL from the CSV) untouched,
+  // and replace the Second Team with the next 5 by AI Score among 5+ game players not on First Team.
+  const VOTED_YEARS = [2024, 2025];
+  VOTED_YEARS.forEach(y => {
+    const eligible = DATA.filter(r => r.year === y && r.g >= 5);
+    if (!eligible.length) return;
+    const firstSet = new Set(
+      DATA.filter(r => r.year === y && (r.award === "MVP" || r.award === "All-PCAL"))
+        .map(r => r.player + "|" + r.team)
+    );
+    // Clear the voted Second Team for this year before recomputing.
+    DATA.filter(r => r.year === y && r.award === "Second Team").forEach(r => { r.award = ""; });
+    const byAI = [...eligible]
+      .filter(r => !firstSet.has(r.player + "|" + r.team))
+      .sort((a, b) => b.aiScore - a.aiScore);
+    byAI.slice(0, 5).forEach(r => { r.award = "Second Team"; });
   });
 })();
 
@@ -1822,94 +1843,32 @@ function AppInner() {
   }, []);
 
   const aiPicksByYear = useMemo(() => {
-    // Hardcoded Claude MVP picks for 2005-2023 and player-vote MVPs for 2024+.
-    // MVP must be chosen from First Team; these picks are locked.
-    const MVP_PICKS = {
-      2005: ["SHEHATA GEORGE", "HAY"], 2006: ["SHEHATA GEORGE", "HAY"],
-      2007: ["YOUSSEF ANDREW", "HAY"], 2008: ["MULUGETA YONI", "SRA"],
-      2009: ["SHEHATA GEORGE", "HAY"], 2010: ["SHEHATA GEORGE", "HAY"],
-      2011: ["ABRAHAM PETER", "SJO"], 2012: ["BADROOS ANDREW", "SAC"],
-      2013: ["ISHAK ANDREW", "SJO"], 2014: ["ISHAK ANDREW", "SJO"],
-      2015: ["ISHAK ANDREW", "SJO"], 2016: ["ISHAK ANDREW", "SJO"],
-      2017: ["AWAD BISHOY", "SAC"], 2018: ["BADROOS ANDREW", "SAC"],
-      2019: ["SHACKER MARK", "SJO"], 2021: ["ISHAK ANDREW", "PDF"],
-      2022: ["KELADA ANTHONY", "SAC"], 2023: ["ISHAK ANDREW", "PDF"],
-      2024: ["ABDELMALAK SIMON", "SJO"], 2025: ["ABDELMALAK SIMON", "SJO"],
-    };
-    const bestRegSeasonTeam = (year) => {
-      const teams = Object.entries(TEAM_SEASONS)
-        .filter(([k]) => k.endsWith("-" + year))
-        .map(([k, v]) => ({ team: k.split("-")[0], wr: (v.w + v.l) > 0 ? v.w / (v.w + v.l) : 0, w: v.w }));
-      if (!teams.length) return null;
-      teams.sort((a, b) => b.wr - a.wr || b.w - a.w);
-      return teams[0].team;
-    };
+    // Reader, not a selector. Award membership comes from the `award` field that the
+    // module-scope recompute (single source of truth) writes onto DATA for all years.
+    // This block only re-derives the per-player display numbers (score, rawPG, gpFactor)
+    // so the rendered chips match the rest of the app; it does not pick the teams.
     const byYear = {};
     YEARS.forEach(y => {
       const seasonAll = DATA.filter(r => r.year === y);
       if (!seasonAll.length) return;
       const maxG = Math.max(...seasonAll.map(r => r.g));
       const avgTS = getLeagueAvgTS(y);
-      // Compute AI score for everyone
+      // Compute display score for everyone this year
       const ranked = seasonAll.map(r => {
         const sc = rankScore(r, maxG, avgTS);
         const teamMult = getTeamMultiplier(r.team, r.year);
         const shareBonus = getShareBonus(r);
         return { ...r, rawPG: sc.rawPG, gpFactor: sc.gpFactor, score: Math.round((sc.total * teamMult + shareBonus) * 10) / 10 };
       });
-      // 5G minimum for award eligibility
-      const eligible = ranked.filter(r => r.g >= 5);
-      if (!eligible.length) return;
-      // First Team selection in order
-      const picked = new Set();
-      const firstTeamPlayers = [];
-      const addPick = (p) => {
-        if (!p) return;
-        const k = p.player + "|" + p.team;
-        if (picked.has(k)) return;
-        picked.add(k);
-        firstTeamPlayers.push(p);
-      };
-      // 1. Highest Total GmSc
-      const byTotal = [...eligible].sort((a, b) => b.gmSc - a.gmSc);
-      if (byTotal.length) addPick(byTotal[0]);
-      // 2. Highest Avg GmSc min 7G
-      const min7 = eligible.filter(r => r.g >= 7).sort((a, b) => b.avgGmSc - a.avgGmSc);
-      for (const cand of min7) {
-        if (!picked.has(cand.player + "|" + cand.team)) { addPick(cand); break; }
-      }
-      // 3. Highest AI Score on best regular-season team.
-      // Satisfied automatically if the top-AI player on that team is already picked.
-      const bestTeam = bestRegSeasonTeam(y);
-      if (bestTeam) {
-        const teamPlayers = eligible.filter(r => r.team === bestTeam).sort((a, b) => b.score - a.score);
-        if (teamPlayers.length) {
-          const topOnBest = teamPlayers[0];
-          if (!picked.has(topOnBest.player + "|" + topOnBest.team)) {
-            addPick(topOnBest);
-          }
-          // else: criterion already satisfied, skip to Rule 4
-        }
-      }
-      // 4. Fill to 5 by next highest AI Score
-      const byAI = [...eligible].sort((a, b) => b.score - a.score);
-      for (const cand of byAI) {
-        if (firstTeamPlayers.length >= 5) break;
-        if (!picked.has(cand.player + "|" + cand.team)) addPick(cand);
-      }
-      // MVP: find from hardcoded picks, verify they're in First Team
-      let mvp = null;
-      const mvpPick = MVP_PICKS[y];
-      if (mvpPick) {
-        mvp = firstTeamPlayers.find(p => p.player === mvpPick[0] && p.team === mvpPick[1]) || null;
-      }
-      // Display: First Team ordered by AI Score desc (MVP included, marked via isMvp flag)
-      const firstTeamDisplay = [...firstTeamPlayers]
+      // Membership from the award field
+      const mvp = ranked.find(r => r.award === "MVP") || null;
+      const firstTeamPlayers = ranked.filter(r => r.award === "MVP" || r.award === "All-PCAL");
+      const firstTeamDisplay = firstTeamPlayers
         .map(p => ({ ...p, isMvp: mvp && p.player === mvp.player && p.team === mvp.team }))
         .sort((a, b) => b.score - a.score);
-      // Second Team: next 5 by Total GmSc from remaining eligible players
-      const byTotalDesc = [...eligible].sort((a, b) => b.gmSc - a.gmSc);
-      const secondTeam = byTotalDesc.filter(r => !picked.has(r.player + "|" + r.team)).slice(0, 5);
+      const secondTeam = ranked
+        .filter(r => r.award === "Second Team")
+        .sort((a, b) => b.gmSc - a.gmSc);
       byYear[y] = {
         mvp,
         firstTeam: firstTeamDisplay,
@@ -5436,18 +5395,6 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
   // Build the 20-season leaders table data: each year, identify AI Score, Total GmSc,
   // Avg GmSc (min 7G), and AI on Champion. Track cumulative counts per player per category.
   const leadersTableRows = useMemo(() => {
-    const MVP_PICKS = {
-      2005: ["SHEHATA GEORGE", "HAY"], 2006: ["SHEHATA GEORGE", "HAY"],
-      2007: ["YOUSSEF ANDREW", "HAY"], 2008: ["MULUGETA YONI", "SRA"],
-      2009: ["SHEHATA GEORGE", "HAY"], 2010: ["SHEHATA GEORGE", "HAY"],
-      2011: ["ABRAHAM PETER", "SJO"], 2012: ["BADROOS ANDREW", "SAC"],
-      2013: ["ISHAK ANDREW", "SJO"], 2014: ["ISHAK ANDREW", "SJO"],
-      2015: ["ISHAK ANDREW", "SJO"], 2016: ["ISHAK ANDREW", "SJO"],
-      2017: ["AWAD BISHOY", "SAC"], 2018: ["BADROOS ANDREW", "SAC"],
-      2019: ["SHACKER MARK", "SJO"], 2021: ["ISHAK ANDREW", "PDF"],
-      2022: ["KELADA ANTHONY", "SAC"], 2023: ["ISHAK ANDREW", "PDF"],
-      2024: ["ABDELMALAK SIMON", "SJO"], 2025: ["ABDELMALAK SIMON", "SJO"],
-    };
     const getFirstInitial = (fullName) => {
       const parts = fullName.trim().split(/\s+/);
       if (parts.length < 2) return "?";
@@ -5490,7 +5437,8 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
         const cp = elig5.filter(r => r.team === champ);
         if (cp.length) champAi = cp.reduce((a, b) => b.aiScore > a.aiScore ? b : a);
       }
-      const mvpPick = MVP_PICKS[y];
+      const mvpRow = withScore.find(r => r.award === "MVP") || null;
+      const mvpPick = mvpRow ? [mvpRow.player, mvpRow.team] : null;
       const mvpKey = mvpPick ? mvpPick[0] : null;
       if (mvpKey) mvpCount[mvpKey] = (mvpCount[mvpKey] || 0) + 1;
       aiCount[topAi.player] = (aiCount[topAi.player] || 0) + 1;
