@@ -28,7 +28,7 @@ begin
   if not (
     has_admin_or_commish()
     or (p_table = 'livestream_urls'
-        and lower(coalesce(auth.email(), '')) = any (array['johnameen@gmail.com']))
+        and lower(coalesce(auth.jwt() ->> 'email', '')) = any (array['johnameen@gmail.com']))
   ) then
     raise exception 'not authorized';
   end if;
@@ -81,7 +81,7 @@ begin
   if not (
     has_admin_or_commish()
     or (p_table = 'livestream_urls'
-        and lower(coalesce(auth.email(), '')) = any (array['johnameen@gmail.com']))
+        and lower(coalesce(auth.jwt() ->> 'email', '')) = any (array['johnameen@gmail.com']))
   ) then
     raise exception 'not authorized';
   end if;
