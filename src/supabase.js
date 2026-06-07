@@ -146,10 +146,13 @@ export async function adminUpsertRow(tableKey, item) {
   if (session) {
     const { data, error } = await supabase.rpc("admin_upsert_row_auth", { p_table: tableKey, p_row: row });
     if (!error) return data;
-    console.error("admin_upsert_row_auth error:", error);
+    // Only fall back to the legacy token path if the auth function is missing.
+    // Any other error (e.g. role check failed) is the real cause; surface it.
+    if (error.code !== "PGRST202") { console.error("admin_upsert_row_auth error:", error); return { error: error.message }; }
+    console.warn("admin_upsert_row_auth missing; run supabase/admin_auth_rpcs.sql");
   }
   const token = getAdminToken();
-  if (!token) return { error: "not admin" };
+  if (!token) return { error: session ? "admin_auth_rpcs.sql not run in Supabase yet" : "not signed in" };
   const { data, error } = await supabase.rpc("admin_upsert_row", {
     p_token: token, p_table: tableKey, p_row: row,
   });
@@ -162,10 +165,11 @@ export async function adminDeleteRow(tableKey, id) {
   if (session) {
     const { data, error } = await supabase.rpc("admin_delete_row_auth", { p_table: tableKey, p_id: id });
     if (!error) return data;
-    console.error("admin_delete_row_auth error:", error);
+    if (error.code !== "PGRST202") { console.error("admin_delete_row_auth error:", error); return { error: error.message }; }
+    console.warn("admin_delete_row_auth missing; run supabase/admin_auth_rpcs.sql");
   }
   const token = getAdminToken();
-  if (!token) return { error: "not admin" };
+  if (!token) return { error: session ? "admin_auth_rpcs.sql not run in Supabase yet" : "not signed in" };
   const { data, error } = await supabase.rpc("admin_delete_row", {
     p_token: token, p_table: tableKey, p_id: id,
   });
