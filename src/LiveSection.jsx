@@ -1695,6 +1695,24 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
     return "viewer";
   }, [me, live]);
 
+  // Un-live: send a game started by mistake back to "scheduled" so it stops
+  // showing as live. Admin-password gated and confirmed. Scoring is
+  // soft-deleted (deleted = true), not erased, so it can be recovered.
+  const [showUnlivePw, setShowUnlivePw] = useState(false);
+  const executeUnlive = async () => {
+    await supabase.from("live_games").update({
+      status: "scheduled", period: "H1", started_at: null, ended_at: null,
+      home_timeouts_remaining: 3, away_timeouts_remaining: 3,
+      updated_at: new Date().toISOString(),
+    }).eq("game_id", gameId);
+    await supabase.from("schedule").update({ status: "scheduled" }).eq("game_id", gameId);
+    await supabase.from("live_events").update({ deleted: true }).eq("game_id", gameId);
+    await supabase.from("audit_log").insert({
+      game_id: gameId, actor_pin: me?.pin || null, actor_name: me?.name || "admin", action: "unlive",
+    });
+    setShowUnlivePw(false);
+  };
+
   if (loading) return <div className="text-center py-12 text-gray-400 text-sm">Loading game...</div>;
   if (error) return (
     <div>
@@ -1748,6 +1766,25 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
         topScorerByTeam={topScorerByTeam}
         events={events}
       />
+
+      {/* Admin: un-live a game that was started by mistake. Password-gated. */}
+      {live && (live.status === "live" || live.status === "halftime") && (
+        <div className="flex justify-end mb-3">
+          <button
+            onClick={() => { if (confirm("Un-live this game? It goes back to scheduled and the live scoring is cleared (recoverable). The admin password is required next.")) setShowUnlivePw(true); }}
+            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 active:bg-amber-200">
+            Un-live game (admin)
+          </button>
+        </div>
+      )}
+      {showUnlivePw && (
+        <AdminPasswordModal
+          title="Un-live game"
+          subtitle="Send this game back to scheduled and clear the live scoring?"
+          onClose={() => setShowUnlivePw(false)}
+          onOk={executeUnlive}
+        />
+      )}
 
       {/* Mode tabs */}
       <div className="flex gap-1.5 mb-3">
