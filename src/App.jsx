@@ -1786,7 +1786,7 @@ function newRowId() {
   });
 }
 
-function WatchPage({ streams = [], isAdmin = false, setStreams }) {
+function WatchPage({ streams = [], isAdmin = false, setStreams, onOpenGame }) {
   const [games, setGames] = useState([]);
   const [now, setNow] = useState(Date.now());
 
@@ -1801,16 +1801,30 @@ function WatchPage({ streams = [], isAdmin = false, setStreams }) {
       .from("schedule").select("game_id,home_team,away_team").in("game_id", ids);
     const schById = {}; (sch || []).forEach(s => { schById[s.game_id] = s; });
     const { data: evs } = await supabase
-      .from("live_events").select("game_id,team,stat_type,deleted").in("game_id", ids);
-    const score = {};
+      .from("live_events").select("game_id,team,player_name,stat_type,deleted").in("game_id", ids);
+    const score = {}; // game_id -> team -> pts
+    const box = {};   // game_id -> player_name -> { team, pts, reb, ast, stl, blk }
     (evs || []).forEach(ev => {
       if (ev.deleted || !ev.team) return;
-      if (ev.stat_type === "made_2" || ev.stat_type === "made_3" || ev.stat_type === "made_ft") {
-        const pts = ev.stat_type === "made_3" ? 3 : ev.stat_type === "made_2" ? 2 : 1;
-        if (!score[ev.game_id]) score[ev.game_id] = {};
-        score[ev.game_id][ev.team] = (score[ev.game_id][ev.team] || 0) + pts;
-      }
+      const gid = ev.game_id, t = ev.team, st = ev.stat_type, p = ev.player_name;
+      const pts = st === "made_3" ? 3 : st === "made_2" ? 2 : st === "made_ft" ? 1 : 0;
+      if (pts) { (score[gid] || (score[gid] = {}))[t] = ((score[gid] || {})[t] || 0) + pts; }
+      if (!p) return; // skip non-player events (period_change, game_end)
+      const gb = box[gid] || (box[gid] = {});
+      const b = gb[p] || (gb[p] = { team: t, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0 });
+      if (pts) b.pts += pts;
+      else if (st === "reb") b.reb++;
+      else if (st === "ast") b.ast++;
+      else if (st === "stl") b.stl++;
+      else if (st === "blk") b.blk++;
     });
+    const leadersFor = (gid, team) =>
+      Object.entries(box[gid] || {})
+        .filter(([, b]) => b.team === team)
+        .map(([name, b]) => ({ name, ...b }))
+        .filter(p => p.pts || p.reb || p.ast || p.stl || p.blk)
+        .sort((a, b) => b.pts - a.pts || b.reb - a.reb)
+        .slice(0, 3);
     setGames(rows.map(r => {
       const s = schById[r.game_id] || {};
       return {
@@ -1818,6 +1832,8 @@ function WatchPage({ streams = [], isAdmin = false, setStreams }) {
         home_team: s.home_team, away_team: s.away_team,
         home: (score[r.game_id] || {})[s.home_team] || 0,
         away: (score[r.game_id] || {})[s.away_team] || 0,
+        homeLeaders: leadersFor(r.game_id, s.home_team),
+        awayLeaders: leadersFor(r.game_id, s.away_team),
       };
     }));
   }, []);
@@ -1849,18 +1865,55 @@ function WatchPage({ streams = [], isAdmin = false, setStreams }) {
           No games are live right now. Streams appear here on game days.
         </div>
       ) : (
-        <div className="space-y-2 mb-6">
+        <div className="space-y-3 mb-6">
           {visible.map(g => {
             const live = g.status === "live" || g.status === "halftime";
+            // points + rebounds + the next-biggest of ast/stl/blk if it's >= 2
+            const statLine = (p) => {
+              const extra = [["a", p.ast], ["s", p.stl], ["b", p.blk]].sort((x, y) => y[1] - x[1])[0];
+              return `${p.pts} · ${p.reb}r${extra[1] >= 2 ? ` · ${extra[1]}${extra[0]}` : ""}`;
+            };
+            const teamLeaders = (team, leaders) => (
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">{team} leaders</p>
+                {(!leaders || leaders.length === 0) ? (
+                  <p className="text-[11px] text-gray-400">No stats yet</p>
+                ) : leaders.map((p, i) => (
+                  <div key={i} className="flex items-baseline justify-between gap-2 text-xs leading-5">
+                    <span className="font-semibold text-gray-800 truncate">{formatName(p.name)}</span>
+                    <span className="text-gray-500 tabular-nums whitespace-nowrap">{statLine(p)}</span>
+                  </div>
+                ))}
+              </div>
+            );
             return (
-              <div key={g.game_id} className="rounded-2xl border border-gray-100 p-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div key={g.game_id} className="rounded-2xl border border-gray-100 p-3">
+                <div className="flex items-center justify-between mb-2">
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${live ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
-                    {g.status === "live" ? "LIVE" : g.status === "halftime" ? "HALF" : "FINAL"}
+                    {g.status === "live" ? "LIVE" : g.status === "halftime" ? "HALF" : "FINAL"}{live && g.period ? ` · ${g.period}` : ""}
                   </span>
-                  <span className="font-bold text-gray-900">{g.away_team || "?"} @ {g.home_team || "?"}</span>
                 </div>
-                <span className="font-black text-gray-900 tabular-nums">{g.away} - {g.home}</span>
+                <div className="flex items-end justify-center gap-5 mb-3">
+                  <div className="text-center">
+                    <div className="text-xs font-bold text-gray-500">{g.away_team || "?"}</div>
+                    <div className="text-3xl font-black text-gray-900 tabular-nums leading-none">{g.away}</div>
+                  </div>
+                  <div className="text-gray-300 font-black pb-1">-</div>
+                  <div className="text-center">
+                    <div className="text-xs font-bold text-gray-500">{g.home_team || "?"}</div>
+                    <div className="text-3xl font-black text-gray-900 tabular-nums leading-none">{g.home}</div>
+                  </div>
+                </div>
+                <div className="flex gap-4 mb-1">
+                  {teamLeaders(g.away_team, g.awayLeaders)}
+                  {teamLeaders(g.home_team, g.homeLeaders)}
+                </div>
+                {onOpenGame && (
+                  <button onClick={() => onOpenGame(g.game_id)}
+                    className="w-full text-center text-xs font-bold text-blue-600 active:text-blue-800 pt-2">
+                    View full box score →
+                  </button>
+                )}
               </div>
             );
           })}
@@ -3457,6 +3510,7 @@ function AppInner() {
             streams={livestreamUrls}
             isAdmin={isAdminView || MEDIA_EMAILS.includes((authSession?.user?.email || "").toLowerCase())}
             setStreams={setLivestreamUrls}
+            onOpenGame={(id) => { setLiveInitialGameId(id); switchSection("live"); }}
           />
         )}
         {tab === "register" && (
