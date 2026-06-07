@@ -2,7 +2,7 @@
 // Used to show a tappable Google Maps link next to the location wherever it
 // appears. Add a key here when a new venue is used.
 export const LOCATION_ADDRESSES = {
-  "Livermore": "4444 East Ave, Livermore, CA",
+  "Livermore": "Livermore Community Center, 4444 East Ave, Livermore, CA",
   "Sacramento": "In-Shape Family Fitness (formerly CalFit), 2511 Warren Dr, Rocklin, CA",
   "Modesto": "Manteca High School, 296 S. Garfield Ave, Manteca, CA",
 };
