@@ -23,7 +23,13 @@ declare
   v_cols    text;
   v_updates text;
 begin
-  if not has_admin_or_commish() then
+  -- Admins/commissioners can write any allowed table. The media allowlist can
+  -- write only the livestream_urls table (for /live stream editing).
+  if not (
+    has_admin_or_commish()
+    or (p_table = 'livestream_urls'
+        and lower(coalesce(auth.email(), '')) = any (array['johnameen@gmail.com']))
+  ) then
     raise exception 'not authorized';
   end if;
   if p_table not in (
@@ -70,7 +76,13 @@ security definer
 set search_path = public
 as $$
 begin
-  if not has_admin_or_commish() then
+  -- Admins/commissioners can write any allowed table. The media allowlist can
+  -- write only the livestream_urls table (for /live stream editing).
+  if not (
+    has_admin_or_commish()
+    or (p_table = 'livestream_urls'
+        and lower(coalesce(auth.email(), '')) = any (array['johnameen@gmail.com']))
+  ) then
     raise exception 'not authorized';
   end if;
   if p_table not in (

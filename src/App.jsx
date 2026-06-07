@@ -1770,6 +1770,10 @@ function toEmbedUrl(url) {
 // /live watch page: any game currently live or ended within the last 60
 // seconds, with the livestreams (admin-managed livestreamUrls). Live scores
 // are summed from live_events, the same way the Games hub does it.
+// Emails allowed to edit livestream links on /live without full admin. The
+// matching server-side check is in supabase/admin_auth_rpcs.sql (keep in sync).
+const MEDIA_EMAILS = ["johnameen@gmail.com"];
+
 // UUID for new admin-created rows (Postgres id columns expect UUIDs).
 function newRowId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -3446,7 +3450,11 @@ function AppInner() {
           />
         )}
         {tab === "watch" && (
-          <WatchPage streams={livestreamUrls} isAdmin={isAdminView} setStreams={setLivestreamUrls} />
+          <WatchPage
+            streams={livestreamUrls}
+            isAdmin={isAdminView || MEDIA_EMAILS.includes((authSession?.user?.email || "").toLowerCase())}
+            setStreams={setLivestreamUrls}
+          />
         )}
         {tab === "register" && (
           <RegistrationView onSubmitRegistration={addRegistration} switchSection={switchSection} />
