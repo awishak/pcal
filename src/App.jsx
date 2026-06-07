@@ -1872,7 +1872,9 @@ function WatchPage({ streams = [], isAdmin = false, setStreams }) {
               <p className="text-xs font-bold text-gray-600 mb-1">{s.label}</p>
               <div className="relative w-full rounded-2xl overflow-hidden border border-gray-100 bg-black" style={{ aspectRatio: "16 / 9" }}>
                 <iframe src={toEmbedUrl(s.url)} title={s.label || ("Stream " + (i + 1))} className="absolute inset-0 w-full h-full"
-                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen />
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen />
               </div>
             </div>
           ))}
