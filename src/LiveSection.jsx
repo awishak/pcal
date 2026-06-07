@@ -1775,8 +1775,11 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
         events={events}
       />
 
-      {/* Admin: un-live a game that was started by mistake. Password-gated. */}
-      {live && (live.status === "live" || live.status === "halftime") && (
+      {/* Admin: reset a game (started by mistake, or a finished-but-not-yet-
+          approved game) back to scheduled. Password-gated. Not shown for
+          approved games, which must be reversed first (they have game_log
+          rows) before this would be safe. */}
+      {live && (live.status === "live" || live.status === "halftime" || live.status === "ended") && (
         <div className="flex justify-end mb-3">
           <button
             onClick={() => { if (confirm("Un-live this game? It goes back to scheduled and the live scoring is cleared (recoverable). The admin password is required next.")) setShowUnlivePw(true); }}
