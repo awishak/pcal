@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   supabase,
   getAdminToken, setAdminToken, verifyAdminPassword, checkAdminToken,
@@ -1730,23 +1730,224 @@ function CompareView({ onSelect }) {
 
 // ========== MAIN APP ==========
 
+// Convert a YouTube/Twitch watch URL into an embeddable player URL so the
+// /live page can show it inline. Unknown hosts are returned unchanged (assume
+// already embeddable).
+function toEmbedUrl(url) {
+  if (!url) return "";
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtu.be") return "https://www.youtube.com/embed/" + u.pathname.slice(1);
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      if (u.pathname.startsWith("/watch")) return "https://www.youtube.com/embed/" + (u.searchParams.get("v") || "");
+      if (u.pathname.startsWith("/live/")) return "https://www.youtube.com/embed/" + u.pathname.split("/")[2];
+      if (u.pathname.startsWith("/embed/")) return url;
+    }
+    if (host === "twitch.tv") {
+      const channel = u.pathname.split("/").filter(Boolean)[0];
+      const parent = typeof window !== "undefined" ? window.location.hostname : "pcaleague.com";
+      if (channel) return `https://player.twitch.tv/?channel=${channel}&parent=${parent}`;
+    }
+  } catch { /* fall through */ }
+  return url;
+}
+
+// /live watch page: any game currently live or ended within the last 60
+// seconds, with the livestreams (admin-managed livestreamUrls). Live scores
+// are summed from live_events, the same way the Games hub does it.
+function WatchPage({ streams = [] }) {
+  const [games, setGames] = useState([]);
+  const [now, setNow] = useState(Date.now());
+
+  const load = useCallback(async () => {
+    const { data: lg } = await supabase
+      .from("live_games").select("game_id,status,period,ended_at")
+      .in("status", ["live", "halftime", "ended"]);
+    const rows = lg || [];
+    const ids = rows.map(r => r.game_id);
+    if (!ids.length) { setGames([]); return; }
+    const { data: sch } = await supabase
+      .from("schedule").select("game_id,home_team,away_team").in("game_id", ids);
+    const schById = {}; (sch || []).forEach(s => { schById[s.game_id] = s; });
+    const { data: evs } = await supabase
+      .from("live_events").select("game_id,team,stat_type,deleted").in("game_id", ids);
+    const score = {};
+    (evs || []).forEach(ev => {
+      if (ev.deleted || !ev.team) return;
+      if (ev.stat_type === "made_2" || ev.stat_type === "made_3" || ev.stat_type === "made_ft") {
+        const pts = ev.stat_type === "made_3" ? 3 : ev.stat_type === "made_2" ? 2 : 1;
+        if (!score[ev.game_id]) score[ev.game_id] = {};
+        score[ev.game_id][ev.team] = (score[ev.game_id][ev.team] || 0) + pts;
+      }
+    });
+    setGames(rows.map(r => {
+      const s = schById[r.game_id] || {};
+      return {
+        game_id: r.game_id, status: r.status, period: r.period, ended_at: r.ended_at,
+        home_team: s.home_team, away_team: s.away_team,
+        home: (score[r.game_id] || {})[s.home_team] || 0,
+        away: (score[r.game_id] || {})[s.away_team] || 0,
+      };
+    }));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const ch = supabase.channel("watch_live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_games" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_events" }, load)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [load]);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+
+  const visible = games.filter(g => {
+    if (g.status === "live" || g.status === "halftime") return true;
+    if (g.status === "ended" && g.ended_at) return (now - new Date(g.ended_at).getTime()) < 60000;
+    return false;
+  });
+
+  return (
+    <div className="pb-20">
+      <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">PCAL Live</p>
+      <p className="text-xl font-black text-gray-900 mb-4">Watch</p>
+
+      <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Live now</p>
+      {visible.length === 0 ? (
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500 mb-6">
+          No games are live right now. Streams appear here on game days.
+        </div>
+      ) : (
+        <div className="space-y-2 mb-6">
+          {visible.map(g => {
+            const live = g.status === "live" || g.status === "halftime";
+            return (
+              <div key={g.game_id} className="rounded-2xl border border-gray-100 p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${live ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
+                    {g.status === "live" ? "LIVE" : g.status === "halftime" ? "HALF" : "FINAL"}
+                  </span>
+                  <span className="font-bold text-gray-900">{g.away_team || "?"} @ {g.home_team || "?"}</span>
+                </div>
+                <span className="font-black text-gray-900 tabular-nums">{g.away} - {g.home}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Livestreams</p>
+      {streams.length === 0 ? (
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
+          Livestream links coming soon. Add them in the home admin panel and they show here.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {streams.map((s, i) => (
+            <div key={s.id || i}>
+              <p className="text-xs font-bold text-gray-600 mb-1">{s.label}</p>
+              <div className="relative w-full rounded-2xl overflow-hidden border border-gray-100 bg-black" style={{ aspectRatio: "16 / 9" }}>
+                <iframe src={toEmbedUrl(s.url)} title={s.label || ("Stream " + (i + 1))} className="absolute inset-0 w-full h-full"
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// URL ROUTING
+// The app is state-driven, so instead of a router library we sync the
+// navigation state to the address bar and back. Note the internal section key
+// "live" is the Games hub (path /games); the livestream watch page is a
+// separate section, "watch" (path /live).
+// ============================================================
+const SECTION_SEG = { home: "", stats: "stats", schedule: "schedule", live: "games", teams: "teams", register: "register", watch: "live" };
+const SEG_SECTION = { stats: "stats", schedule: "schedule", games: "live", teams: "teams", register: "register", live: "watch" };
+const SECTION_DEFAULT_TAB = { home: "home", stats: "stats_home", schedule: "schedule", live: "live", teams: "teams", register: "register", watch: "watch" };
+
+function playerSlug(name) {
+  return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+function resolvePlayerSlug(slug) {
+  for (const d of DATA) { if (playerSlug(d.player) === slug) return d.player; }
+  return null;
+}
+
+// Build the address-bar path from the current navigation state.
+function stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId }) {
+  if (section === "stats" && tab === "search" && selectedPlayer) return "/player/" + playerSlug(selectedPlayer);
+  if (section === "teams" && franchiseTeam) return "/teams/" + String(franchiseTeam).toLowerCase();
+  if (section === "live" && liveInitialGameId) return "/games/" + liveInitialGameId;
+  const seg = SECTION_SEG[section] ?? "";
+  if (tab && tab !== SECTION_DEFAULT_TAB[section]) return "/" + (seg ? seg + "/" : "") + tab;
+  return seg ? "/" + seg : "/";
+}
+
+// Parse a path into a partial navigation state.
+function pathToState(pathname) {
+  const parts = String(pathname || "").replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+  if (parts.length === 0) return { section: "home", tab: "home" };
+  const [a, b] = parts;
+  if (a === "player" && b) {
+    const p = resolvePlayerSlug(b);
+    return p ? { section: "stats", tab: "search", selectedPlayer: p, search: formatName(p) } : { section: "stats", tab: "stats_home" };
+  }
+  if (a === "teams") return b ? { section: "teams", tab: "teams", franchiseTeam: b.toUpperCase() } : { section: "teams", tab: "teams" };
+  if (a === "games") return b ? { section: "live", tab: "live", liveInitialGameId: b } : { section: "live", tab: "live" };
+  const section = SEG_SECTION[a];
+  if (!section) return { section: "home", tab: "home" };
+  return { section, tab: b || SECTION_DEFAULT_TAB[section] };
+}
+
 function AppInner() {
-  const [section, setSection] = useState("home");
-  const [tab, setTab] = useState("home");
+  const initialRoute = useMemo(() => pathToState(typeof window !== "undefined" ? window.location.pathname : "/"), []);
+  const [section, setSection] = useState(initialRoute.section || "home");
+  const [tab, setTab] = useState(initialRoute.tab || "home");
   // Teams hub: when set, the teams tab shows that franchise's history.
-  const [franchiseTeam, setFranchiseTeam] = useState(null);
+  const [franchiseTeam, setFranchiseTeam] = useState(initialRoute.franchiseTeam || null);
   useEffect(() => { if (tab !== "teams" && franchiseTeam) setFranchiseTeam(null); }, [tab]);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialRoute.search || "");
   const [yearFilter, setYearFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
   const [leaderCat, setLeaderCat] = useState("ppg");
   const [qualified, setQualified] = useState(true);
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [selectedPlayer, setSelectedPlayer] = useState(initialRoute.selectedPlayer || null);
   const [searchPreset, setSearchPreset] = useState(null); // "2025awards" | "2025byTeam" | "topGames" | "firstTeam" | "random10"
   const [searchPresetTeam, setSearchPresetTeam] = useState(null); // team code for "2025byTeam"
   const [searchRandomSeed, setSearchRandomSeed] = useState(0);
   const [showFontControl, setShowFontControl] = useState(false);
-  const [liveInitialGameId, setLiveInitialGameId] = useState(null);
+  const [liveInitialGameId, setLiveInitialGameId] = useState(initialRoute.liveInitialGameId || null);
+
+  // Two-way URL sync. When navigation state changes, reflect it in the address
+  // bar (pushState so back/forward works). When the user hits back/forward,
+  // popstate sets the state from the URL; routeGuard prevents that from
+  // pushing a duplicate entry.
+  const routeGuard = useRef(false);
+  useEffect(() => {
+    const path = stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId });
+    if (path === window.location.pathname) return;
+    if (routeGuard.current) { routeGuard.current = false; window.history.replaceState(null, "", path); }
+    else window.history.pushState(null, "", path);
+  }, [section, tab, selectedPlayer, franchiseTeam, liveInitialGameId]);
+  useEffect(() => {
+    const onPop = () => {
+      const s = pathToState(window.location.pathname);
+      routeGuard.current = true;
+      setSection(s.section || "home");
+      setTab(s.tab || "home");
+      setSelectedPlayer(s.selectedPlayer || null);
+      setFranchiseTeam(s.franchiseTeam || null);
+      setLiveInitialGameId(s.liveInitialGameId || null);
+      setSearch(s.search || "");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // ===== ADMIN STATE =====
   const ADMIN_PASSWORD = "gumas";
@@ -2067,6 +2268,7 @@ function AppInner() {
     { key: "stats", label: "Stats & History", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
     { key: "schedule", label: "Schedule", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
     { key: "live", label: "Games", icon: "M12 2a10 10 0 100 20 10 10 0 000-20zM2 12h20M12 2v20M4.93 4.93c3.9 3.9 3.9 10.24 0 14.14M19.07 4.93c-3.9 3.9-3.9 10.24 0 14.14" },
+    { key: "watch", label: "Live", icon: "M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 6h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z" },
     { key: "teams", label: "Teams", icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87M13 7a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 10-2.83-4" },
     { key: "register", label: "Register", icon: "M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" },
   ];
@@ -3194,6 +3396,9 @@ function AppInner() {
             onConsumeInitialGameId={() => setLiveInitialGameId(null)}
             logos={TEAM_LOGOS_CURRENT}
           />
+        )}
+        {tab === "watch" && (
+          <WatchPage streams={livestreamUrls} />
         )}
         {tab === "register" && (
           <RegistrationView onSubmitRegistration={addRegistration} switchSection={switchSection} />
@@ -16619,7 +16824,8 @@ export default function AppLoader() {
     if (typeof window === "undefined") return false;
     try {
       const params = new URLSearchParams(window.location.search);
-      return params.get("view") === "registrations";
+      if (params.get("view") === "registrations") return true;
+      return window.location.pathname.replace(/\/+$/, "") === "/registrations";
     } catch {
       return false;
     }
