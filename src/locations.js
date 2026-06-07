@@ -4,6 +4,7 @@
 export const LOCATION_ADDRESSES = {
   "Livermore": "4444 East Ave, Livermore, CA",
   "Sacramento": "2511 Warren Dr, Rocklin, CA",
+  "Modesto": "Manteca High School, 296 S. Garfield Ave, Manteca, CA",
 };
 
 export function locationAddress(location) {
