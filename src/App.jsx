@@ -2112,6 +2112,7 @@ function AppInner() {
     quickLinks: "visible",
     liveGames: "visible",
     commissionerMessages: "visible",
+    registrationAnnouncements: "visible",
     weekOneSchedule: "visible",
     whatsLive: "visible",
     playoffRecap2025: "visible",
@@ -5164,7 +5165,7 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
         // the same order the user will read them. Hidden announcements are
         // filtered out unless admin is viewing, in which case they show with
         // a "Hidden" badge so admin can unhide them.
-        const annsByDisplay = [...announcements]
+        const annsByDisplay = (isVisible("registrationAnnouncements") ? [...announcements] : [])
           .filter(a => isAdminView || !a.announcement_hidden)
           .sort((a, b) => {
             const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -12794,6 +12795,7 @@ function HomeAdminPanel({ commissionerMessages, setCommissionerMessages, stickyL
             { key: "stickyLinks", label: "Sticky Links Bar (top)" },
             { key: "quickLinks", label: "Quick Links Row" },
             { key: "commissionerMessages", label: "Commissioner Messages" },
+            { key: "registrationAnnouncements", label: "Registration Updates" },
             { key: "weekOneSchedule", label: "Week 1 Schedule" },
             { key: "playoffRecap2025", label: "2025 Playoff Recap" },
             { key: "photos", label: "Photo Cards" },
