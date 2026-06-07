@@ -1880,9 +1880,9 @@ function WatchPage({ streams = [], isAdmin = false, setStreams }) {
       )}
 
       {/* Fallback: if no embedded stream is showing, point to the channel. */}
-      <a href="https://www.youtube.com/@pcaleague/streams" target="_blank" rel="noopener noreferrer"
+      <a href="https://www.youtube.com/@pcaleague/live" target="_blank" rel="noopener noreferrer"
         className="mt-3 block rounded-2xl border border-gray-100 bg-gray-50 p-3 text-center text-sm font-bold text-gray-700 active:bg-gray-100">
-        Not seeing a stream here? Check the PCAL YouTube channel →
+        Not seeing a stream here? Watch on the PCAL YouTube channel →
       </a>
 
       {isAdmin && setStreams && (
