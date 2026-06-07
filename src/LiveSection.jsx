@@ -529,7 +529,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
     <LogosContext.Provider value={logos}>
       <div>
         {view === "home" && (
-          <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} onEditSchedule={() => setView("schedule_edit")} />
+          <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} onEditSchedule={() => setView("schedule_edit")} scheduleWarning={scheduleWarning} />
         )}
         {view === "game" && activeGameId && (
           <LiveGameView gameId={activeGameId} me={me} onLogin={login} onBack={() => { setView("home"); setActiveGameId(null); }} />
@@ -549,7 +549,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
 // Live Home: Games page with current-window scoreboard, upcoming
 // 2026 games, and past 2026 games.
 // ============================================================
-function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule }) {
+function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule, scheduleWarning = { bannerEnabled: false, text: "" } }) {
   // allGames: full 2026 season from schedule.
   // liveStates: game_id -> live_games row (used for live/ended status + scorer names)
   // liveScores: game_id -> { [team]: points } derived from live_events
