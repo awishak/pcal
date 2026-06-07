@@ -2,11 +2,23 @@
 
 Volatile working state. Update this as work moves. Durable rules live in `CLAUDE.md`.
 
-## Phase 3 (active, not deployed)
+## Phase 3 (complete, not yet deployed)
 
-Deriving season DATA entirely from GAME_LOG in browser so game_log is the single source of truth and DATA vs log drift goes away. A `buildSeasonData` derive function is written and validated in Node. Remaining work is App.jsx surgery: fill the AGE_MAP and complete the migration.
+Done 2026-06-06. Season DATA now derives entirely from GAME_LOG in the browser via `buildSeasonData` in App.jsx, and the old baked RAW array is deleted. game_log is the single source of truth. The full derive pipeline (DATA, AI Score, awards, leaders) moved from module-load time into `rebuildDerived()`, called from `installGameLog` after the log loads.
 
-Locked decisions:
+How the decisions landed:
+
+- Game Score is recomputed from the box score with the standard formula, not read from the stored gmsc column (which was inconsistent for ~5% of games and inflated season totals, for example Sawiris 2014 stored-sum 88 vs formula 51). Formula: `PTS + 0.4·FGM − 0.7·FGA − 0.4·(FTA−FTM) + 0.5·REB + STL + 0.7·AST + 0.7·BLK − 0.4·FOUL`, applied per game in `installGameLog`, overriding row[19]. Counts R/P/C only; exhibition (X) excluded from every total including the AI Score share bonus.
+- 2005-2010 had automatic free-throw-line points baked into PTS (no separate column; PTS exceeds 2·fgm+tpm+ftm by the automatic amount, ~13% of early-era scoring). Decision: keep those points (they were scored on the floor, so they count toward PTS/PPG/Game Score) but do NOT record them as made free throws. So FTM/FTA stay raw, FT% and TS% are left as the data has them, and no player gets fabricated shooting credit. 2005 has no FT data at all, so its Game Score carries no free-throw-miss penalty, which is correct since that era's free throws were automatic (no misses to penalize).
+- AGE_MAP baked for 312 players (ages as of Aug 31). A player-year not listed is gap-filled by carrying the nearest known age by the year difference.
+- 2018 Modesto and CIS consolidated to MCS in the derive (team relabel for all 2018 MOD/CIS rows). `MCS-2018` standings replace `MOD-2018` (1-8, Semis). CIS in 2014/2019/2021 stays standalone.
+- Bassem Banoub's 2005 games corrected SRA to HAY in the derive.
+- Voted 2024/2025 First Team (MVP and All-PCAL) baked as `VOTED_FIRST_TEAM` and seeded onto DATA before the awards recompute, since game_log carries no awards. Second Team for those years still recomputes from AI Score.
+- Alias merges and guest naming applied in `installGameLog` (PLAYER_MERGE extended; anonymous placeholders become "{year} {team} Guest"; named guests keep "GUEST LASTNAME FIRSTNAME").
+
+Verified end to end in Node against the live game_log: 1247 season rows, 200 awards, AI Score and leaders all compute, both voted MVPs (Simon 2024/2025) and hardcoded MVPs intact. The roster-level diff vs the old baked DATA is in `phase3_diff_report.md` (26 baked-only, 45 derived-only). Note: that report's Game Score value-diffs were generated during the earlier stored-sum exploration and predate the formula decision above, so the gmSc magnitudes there are superseded; the roster and base-stat findings still hold.
+
+Original locked decisions (kept for the record):
 
 - Count all games: regular, playoff, championship.
 - Recompute First, Second, and MVP awards from Game Score for all years 2005 to 2025. Simon Abdelmalak is the confirmed 2024 and 2025 AI Score MVP.
@@ -29,6 +41,9 @@ GAME_LOG loads from Supabase. Row count confirmed matching at 8,758. Career and 
 ## Known data quality items
 
 - 2005 has a systematic steals/assists column swap affecting many player seasons. Parked for game by game correction against original scoresheets. A blanket UPDATE is unsafe.
+- PLE 2022 steals/assists swap, surfaced by Phase 3, same signature as 2005: HANNA ANDRE, MIKHAIL FADY, NAKHLA MARK, SEMARY MINA, TAWDROS MARIOS, plus NAKHLA JOHN (SRA 2012) and ISHAK ANDREW (SJO 2006). game_log has stl and ast swapped vs the old baked DATA. Parked for game by game correction.
+- SRA 2012 cluster: KALDAS GEORGE, LOUIS PHILIP, NAGUIB WASSIM, OKI CHRIS, SHENOUDA STEVE, JACOUB MINA show assorted reb and fg entry differences vs old baked DATA. Parked.
+- About 45 player-seasons differ only in foul count between game_log and the old baked DATA. Minor; game_log wins and the only downstream effect is Game Score.
 - Hanna George career rebounds: 711 in game_log vs 716 in baked DATA. 2005 value drift, not a migration defect.
 - Nashed George: 714 in game_log vs 707 in baked DATA. game_log correctly includes his 2011 playoff and championship games that DATA omitted.
 - Full diff report at `phase3_diff_report.md`.

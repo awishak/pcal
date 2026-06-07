@@ -61,7 +61,7 @@ GAME_LOG row is an array. Index map:
 
 ## Architecture
 
-The app is migrating from a baked DATA array to deriving season data from GAME_LOG so that game_log is the single source of truth. Phase 2 (GAME_LOG loads from Supabase, 8,758 rows confirmed) is deployed. Phase 3 (derive season DATA from GAME_LOG in browser) is in progress. See `docs/STATUS.md`.
+The app derives all season data from GAME_LOG in the browser via `buildSeasonData`, called by `rebuildDerived()` after the log loads in `installGameLog`. game_log is the single source of truth and the old baked RAW array is gone. Season DATA, AI Score, awards, and leaders all rebuild post-load, not at module load. Per-game stats roll up to season totals. Game Score is recomputed from the box score with the standard formula in `installGameLog` (overriding the stored gmsc column), counting R/P/C only with exhibition excluded. Names and teams are normalized in `installGameLog` (PLAYER_MERGE aliases, guest naming, 2018 MCS consolidation). Ages come from the baked AGE_MAP. Phase 2 (GAME_LOG loads from Supabase, 8,758 rows) and Phase 3 (derive season DATA from GAME_LOG) are both complete as of 2026-06-06. See `docs/STATUS.md`.
 
 ## Supabase and security
 
