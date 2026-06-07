@@ -419,7 +419,7 @@ function PlayerAvatar({ name, team, size = 40 }) {
 // ------------------------------------------------------------
 // Main Live Section
 // ------------------------------------------------------------
-export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null } = {}) {
+export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null, scheduleWarning = { bannerEnabled: false, text: "" } } = {}) {
   // Cached login from localStorage. This is kept so the scoring UI has
   // a player identity ({name, team, pin, season}) to attach to events.
   // It's synced below to the Supabase Auth session so logging in via the
@@ -758,17 +758,17 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule 
 
   return (
     <div>
-      {/* Tentative-schedule warning banner. Shown at the very top of the
-          Games page until the schedule is finalized. Remove or toggle via
-          code change once finalized. */}
-      <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
-        <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        <p className="text-xs text-amber-800 font-medium leading-relaxed">
-          This is a tentative schedule with placeholder games. The schedule will be confirmed in late May.
-        </p>
-      </div>
+      {/* Schedule-warning banner, controlled from Admin (schedule warning
+          toggle + text). Same source as the Schedule page so the two stay in
+          sync. Turn it off in admin to remove it. */}
+      {scheduleWarning.bannerEnabled && scheduleWarning.text && (
+        <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
+          <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-xs text-amber-800 font-medium leading-relaxed">{scheduleWarning.text}</p>
+        </div>
+      )}
 
       {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading...</div>}
 

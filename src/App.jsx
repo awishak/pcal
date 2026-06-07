@@ -3395,6 +3395,7 @@ function AppInner() {
             initialGameId={liveInitialGameId}
             onConsumeInitialGameId={() => setLiveInitialGameId(null)}
             logos={TEAM_LOGOS_CURRENT}
+            scheduleWarning={scheduleWarning}
           />
         )}
         {tab === "watch" && (

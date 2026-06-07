@@ -139,9 +139,17 @@ function toDbRow(tableKey, item) {
 }
 
 export async function adminUpsertRow(tableKey, item) {
+  const row = toDbRow(tableKey, item);
+  // Prefer the auth-based RPC (Supabase session with admin/commish role).
+  // Fall back to the legacy token RPC for older flows.
+  const session = await getCurrentSession();
+  if (session) {
+    const { data, error } = await supabase.rpc("admin_upsert_row_auth", { p_table: tableKey, p_row: row });
+    if (!error) return data;
+    console.error("admin_upsert_row_auth error:", error);
+  }
   const token = getAdminToken();
   if (!token) return { error: "not admin" };
-  const row = toDbRow(tableKey, item);
   const { data, error } = await supabase.rpc("admin_upsert_row", {
     p_token: token, p_table: tableKey, p_row: row,
   });
@@ -150,6 +158,12 @@ export async function adminUpsertRow(tableKey, item) {
 }
 
 export async function adminDeleteRow(tableKey, id) {
+  const session = await getCurrentSession();
+  if (session) {
+    const { data, error } = await supabase.rpc("admin_delete_row_auth", { p_table: tableKey, p_id: id });
+    if (!error) return data;
+    console.error("admin_delete_row_auth error:", error);
+  }
   const token = getAdminToken();
   if (!token) return { error: "not admin" };
   const { data, error } = await supabase.rpc("admin_delete_row", {
