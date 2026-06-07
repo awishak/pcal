@@ -1757,7 +1757,16 @@ function toEmbedUrl(url) {
 // /live watch page: any game currently live or ended within the last 60
 // seconds, with the livestreams (admin-managed livestreamUrls). Live scores
 // are summed from live_events, the same way the Games hub does it.
-function WatchPage({ streams = [] }) {
+// UUID for new admin-created rows (Postgres id columns expect UUIDs).
+function newRowId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function WatchPage({ streams = [], isAdmin = false, setStreams }) {
   const [games, setGames] = useState([]);
   const [now, setNow] = useState(Date.now());
 
@@ -1841,7 +1850,7 @@ function WatchPage({ streams = [] }) {
       <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Livestreams</p>
       {streams.length === 0 ? (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
-          Livestream links coming soon. Add them in the home admin panel and they show here.
+          Livestream links appear here on game days.
         </div>
       ) : (
         <div className="space-y-4">
@@ -1854,6 +1863,27 @@ function WatchPage({ streams = [] }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Fallback: if no embedded stream is showing, point to the channel. */}
+      <a href="https://www.youtube.com/@pcaleague/streams" target="_blank" rel="noopener noreferrer"
+        className="mt-3 block rounded-2xl border border-gray-100 bg-gray-50 p-3 text-center text-sm font-bold text-gray-700 active:bg-gray-100">
+        Not seeing a stream here? Check the PCAL YouTube channel →
+      </a>
+
+      {isAdmin && setStreams && (
+        <div className="mt-6 rounded-2xl border border-gray-200 p-3">
+          <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Admin: edit livestreams</p>
+          <LinksAdmin
+            items={streams}
+            setItems={setStreams}
+            title="Livestream Links"
+            description="Add or edit game-day streams. YouTube/Twitch watch links work; they embed as players above. Clear all to show the channel link only."
+            withIcon={false}
+            genId={newRowId}
+            tableKey="livestream_urls"
+          />
         </div>
       )}
     </div>
@@ -3401,7 +3431,7 @@ function AppInner() {
           />
         )}
         {tab === "watch" && (
-          <WatchPage streams={livestreamUrls} />
+          <WatchPage streams={livestreamUrls} isAdmin={isAdminView} setStreams={setLivestreamUrls} />
         )}
         {tab === "register" && (
           <RegistrationView onSubmitRegistration={addRegistration} switchSection={switchSection} />
