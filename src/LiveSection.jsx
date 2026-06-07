@@ -24,6 +24,20 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef, createContext, useContext } from "react";
 import { supabase, adminInsertGameLog, adminDeleteGameLogForGame, adminUpdateScheduleGame, bumpGameLogCache,
   requestLoginCode, verifyLoginCode, signOutUser, getCurrentSession, onAuthStateChange } from "./supabase.js";
+import { locationAddress, mapsUrl } from "./locations.js";
+
+// Renders a location name with a tappable Google Maps link to its address
+// (when known). Used in week headers so players can navigate to the venue.
+function LocationLine({ location, className = "text-sm text-gray-600 font-semibold mt-0.5" }) {
+  if (!location) return null;
+  const addr = locationAddress(location);
+  return (
+    <p className={className}>
+      {location}
+      {addr && <>{" · "}<a href={mapsUrl(addr)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-medium">{addr}</a></>}
+    </p>
+  );
+}
 
 // Context carries the base64 team logo map from App.jsx down to
 // components that need to render logos. Falls back to null (colored
@@ -879,9 +893,7 @@ function LiveWeekCard({ games, liveStates, liveScores, liveEventsByGame, onOpenG
       <div className="mb-4">
         <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">This Week &middot; {weekLabel}</p>
         <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(weekMeta.game_date)}</h3>
-        {weekMeta.location && (
-          <p className="text-sm text-gray-600 font-semibold mt-0.5">{weekMeta.location}</p>
-        )}
+        <LocationLine location={weekMeta.location} />
       </div>
 
       {liveGame && (
@@ -1267,9 +1279,7 @@ function UpcomingByWeek({ games, onOpenGame, fmtDate, activeTeamFilter }) {
             <div className="mb-4">
               <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Upcoming &middot; {weekLabel}</p>
               <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(first.game_date)}</h3>
-              {first.location && (
-                <p className="text-sm text-gray-600 font-semibold mt-0.5">{first.location}</p>
-              )}
+              <LocationLine location={first.location} />
             </div>
             <div className="grid gap-1.5"
                  style={{ gridTemplateColumns: `repeat(${Math.min(weekGames.length, 3)}, minmax(0, 1fr))` }}>
@@ -1319,9 +1329,7 @@ function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate, active
             <div className="mb-4">
               <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Past &middot; {weekLabel}</p>
               <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(first.game_date)}</h3>
-              {first.location && (
-                <p className="text-sm text-gray-600 font-semibold mt-0.5">{first.location}</p>
-              )}
+              <LocationLine location={first.location} />
             </div>
             <div className="grid gap-1.5"
                  style={{ gridTemplateColumns: `repeat(${Math.min(weekGames.length, 3)}, minmax(0, 1fr))` }}>

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { locationAddress, mapsUrl } from "./locations.js";
 import {
   supabase,
   getAdminToken, setAdminToken, verifyAdminPassword, checkAdminToken,
@@ -4416,7 +4417,12 @@ function LiveHomeCard({ openLiveGame }) {
         <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Games &middot; {weekLabel}</p>
         <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(weekMeta.game_date)}</h3>
         {weekMeta.location && (
-          <p className="text-sm text-gray-600 font-semibold mt-0.5">{weekMeta.location}</p>
+          <p className="text-sm text-gray-600 font-semibold mt-0.5">
+            {weekMeta.location}
+            {locationAddress(weekMeta.location) && (
+              <>{" · "}<a href={mapsUrl(locationAddress(weekMeta.location))} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-medium">{locationAddress(weekMeta.location)}</a></>
+            )}
+          </p>
         )}
       </div>
 
