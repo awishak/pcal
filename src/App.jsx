@@ -1731,6 +1731,10 @@ function CompareView({ onSelect }) {
 
 // ========== MAIN APP ==========
 
+// YouTube channel handles -> channel IDs, so a channel "live" URL can be
+// converted to the embeddable live_stream player (channel URLs can't iframe).
+const YT_CHANNEL_IDS = { "@pcaleague": "UC0a4ogkjSeXCYga7XZxDGcA" };
+
 // Convert a YouTube/Twitch watch URL into an embeddable player URL so the
 // /live page can show it inline. Unknown hosts are returned unchanged (assume
 // already embeddable).
@@ -1741,9 +1745,18 @@ function toEmbedUrl(url) {
     const host = u.hostname.replace(/^www\./, "");
     if (host === "youtu.be") return "https://www.youtube.com/embed/" + u.pathname.slice(1);
     if (host === "youtube.com" || host === "m.youtube.com") {
+      const parts = u.pathname.split("/").filter(Boolean);
       if (u.pathname.startsWith("/watch")) return "https://www.youtube.com/embed/" + (u.searchParams.get("v") || "");
-      if (u.pathname.startsWith("/live/")) return "https://www.youtube.com/embed/" + u.pathname.split("/")[2];
+      if (u.pathname.startsWith("/live/")) return "https://www.youtube.com/embed/" + parts[1];
       if (u.pathname.startsWith("/embed/")) return url;
+      // Channel live page -> embed the channel's current live broadcast.
+      // /channel/UC.../live  or  /@handle/live  or  .../streams
+      if (parts[0] === "channel" && parts[1] && (parts[2] === "live" || parts[2] === "streams"))
+        return "https://www.youtube.com/embed/live_stream?channel=" + parts[1];
+      if (parts[0] && parts[0].startsWith("@") && (parts[1] === "live" || parts[1] === "streams")) {
+        const id = YT_CHANNEL_IDS[parts[0].toLowerCase()];
+        if (id) return "https://www.youtube.com/embed/live_stream?channel=" + id;
+      }
     }
     if (host === "twitch.tv") {
       const channel = u.pathname.split("/").filter(Boolean)[0];
