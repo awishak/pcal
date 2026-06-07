@@ -1714,6 +1714,10 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
     await supabase.from("live_games").update({
       status: "scheduled", period: "H1", started_at: null, ended_at: null,
       home_timeouts_remaining: 3, away_timeouts_remaining: 3,
+      // Clear the claimed scorer slots so the game is fully resettable and
+      // anyone can claim it fresh (otherwise it shows as already-claimed).
+      home_scorer_pin: null, away_scorer_pin: null,
+      home_scorer_name: null, away_scorer_name: null,
       updated_at: new Date().toISOString(),
     }).eq("game_id", gameId);
     await supabase.from("schedule").update({ status: "scheduled" }).eq("game_id", gameId);
@@ -1782,10 +1786,11 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
           approved game) back to scheduled. Password-gated. Not shown for
           approved games, which must be reversed first (they have game_log
           rows) before this would be safe. */}
-      {live && (live.status === "live" || live.status === "halftime" || live.status === "ended") && (
+      {live && live.status !== "approved" &&
+       !(live.status === "scheduled" && !live.home_scorer_pin && !live.away_scorer_pin) && (
         <div className="flex justify-end mb-3">
           <button
-            onClick={() => { if (confirm("Un-live this game? It goes back to scheduled and the live scoring is cleared (recoverable). The admin password is required next.")) setShowUnlivePw(true); }}
+            onClick={() => { if (confirm("Un-live this game? It goes back to scheduled, clears the scorer slots, and the live scoring is cleared (recoverable). The admin password is required next.")) setShowUnlivePw(true); }}
             className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 active:bg-amber-200">
             Un-live game (admin)
           </button>
