@@ -3,7 +3,7 @@
 // appears. Add a key here when a new venue is used.
 export const LOCATION_ADDRESSES = {
   "Livermore": "4444 East Ave, Livermore, CA",
-  "Sacramento": "2511 Warren Dr, Rocklin, CA",
+  "Sacramento": "In-Shape Family Fitness (formerly CalFit), 2511 Warren Dr, Rocklin, CA",
   "Modesto": "Manteca High School, 296 S. Garfield Ave, Manteca, CA",
 };
 
