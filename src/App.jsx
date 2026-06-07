@@ -466,7 +466,10 @@ function buildSeasonData(gameLog) {
 function installGameLog(rows) {
   rows.forEach(row => {
     const year = row[20];
-    let name = row[0];
+    // Normalize to upper case: historical names are all caps and PLAYER_MERGE
+    // keys are all caps, but live scoring writes mixed case ("ABDELMALAK
+    // Simon"). Uppercasing first lets live games merge with career records.
+    let name = (row[0] || "").toUpperCase();
     if (isAnonymousGuest(name)) name = year + " " + row[1] + " Guest";
     else if (PLAYER_MERGE[name]) name = PLAYER_MERGE[name];
     row[0] = name;

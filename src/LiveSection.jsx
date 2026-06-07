@@ -738,7 +738,10 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
       const isApproved = g.status === "approved";
       const isEnded = g.status === "ended";
       const gameTs = new Date(`${g.game_date}T${g.game_time}`).getTime();
-      if (inWindow && !isApproved) {
+      if (inWindow) {
+        // Keep games in this week's box through their whole life: scheduled,
+        // live, then Final with the score. Approved games stay here (showing
+        // the final score) instead of moving to the Past section.
         cw.push(g);
       } else if (gameTs > now && !isApproved && !isEnded) {
         up.push(g);
