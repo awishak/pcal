@@ -2413,7 +2413,10 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     const existing = live;
     const patch = {
       game_id: game.game_id,
-      status: existing?.status || "live",
+      // Claiming a team starts the game. Preserve an already-in-progress
+      // status (a second scorer joining a live game), but treat "scheduled"
+      // (or no row) as not-started so the first claim flips it to live.
+      status: (existing?.status && existing.status !== "scheduled") ? existing.status : "live",
       period: existing?.period || "H1",
       started_at: existing?.started_at || new Date().toISOString(),
       home_timeouts_remaining: existing?.home_timeouts_remaining ?? 3,
