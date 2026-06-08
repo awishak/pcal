@@ -12451,6 +12451,44 @@ function GLEditRow({ row, onSave, onCancel, saving }) {
   );
 }
 
+// Auto-crop an uploaded image to a square focused on the face, downscaled.
+// Uses the browser FaceDetector when available; otherwise an upper-center
+// crop (faces usually sit there). Returns a small JPEG File plus a data URL
+// for preview, so people don't have to hand-crop headshots.
+async function cropToFace(file, size = 400) {
+  const objUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = objUrl; });
+    let box = null;
+    if (typeof window !== "undefined" && "FaceDetector" in window) {
+      try {
+        const fd = new window.FaceDetector({ maxDetectedFaces: 1, fastMode: true });
+        const faces = await fd.detect(img);
+        if (faces && faces[0]) box = faces[0].boundingBox;
+      } catch { /* face detection unavailable; fall through */ }
+    }
+    let side, sx, sy;
+    if (box) {
+      const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      side = Math.min(Math.max(box.width, box.height) * 1.8, img.width, img.height);
+      sx = Math.max(0, Math.min(cx - side / 2, img.width - side));
+      sy = Math.max(0, Math.min(cy - side / 2, img.height - side));
+    } else {
+      side = Math.min(img.width, img.height);
+      sx = (img.width - side) / 2;
+      sy = Math.min(img.height * 0.05, img.height - side); // slight top bias for faces
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    canvas.getContext("2d").drawImage(img, sx, sy, side, side, 0, 0, size, size);
+    const blob = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.9));
+    const out = new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+    return { file: out, url: canvas.toDataURL("image/jpeg", 0.9) };
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
 function PlayerPhotoAdminSection() {
   const [search, setSearch] = useState("");
   const [editingPlayer, setEditingPlayer] = useState(null);
@@ -12494,21 +12532,29 @@ function PlayerPhotoAdminSection() {
     });
     return score >= 2 ? best : null;
   };
-  const handleBulkSelect = (files) => {
-    const items = [...files].map(file => ({ file, fname: file.name, matched: matchFile(file.name), preview: null, status: "", done: false }));
+  const handleBulkSelect = async (files) => {
+    const items = [...files].map(file => ({ file, upload: file, fname: file.name, matched: matchFile(file.name), preview: null, status: "Cropping…", done: false }));
     setBulkItems(items);
-    items.forEach(item => {
-      const reader = new FileReader();
-      reader.onload = e => { item.preview = e.target.result; forceRerender(n => n + 1); };
-      reader.readAsDataURL(item.file);
-    });
+    for (const item of items) {
+      try {
+        const { file: cropped, url } = await cropToFace(item.file);
+        item.upload = cropped; item.preview = url; item.status = "";
+      } catch {
+        // Couldn't process (e.g. HEIC); fall back to the original file.
+        item.upload = item.file; item.status = "couldn't auto-crop — using original";
+        const reader = new FileReader();
+        reader.onload = e => { item.preview = e.target.result; forceRerender(n => n + 1); };
+        reader.readAsDataURL(item.file);
+      }
+      forceRerender(n => n + 1);
+    }
   };
   const runBulk = async () => {
     setBulkRunning(true);
     for (const item of bulkItems) {
       if (!item.matched || item.done) continue;
       item.status = "Uploading…"; forceRerender(n => n + 1);
-      const up = await uploadPhoto(item.file);
+      const up = await uploadPhoto(item.upload || item.file);
       if (up.error) { item.status = "Upload failed: " + up.error; forceRerender(n => n + 1); continue; }
       const save = await adminUpsertRow("player_photos", { id: item.matched, image_url: up.url, updated_at: new Date().toISOString() });
       if (save.error) { item.status = "Save failed: " + save.error; forceRerender(n => n + 1); continue; }
