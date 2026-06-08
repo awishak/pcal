@@ -12476,6 +12476,48 @@ function PlayerPhotoAdminSection() {
     ? allPlayers.filter(p => p.name.toLowerCase().includes(search.trim().toLowerCase()))
     : allPlayers;
 
+  // ---- Bulk upload: match filenames to players, then upload all at once ----
+  const [bulkItems, setBulkItems] = useState([]); // {file, fname, matched, preview, status, done}
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const normName = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const tokenKey = (s) => normName(s).split(" ").filter(Boolean).sort().join(" ");
+  const matchFile = (filename) => {
+    const base = filename.replace(/\.[^.]+$/, "");
+    const key = tokenKey(base); // order-independent, so "First Last" or "Last First" both match
+    const exact = allPlayers.find(p => tokenKey(p.name) === key);
+    if (exact) return exact.name;
+    const fileToks = new Set(normName(base).split(" ").filter(Boolean));
+    let best = null, score = 0;
+    allPlayers.forEach(p => {
+      const ov = normName(p.name).split(" ").filter(Boolean).filter(t => fileToks.has(t)).length;
+      if (ov > score) { score = ov; best = p.name; }
+    });
+    return score >= 2 ? best : null;
+  };
+  const handleBulkSelect = (files) => {
+    const items = [...files].map(file => ({ file, fname: file.name, matched: matchFile(file.name), preview: null, status: "", done: false }));
+    setBulkItems(items);
+    items.forEach(item => {
+      const reader = new FileReader();
+      reader.onload = e => { item.preview = e.target.result; forceRerender(n => n + 1); };
+      reader.readAsDataURL(item.file);
+    });
+  };
+  const runBulk = async () => {
+    setBulkRunning(true);
+    for (const item of bulkItems) {
+      if (!item.matched || item.done) continue;
+      item.status = "Uploading…"; forceRerender(n => n + 1);
+      const up = await uploadPhoto(item.file);
+      if (up.error) { item.status = "Upload failed: " + up.error; forceRerender(n => n + 1); continue; }
+      const save = await adminUpsertRow("player_photos", { id: item.matched, image_url: up.url, updated_at: new Date().toISOString() });
+      if (save.error) { item.status = "Save failed: " + save.error; forceRerender(n => n + 1); continue; }
+      PLAYER_PHOTOS[item.matched] = up.url;
+      item.done = true; item.status = "Saved ✓"; forceRerender(n => n + 1);
+    }
+    setBulkRunning(false);
+  };
+
   const openEdit = (name) => {
     setEditingPlayer(name);
     setPendingFile(null);
@@ -12563,6 +12605,44 @@ function PlayerPhotoAdminSection() {
         <p className="text-[11px] text-amber-900 leading-relaxed">
           <span className="font-bold">Note:</span> One-time Supabase setup required. Run the SQL in the docs/setup section. Photos are stored via the existing upload mechanism. Upload transparent PNGs for best results.
         </p>
+      </div>
+
+      {/* Bulk upload: pick many photos at once, auto-match by filename. */}
+      <div className="rounded-xl border border-gray-200 p-3">
+        <p className="text-[11px] text-gray-700 font-bold mb-1">Bulk upload</p>
+        <p className="text-[10px] text-gray-500 mb-2 leading-relaxed">
+          Name each file as the player (e.g. "Andrew Ishak.jpg" or "ishak andrew.png"), select them all, fix any that didn't match, then Upload all. Transparent PNGs look best.
+        </p>
+        <input type="file" accept="image/*" multiple disabled={bulkRunning}
+          onChange={e => handleBulkSelect(e.target.files)} className="w-full text-xs mb-2" />
+        {bulkItems.length > 0 && (
+          <>
+            <div className="max-h-[300px] overflow-y-auto divide-y divide-gray-100 mb-2">
+              {bulkItems.map((item, i) => (
+                <div key={i} className="flex items-center gap-2 py-1.5">
+                  <div className="w-9 h-9 rounded bg-gray-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                    {item.preview && <img src={item.preview} className="w-full h-full object-contain" alt="" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <input list="pp_allplayers" defaultValue={item.matched ? formatName(item.matched) : ""}
+                      placeholder="Type player…" disabled={bulkRunning || item.done}
+                      onChange={e => { const v = e.target.value.trim().toLowerCase(); const f = allPlayers.find(p => formatName(p.name).toLowerCase() === v); item.matched = f ? f.name : null; forceRerender(n => n + 1); }}
+                      className={`w-full text-xs rounded border px-2 py-1 ${item.matched ? "border-gray-200" : "border-red-300 bg-red-50"}`} />
+                    <p className="text-[9px] text-gray-400 truncate">{item.fname}{item.status ? " · " + item.status : (item.matched ? "" : " · no match — set player")}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <datalist id="pp_allplayers">{allPlayers.map(p => <option key={p.name} value={formatName(p.name)} />)}</datalist>
+            <div className="flex items-center gap-2">
+              <button onClick={runBulk} disabled={bulkRunning || !bulkItems.some(i => i.matched && !i.done)}
+                className="flex-1 py-2 rounded-xl bg-gray-900 text-white text-sm font-bold disabled:opacity-50">
+                {bulkRunning ? "Uploading…" : `Upload all (${bulkItems.filter(i => i.matched && !i.done).length})`}
+              </button>
+              <button onClick={() => setBulkItems([])} disabled={bulkRunning} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm font-bold">Clear</button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-2">
