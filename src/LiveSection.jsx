@@ -2510,9 +2510,21 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   };
 
   // ---- Insert event ----
+  // Guards against laggy double-taps and spam: a tap that doesn't visibly
+  // register gets hammered, creating duplicate stats. We block overlapping
+  // inserts and ignore an identical stat for the same player fired within a
+  // 1s window. Deliberate repeats (e.g. two free throws) are seconds apart,
+  // so they still go through.
+  const recordingRef = useRef(false);
+  const lastInsertRef = useRef({ sig: "", ts: 0 });
   const insertEvent = async (stat_type, player_name = null, extra = {}) => {
-    if (!me) return;
+    if (!me) return false;
     const team = myTeamCode;
+    const sig = `${game.game_id}|${team}|${player_name}|${stat_type}`;
+    const now = Date.now();
+    if (recordingRef.current) return false;
+    if (sig === lastInsertRef.current.sig && now - lastInsertRef.current.ts < 1000) return false;
+    recordingRef.current = true;
     const payload = {
       game_id: game.game_id,
       period: live?.period || "H1",
@@ -2524,7 +2536,10 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       ...extra,
     };
     const { error } = await supabase.from("live_events").insert(payload);
-    if (error) { alert("Error: " + error.message); return; }
+    recordingRef.current = false;
+    if (error) { alert("Error: " + error.message); return false; }
+    lastInsertRef.current = { sig, ts: Date.now() };
+    return true;
   };
 
   // ---- Stat button tap flow ----
