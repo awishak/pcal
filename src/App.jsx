@@ -12489,6 +12489,79 @@ async function cropToFace(file, size = 400) {
   }
 }
 
+// Drag-to-position cropper. Square viewport over the original image; drag to
+// pan, slider to zoom. Outputs a 400px JPEG of the visible square.
+function CropModal({ file, onDone, onClose }) {
+  const V = 280, OUT = 400;
+  const [img, setImg] = useState(null);
+  const [k, setK] = useState(1);
+  const [minK, setMinK] = useState(1);
+  const [off, setOff] = useState({ x: 0, y: 0 });
+  const drag = useRef(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      const cover = Math.max(V / im.naturalWidth, V / im.naturalHeight);
+      setImg(im); setMinK(cover); setK(cover);
+      setOff({ x: (V - im.naturalWidth * cover) / 2, y: (V - im.naturalHeight * cover) / 2 });
+    };
+    im.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const clampOff = (o, kk) => {
+    if (!img) return o;
+    const w = img.naturalWidth * kk, h = img.naturalHeight * kk;
+    return { x: Math.min(0, Math.max(V - w, o.x)), y: Math.min(0, Math.max(V - h, o.y)) };
+  };
+  const onDown = (e) => { drag.current = { sx: e.clientX, sy: e.clientY, ox: off.x, oy: off.y }; e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const onMove = (e) => { if (!drag.current) return; setOff(clampOff({ x: drag.current.ox + (e.clientX - drag.current.sx), y: drag.current.oy + (e.clientY - drag.current.sy) }, k)); };
+  const onUp = () => { drag.current = null; };
+  const onZoom = (e) => {
+    const nk = parseFloat(e.target.value);
+    const ix = (V / 2 - off.x) / k, iy = (V / 2 - off.y) / k;
+    setK(nk); setOff(clampOff({ x: V / 2 - ix * nk, y: V / 2 - iy * nk }, nk));
+  };
+  const save = () => {
+    if (!img) return;
+    const sx = -off.x / k, sy = -off.y / k, sSide = V / k;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = OUT;
+    canvas.getContext("2d").drawImage(img, sx, sy, sSide, sSide, 0, 0, OUT, OUT);
+    canvas.toBlob(b => {
+      onDone(new File([b], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }), canvas.toDataURL("image/jpeg", 0.9));
+    }, "image/jpeg", 0.9);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-4 w-full max-w-xs" onClick={e => e.stopPropagation()}>
+        <p className="text-sm font-bold text-gray-900 mb-1">Position the photo</p>
+        <p className="text-[10px] text-gray-400 mb-3">Drag to move, slider to zoom. The circle is how it shows.</p>
+        <div className="mx-auto relative overflow-hidden bg-gray-100 touch-none select-none"
+          style={{ width: V, height: V, borderRadius: 12 }}
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
+          {img && (
+            <img src={img.src} alt="" draggable={false} style={{
+              position: "absolute", left: 0, top: 0,
+              width: img.naturalWidth * k, height: img.naturalHeight * k,
+              transform: `translate(${off.x}px, ${off.y}px)`,
+            }} />
+          )}
+          <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 0 9999px rgba(0,0,0,0.28)", borderRadius: "50%" }} />
+        </div>
+        <input type="range" min={minK} max={minK * 4} step={minK / 100} value={k} onChange={onZoom} className="w-full mt-3" />
+        <div className="flex gap-2 mt-2">
+          <button onClick={save} className="flex-1 py-2 rounded-xl bg-gray-900 text-white text-sm font-bold">Use this crop</button>
+          <button onClick={onClose} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm font-bold">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlayerPhotoAdminSection() {
   const [search, setSearch] = useState("");
   const [editingPlayer, setEditingPlayer] = useState(null);
@@ -12517,6 +12590,7 @@ function PlayerPhotoAdminSection() {
   // ---- Bulk upload: match filenames to players, then upload all at once ----
   const [bulkItems, setBulkItems] = useState([]); // {file, fname, matched, preview, status, done}
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [cropIndex, setCropIndex] = useState(null); // which bulk item is being hand-cropped
   const normName = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   const tokenKey = (s) => normName(s).split(" ").filter(Boolean).sort().join(" ");
   const matchFile = (filename) => {
@@ -12666,9 +12740,10 @@ function PlayerPhotoAdminSection() {
             <div className="max-h-[300px] overflow-y-auto divide-y divide-gray-100 mb-2">
               {bulkItems.map((item, i) => (
                 <div key={i} className="flex items-center gap-2 py-1.5">
-                  <div className="w-9 h-9 rounded bg-gray-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                    {item.preview && <img src={item.preview} className="w-full h-full object-contain" alt="" />}
-                  </div>
+                  <button type="button" onClick={() => !bulkRunning && !item.done && setCropIndex(i)} title="Adjust crop"
+                    className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex-shrink-0 flex items-center justify-center border border-gray-200">
+                    {item.preview && <img src={item.preview} className="w-full h-full object-cover" alt="" />}
+                  </button>
                   <div className="flex-1 min-w-0">
                     <input list="pp_allplayers" defaultValue={item.matched ? formatName(item.matched) : ""}
                       placeholder="Type player…" disabled={bulkRunning || item.done}
@@ -12676,6 +12751,10 @@ function PlayerPhotoAdminSection() {
                       className={`w-full text-xs rounded border px-2 py-1 ${item.matched ? "border-gray-200" : "border-red-300 bg-red-50"}`} />
                     <p className="text-[9px] text-gray-400 truncate">{item.fname}{item.status ? " · " + item.status : (item.matched ? "" : " · no match — set player")}</p>
                   </div>
+                  <button type="button" onClick={() => !bulkRunning && !item.done && setCropIndex(i)} disabled={bulkRunning || item.done}
+                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200 flex-shrink-0">
+                    Adjust
+                  </button>
                 </div>
               ))}
             </div>
@@ -12690,6 +12769,14 @@ function PlayerPhotoAdminSection() {
           </>
         )}
       </div>
+
+      {cropIndex !== null && bulkItems[cropIndex] && (
+        <CropModal
+          file={bulkItems[cropIndex].file}
+          onClose={() => setCropIndex(null)}
+          onDone={(f, url) => { bulkItems[cropIndex].upload = f; bulkItems[cropIndex].preview = url; setCropIndex(null); forceRerender(n => n + 1); }}
+        />
+      )}
 
       <div className="flex items-center justify-between gap-2">
         <div>
