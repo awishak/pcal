@@ -3329,70 +3329,136 @@ function LastThreePanel({ events, onUndo }) {
 // Box score view (tabular)
 // ============================================================
 function BoxScoreView({ game, box, rosters }) {
-  const renderTeam = (team, roster) => {
+  const ZERO = { pts:0,reb:0,ast:0,stl:0,blk:0,fgm:0,fga:0,tpm:0,tpa:0,ftm:0,fta:0,foul:0 };
+  const pct = (m, a) => a > 0 ? Math.round(100 * m / a) + "%" : "—";
+  const sumRows = (rows) => {
+    const t = { ...ZERO };
+    rows.forEach(r => Object.keys(t).forEach(k => { t[k] += r[k] || 0; }));
+    return t;
+  };
+  const getRows = (team, roster) => {
     const rows = roster
-      .map(p => ({ name: p.player_name, ...(box[p.player_name] || { pts:0,reb:0,ast:0,stl:0,blk:0,fgm:0,fga:0,tpm:0,tpa:0,ftm:0,fta:0,foul:0 }) }))
+      .map(p => ({ name: p.player_name, ...(box[p.player_name] || ZERO) }))
       .filter(r => (r.pts || r.reb || r.ast || r.stl || r.blk || r.foul || r.fga || r.fta));
-    // Also include players not in roster but scored
     const nameSet = new Set(roster.map(p => p.player_name));
     Object.entries(box).forEach(([n, s]) => {
-      if (s.team === team && !nameSet.has(n)) {
-        rows.push({ name: n, ...s });
-      }
+      if (s.team === team && !nameSet.has(n)) rows.push({ name: n, ...s });
     });
-
-    return (
-      <div className="mb-3">
-        <div className="flex items-center gap-1.5 mb-2">
-          <span className="w-2.5 h-2.5 rounded-full" style={{ background: TEAM_COLORS[team] || "#111827" }} />
-          <span className="text-sm font-bold text-gray-900">{TEAM_NAMES[team] || team}</span>
-        </div>
-        {rows.length === 0 ? (
-          <div className="text-xs text-gray-400 px-2 py-3">No stats yet.</div>
-        ) : (
-          <div className="overflow-x-auto -mx-4 px-4">
-            <table className="w-full text-[11px] min-w-[500px]">
-              <thead>
-                <tr className="text-gray-400 uppercase tracking-wider text-[9px] border-b border-gray-100">
-                  <th className="text-left py-1.5 pr-2">Player</th>
-                  <th className="text-right py-1.5 px-1">PTS</th>
-                  <th className="text-right py-1.5 px-1">REB</th>
-                  <th className="text-right py-1.5 px-1">AST</th>
-                  <th className="text-right py-1.5 px-1">STL</th>
-                  <th className="text-right py-1.5 px-1">BLK</th>
-                  <th className="text-right py-1.5 px-1">FG</th>
-                  <th className="text-right py-1.5 px-1">3P</th>
-                  <th className="text-right py-1.5 px-1">FT</th>
-                  <th className="text-right py-1.5 pl-1">PF</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-50">
-                    <td className="py-1.5 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">{formatName(r.name)}</td>
-                    <td className="text-right py-1.5 px-1 font-bold">{r.pts}</td>
-                    <td className="text-right py-1.5 px-1">{r.reb}</td>
-                    <td className="text-right py-1.5 px-1">{r.ast}</td>
-                    <td className="text-right py-1.5 px-1">{r.stl}</td>
-                    <td className="text-right py-1.5 px-1">{r.blk}</td>
-                    <td className="text-right py-1.5 px-1 tabular-nums">{r.fgm}/{r.fga}</td>
-                    <td className="text-right py-1.5 px-1 tabular-nums">{r.tpm}/{r.tpa}</td>
-                    <td className="text-right py-1.5 px-1 tabular-nums">{r.ftm}/{r.fta}</td>
-                    <td className="text-right py-1.5 pl-1">{r.foul}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    );
+    return rows;
   };
+
+  const awayRows = getRows(game.away_team, rosters.away);
+  const homeRows = getRows(game.home_team, rosters.home);
+  const awayTot = sumRows(awayRows);
+  const homeTot = sumRows(homeRows);
+
+  const renderTeam = (team, rows, tot) => (
+    <div className="mb-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="w-2.5 h-2.5 rounded-full" style={{ background: TEAM_COLORS[team] || "#111827" }} />
+        <span className="text-sm font-bold text-gray-900">{TEAM_NAMES[team] || team}</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-xs text-gray-400 px-2 py-3">No stats yet.</div>
+      ) : (
+        <div className="overflow-x-auto -mx-4 px-4">
+          <table className="w-full text-[11px] min-w-[500px]">
+            <thead>
+              <tr className="text-gray-400 uppercase tracking-wider text-[9px] border-b border-gray-100">
+                <th className="text-left py-1.5 pr-2">Player</th>
+                <th className="text-right py-1.5 px-1">PTS</th>
+                <th className="text-right py-1.5 px-1">REB</th>
+                <th className="text-right py-1.5 px-1">AST</th>
+                <th className="text-right py-1.5 px-1">STL</th>
+                <th className="text-right py-1.5 px-1">BLK</th>
+                <th className="text-right py-1.5 px-1">FG</th>
+                <th className="text-right py-1.5 px-1">3P</th>
+                <th className="text-right py-1.5 px-1">FT</th>
+                <th className="text-right py-1.5 pl-1">PF</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-gray-50">
+                  <td className="py-1.5 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">{formatName(r.name)}</td>
+                  <td className="text-right py-1.5 px-1 font-bold">{r.pts}</td>
+                  <td className="text-right py-1.5 px-1">{r.reb}</td>
+                  <td className="text-right py-1.5 px-1">{r.ast}</td>
+                  <td className="text-right py-1.5 px-1">{r.stl}</td>
+                  <td className="text-right py-1.5 px-1">{r.blk}</td>
+                  <td className="text-right py-1.5 px-1 tabular-nums">{r.fgm}/{r.fga}</td>
+                  <td className="text-right py-1.5 px-1 tabular-nums">{r.tpm}/{r.tpa}</td>
+                  <td className="text-right py-1.5 px-1 tabular-nums">{r.ftm}/{r.fta}</td>
+                  <td className="text-right py-1.5 pl-1">{r.foul}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-gray-200 font-black text-gray-900">
+                <td className="py-1.5 pr-2 uppercase text-[10px] tracking-wide">Totals</td>
+                <td className="text-right py-1.5 px-1">{tot.pts}</td>
+                <td className="text-right py-1.5 px-1">{tot.reb}</td>
+                <td className="text-right py-1.5 px-1">{tot.ast}</td>
+                <td className="text-right py-1.5 px-1">{tot.stl}</td>
+                <td className="text-right py-1.5 px-1">{tot.blk}</td>
+                <td className="text-right py-1.5 px-1 tabular-nums">{tot.fgm}/{tot.fga}</td>
+                <td className="text-right py-1.5 px-1 tabular-nums">{tot.tpm}/{tot.tpa}</td>
+                <td className="text-right py-1.5 px-1 tabular-nums">{tot.ftm}/{tot.fta}</td>
+                <td className="text-right py-1.5 pl-1">{tot.foul}</td>
+              </tr>
+              <tr className="text-gray-400 text-[9px]">
+                <td className="pr-2 uppercase tracking-wide">Pct</td>
+                <td colSpan={5}></td>
+                <td className="text-right px-1">{pct(tot.fgm, tot.fga)}</td>
+                <td className="text-right px-1">{pct(tot.tpm, tot.tpa)}</td>
+                <td className="text-right px-1">{pct(tot.ftm, tot.fta)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+
+  // Team-vs-team comparison. Bold the leader on each line.
+  const cmp = [
+    { label: "Points", a: awayTot.pts, h: homeTot.pts },
+    { label: "FG%", a: pct(awayTot.fgm, awayTot.fga), h: pct(homeTot.fgm, homeTot.fga), an: awayTot.fga ? awayTot.fgm / awayTot.fga : 0, hn: homeTot.fga ? homeTot.fgm / homeTot.fga : 0 },
+    { label: "3PT%", a: pct(awayTot.tpm, awayTot.tpa), h: pct(homeTot.tpm, homeTot.tpa), an: awayTot.tpa ? awayTot.tpm / awayTot.tpa : 0, hn: homeTot.tpa ? homeTot.tpm / homeTot.tpa : 0 },
+    { label: "FT%", a: pct(awayTot.ftm, awayTot.fta), h: pct(homeTot.ftm, homeTot.fta), an: awayTot.fta ? awayTot.ftm / awayTot.fta : 0, hn: homeTot.fta ? homeTot.ftm / homeTot.fta : 0 },
+    { label: "Rebounds", a: awayTot.reb, h: homeTot.reb },
+    { label: "Assists", a: awayTot.ast, h: homeTot.ast },
+    { label: "Steals", a: awayTot.stl, h: homeTot.stl },
+    { label: "Blocks", a: awayTot.blk, h: homeTot.blk },
+    { label: "Fouls", a: awayTot.foul, h: homeTot.foul, lowerWins: true },
+  ];
 
   return (
     <div>
-      {renderTeam(game.away_team, rosters.away)}
-      {renderTeam(game.home_team, rosters.home)}
+      {renderTeam(game.away_team, awayRows, awayTot)}
+      {renderTeam(game.home_team, homeRows, homeTot)}
+
+      <div className="mt-4 rounded-2xl border border-gray-100 p-3">
+        <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-2">Team comparison</p>
+        <div className="flex items-center justify-between text-xs font-black text-gray-900 mb-1.5">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: TEAM_COLORS[game.away_team] || "#111827" }} />{game.away_team}</span>
+          <span className="flex items-center gap-1">{game.home_team}<span className="w-2 h-2 rounded-full" style={{ background: TEAM_COLORS[game.home_team] || "#111827" }} /></span>
+        </div>
+        {cmp.map((row, i) => {
+          const aNum = row.an !== undefined ? row.an : row.a;
+          const hNum = row.hn !== undefined ? row.hn : row.h;
+          const aWin = row.lowerWins ? aNum < hNum : aNum > hNum;
+          const hWin = row.lowerWins ? hNum < aNum : hNum > aNum;
+          return (
+            <div key={i} className="flex items-center justify-between py-1 border-t border-gray-50 text-xs">
+              <span className={`tabular-nums w-12 text-left ${aWin ? "font-black text-gray-900" : "text-gray-500"}`}>{row.a}</span>
+              <span className="text-[10px] uppercase tracking-wide text-gray-400 flex-1 text-center">{row.label}</span>
+              <span className={`tabular-nums w-12 text-right ${hWin ? "font-black text-gray-900" : "text-gray-500"}`}>{row.h}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
