@@ -12721,9 +12721,9 @@ function PlayerPhotoAdminSection() {
 
   return (
     <div className="space-y-3">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-        <p className="text-[11px] text-amber-900 leading-relaxed">
-          <span className="font-bold">Note:</span> One-time Supabase setup required. Run the SQL in the docs/setup section. Photos are stored via the existing upload mechanism. Upload transparent PNGs for best results.
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+        <p className="text-[11px] text-gray-600 leading-relaxed">
+          <span className="font-bold">Tip:</span> Bulk-upload many at once below. Name files as the player; photos auto-crop to the face (use Adjust to fine-tune). JPG or PNG (square, head-and-shoulders) look best; avoid HEIC.
         </p>
       </div>
 
