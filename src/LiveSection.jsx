@@ -402,7 +402,9 @@ function partitionRosterByStat(roster, box, statKey) {
 // rosters stay visually cohesive.
 function PlayerAvatar({ name, team, size = 40 }) {
   const photos = usePhotos();
-  const url = photos?.[name];
+  // Photos are keyed upper-case ("ISHAK ANDREW"); roster names are mixed
+  // case ("ISHAK Andrew"), so match case-insensitively.
+  const url = photos?.[(name || "").toUpperCase()];
   const parts = (name || "").trim().split(/\s+/);
   const lastInit = (parts[0]?.charAt(0) || "").toUpperCase();
   const firstInit = (parts[1]?.charAt(0) || "").toUpperCase();
@@ -1647,12 +1649,16 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
     const names = (rosterRows || []).map(r => r.player_name).filter(Boolean);
     let photoMap = {};
     if (names.length > 0) {
+      // player_photos ids are upper-case ("ISHAK ANDREW"); roster names are
+      // mixed case. Query by the upper-cased names and key the map upper-case
+      // so PlayerAvatar (which upper-cases its lookup) finds them.
+      const upperNames = [...new Set(names.map(n => n.toUpperCase()))];
       const { data: photoRows } = await supabase
         .from("player_photos")
         .select("id,image_url")
-        .in("id", names);
+        .in("id", upperNames);
       for (const row of (photoRows || [])) {
-        if (row.image_url) photoMap[row.id] = row.image_url;
+        if (row.image_url) photoMap[(row.id || "").toUpperCase()] = row.image_url;
       }
     }
 
