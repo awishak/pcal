@@ -620,11 +620,25 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
     // re-fetching in the live card component.
     const gameIdsWithState = Object.keys(live).map(id => parseInt(id, 10));
     if (gameIdsWithState.length > 0) {
-      const { data: evs } = await supabase
-        .from("live_events")
-        .select("*")
-        .in("game_id", gameIdsWithState)
-        .order("event_ts", { ascending: true });
+      // PostgREST caps a query at 1000 rows. Across multiple weeks of ended
+      // games the combined event count exceeds that, so a single fetch gets
+      // truncated and the summed scores come out too low (the per-game detail
+      // view stays correct because it fetches one game at a time). Paginate
+      // with event_id as a stable tiebreaker to pull every event.
+      const evs = [];
+      const pageSize = 1000;
+      for (let from = 0; ; from += pageSize) {
+        const { data: page } = await supabase
+          .from("live_events")
+          .select("*")
+          .in("game_id", gameIdsWithState)
+          .order("event_ts", { ascending: true })
+          .order("event_id", { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (!page || page.length === 0) break;
+        evs.push(...page);
+        if (page.length < pageSize) break;
+      }
       const scoreMap = {};
       const eventsByGame = {};
       (evs || []).forEach(ev => {
