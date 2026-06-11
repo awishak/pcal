@@ -4050,16 +4050,19 @@ function ReviewQueue({ onBack, onOpen }) {
     );
     if (!confirmed) return;
 
-    // Delete matching rows from game_log. Match on year + week + date +
-    // (team in (home, away)). This is our best proxy since game_log
-    // doesn't have a game_id foreign key.
+    // Delete matching rows from game_log. Match on year + week + date + the
+    // specific matchup: (team=home AND opp=away) OR (team=away AND opp=home).
+    // game_log has no game_id, so this is our proxy. Scoping by the full
+    // matchup (not just team) is required: on a doubleheader day each team
+    // plays twice, so matching team-only would also delete that team's OTHER
+    // same-day game.
     const { data: toDelete, error: fetchErr } = await supabase
       .from("game_log")
       .select("*")
       .eq("year", season)
       .eq("week", week)
       .eq("date", shortDate)
-      .in("team", [homeTeam, awayTeam]);
+      .or(`and(team.eq.${homeTeam},opp.eq.${awayTeam}),and(team.eq.${awayTeam},opp.eq.${homeTeam})`);
     if (fetchErr) {
       alert("Error fetching rows to delete: " + fetchErr.message);
       return;

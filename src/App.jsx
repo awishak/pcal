@@ -15134,7 +15134,7 @@ function compute2026Standings(regularOnly = true) {
     const [date, team, opp] = key.split("|");
     const mirror = date + "|" + opp + "|" + team;
     if (!(mirror in teamGame)) continue;
-    const dedupe = [date, team, opp].join("|");
+    const dedupe = [date, ...[team, opp].sort()].join("|");
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
     const pf = teamGame[key], pa = teamGame[mirror];
