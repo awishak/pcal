@@ -731,15 +731,26 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
   }, []);
 
   // Bucket games into three groups:
-  //   currentWindow: games within 96 hours past or future, not yet approved.
-  //                  These get the fancy live-scoreboard card at top.
-  //   upcoming: future 2026 games outside the current window.
-  //   past: 2026 games in the past with status = approved or ended.
+  //   currentWeekGames: the full slate of the active week, shown in the
+  //                     live-scoreboard card at top. The active week is the
+  //                     one containing the earliest game within 96 hours.
+  //                     We pull the WHOLE week (not just the in-window games)
+  //                     because a game day spans 3-7pm and can straddle the
+  //                     96h boundary; showing only the in-window subset would
+  //                     drop the rest of the same day's games.
+  //   upcoming: future 2026 games in later weeks, outside the current card.
+  //   past: 2026 games in earlier weeks (approved or ended).
   //
   // If a team filter is active, we include games where that team is
   // playing OR scoring. Scoring-only games still appear but with a light
   // yellow highlight (handled in MiniGameCard via highlightScoring prop).
-  const { currentWindow, upcoming, past } = useMemo(() => {
+  //
+  // Every filtered game lands in exactly one bucket. Earlier this assigned
+  // by 96h-window membership and then rendered only one week, so games from
+  // other weeks that were inside the window (e.g. next Sunday's early games
+  // while this Sunday's finals are still in-window) fell into no list and
+  // vanished from the page.
+  const { currentWeekGames, upcoming, past } = useMemo(() => {
     const cw = [];
     const up = [];
     const pa = [];
@@ -748,40 +759,39 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
       if (!teamFilter) return true;
       return g.home_team === teamFilter || g.away_team === teamFilter || g.scoring_team === teamFilter;
     };
-    allGames.forEach(g => {
-      if (!matchesFilter(g)) return;
-      const inWindow = within96Hours(g.game_date, g.game_time);
-      const isApproved = g.status === "approved";
-      const isEnded = g.status === "ended";
-      const gameTs = new Date(`${g.game_date}T${g.game_time}`).getTime();
-      if (inWindow) {
-        // Keep games in this week's box through their whole life: scheduled,
-        // live, then Final with the score. Approved games stay here (showing
-        // the final score) instead of moving to the Past section.
+    const ts = (g) => new Date(`${g.game_date}T${g.game_time}`).getTime();
+    const filtered = allGames.filter(matchesFilter);
+
+    // Active week = season+week of the earliest non-approved game currently
+    // within 96h. Skipping approved games means a finished week (all games
+    // approved) hands the top card off to the next week instead of holding
+    // it. This mirrors the home-page LiveHomeCard, which excludes approved
+    // games from its window for the same reason.
+    let activeKey = null;
+    let earliest = Infinity;
+    for (const g of filtered) {
+      if (g.status === "approved") continue;
+      if (within96Hours(g.game_date, g.game_time) && ts(g) < earliest) {
+        earliest = ts(g);
+        activeKey = `${g.season}|${g.week}`;
+      }
+    }
+
+    for (const g of filtered) {
+      if (activeKey && `${g.season}|${g.week}` === activeKey) {
+        // Whole active week stays in the top card through its entire life:
+        // scheduled, live, then Final with the score.
         cw.push(g);
-      } else if (gameTs > now && !isApproved && !isEnded) {
+      } else if (ts(g) > now && g.status !== "approved" && g.status !== "ended") {
         up.push(g);
       } else {
         pa.push(g);
       }
-    });
-    // Past games newest first for quick reference.
-    pa.sort((a, b) => {
-      const aTs = new Date(`${a.game_date}T${a.game_time}`).getTime();
-      const bTs = new Date(`${b.game_date}T${b.game_time}`).getTime();
-      return bTs - aTs;
-    });
-    return { currentWindow: cw, upcoming: up, past: pa };
+    }
+    cw.sort((a, b) => ts(a) - ts(b));               // current week chronological
+    pa.sort((a, b) => ts(b) - ts(a));               // past newest first
+    return { currentWeekGames: cw, upcoming: up, past: pa };
   }, [allGames, teamFilter]);
-
-  // For the current-window section, pick the earliest week represented.
-  // This mirrors the home-page LiveHomeCard behavior: show one week's
-  // worth of games, not a rolling 96-hour mixed batch across weeks.
-  const currentWeekGames = useMemo(() => {
-    if (currentWindow.length === 0) return [];
-    const first = currentWindow[0];
-    return currentWindow.filter(g => g.season === first.season && g.week === first.week);
-  }, [currentWindow]);
 
   const fmtDate = (d) => {
     if (!d) return "";
