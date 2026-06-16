@@ -15542,6 +15542,14 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   const [openPlayer, setOpenPlayer] = useState(null);
   const [jerseyDrafts, setJerseyDrafts] = useState({});
   const [savingTeam, setSavingTeam] = useState(null);
+  // Admin: roster grid columns (1-4), remembered per device.
+  const [cols, setCols] = useState(() => {
+    try { const v = parseInt(localStorage.getItem("pcal_roster_cols") || "3", 10); return [1, 2, 3, 4].includes(v) ? v : 3; } catch { return 3; }
+  });
+  useEffect(() => { try { localStorage.setItem("pcal_roster_cols", String(cols)); } catch { /* ignore */ } }, [cols]);
+  // Admin: photo editor overlay + a tick to refresh avatars after edits.
+  const [photoAdminOpen, setPhotoAdminOpen] = useState(false);
+  const [photoTick, setPhotoTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -15583,7 +15591,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
     const m = {};
     Object.keys(PLAYER_PHOTOS).forEach(k => { m[thNorm(k)] = PLAYER_PHOTOS[k]; });
     return m;
-  }, [photoVersion, rosters]);
+  }, [photoVersion, rosters, photoTick]);
   const photoFor = (name) => photoIndex[thNorm(name)] || null;
 
   const schedByTeam = useMemo(() => {
@@ -15687,9 +15695,8 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           const open = expanded.has(team);
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
-          // Chunk the roster into rows of 3 so an opened player's stat panel
-          // can render full-width directly below that player's row.
-          const cols = 3;
+          // Chunk the roster into rows of `cols` so an opened player's stat
+          // panel can render full-width directly below that player's row.
           const rows = [];
           for (let i = 0; i < roster.length; i += cols) rows.push(roster.slice(i, i + cols));
           return (
@@ -15709,7 +15716,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                       const openEntry = rowItems.find(p => p.roster_id === openPlayer);
                       return (
                         <div key={ri}>
-                          <div className="grid grid-cols-3 gap-2">
+                          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
                             {rowItems.map(p => (
                               <RosterPlayerCard
                                 key={p.roster_id}
@@ -15774,6 +15781,41 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           );
         })}
       </div>
+
+      {isAdmin && (
+        <div className="mt-8 rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-3">
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Admin</p>
+          <div>
+            <p className="text-xs font-bold text-gray-700 mb-1.5">Roster layout</p>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 4].map(n => (
+                <button key={n} onClick={() => setCols(n)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${cols === n ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+                  {n} across
+                </button>
+              ))}
+            </div>
+          </div>
+          <button onClick={() => setPhotoAdminOpen(true)}
+            className="w-full py-2 rounded-xl bg-gray-900 text-white text-sm font-bold active:bg-gray-700">
+            Edit player photos
+          </button>
+        </div>
+      )}
+
+      {photoAdminOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-3 overflow-y-auto"
+          onClick={() => { setPhotoAdminOpen(false); setPhotoTick(t => t + 1); }}>
+          <div className="bg-white rounded-2xl w-full max-w-lg my-4 p-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-black text-gray-900">Edit player photos</p>
+              <button onClick={() => { setPhotoAdminOpen(false); setPhotoTick(t => t + 1); }}
+                className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+            </div>
+            <PlayerPhotoAdminSection />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
