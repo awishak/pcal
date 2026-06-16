@@ -12637,38 +12637,50 @@ function PlayerPhotoAdminSection() {
     });
     return score >= 2 ? best : null;
   };
-  const handleBulkSelect = async (files) => {
+  const handleBulkSelect = (files) => {
     const items = [...files].map(file => ({ file, upload: file, fname: file.name, matched: matchFile(file.name), preview: null, status: "Cropping…", done: false }));
     setBulkItems(items);
-    for (const item of items) {
+    // Show each original immediately so the list is never blocked on cropping.
+    items.forEach(item => {
+      const reader = new FileReader();
+      reader.onload = e => { if (!item.preview) { item.preview = e.target.result; forceRerender(n => n + 1); } };
+      reader.readAsDataURL(item.file);
+    });
+    // Crop in the background, all at once. Each item refines its own preview
+    // when done; a hang or failure on one never blocks the rest.
+    items.forEach(async item => {
       try {
-        // Cap each crop so one undecodable file can't freeze the whole queue.
         const { file: cropped, url } = await Promise.race([
           cropToFace(item.file),
-          new Promise((_, rej) => setTimeout(() => rej(new Error("crop timed out")), 8000)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("crop timed out")), 6000)),
         ]);
         item.upload = cropped; item.preview = url; item.status = "";
       } catch {
-        // Couldn't process (e.g. HEIC); fall back to the original file.
+        // Couldn't auto-crop (e.g. HEIC or a slow decode): keep the original.
         item.upload = item.file; item.status = "couldn't auto-crop, using original";
-        const reader = new FileReader();
-        reader.onload = e => { item.preview = e.target.result; forceRerender(n => n + 1); };
-        reader.readAsDataURL(item.file);
       }
       forceRerender(n => n + 1);
-    }
+    });
   };
   const runBulk = async () => {
     setBulkRunning(true);
     for (const item of bulkItems) {
       if (!item.matched || item.done) continue;
       item.status = "Uploading…"; forceRerender(n => n + 1);
-      const up = await uploadPhoto(item.upload || item.file);
-      if (up.error) { item.status = "Upload failed: " + up.error; forceRerender(n => n + 1); continue; }
-      const save = await adminUpsertRow("player_photos", { id: item.matched, image_url: up.url, updated_at: new Date().toISOString() });
-      if (save.error) { item.status = "Save failed: " + save.error; forceRerender(n => n + 1); continue; }
-      PLAYER_PHOTOS[item.matched] = up.url;
-      item.done = true; item.status = "Saved ✓"; forceRerender(n => n + 1);
+      try {
+        // Bound each upload so a hung request can't wedge the whole queue.
+        const up = await Promise.race([
+          uploadPhoto(item.upload || item.file),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("upload timed out")), 30000)),
+        ]);
+        if (up.error) { item.status = "Upload failed: " + up.error; forceRerender(n => n + 1); continue; }
+        const save = await adminUpsertRow("player_photos", { id: item.matched, image_url: up.url, updated_at: new Date().toISOString() });
+        if (save.error) { item.status = "Save failed: " + save.error; forceRerender(n => n + 1); continue; }
+        PLAYER_PHOTOS[item.matched] = up.url;
+        item.done = true; item.status = "Saved ✓"; forceRerender(n => n + 1);
+      } catch (e) {
+        item.status = "Failed: " + (e.message || String(e)); forceRerender(n => n + 1);
+      }
     }
     setBulkRunning(false);
   };
