@@ -9933,7 +9933,20 @@ function GameStatsView() {
     return [...gm.players].sort((a, b) => b[idx] - a[idx]);
   }, [selGame, games, sortBy]);
 
-  const weekLabel = (w) => w === 7 ? "Playoffs" : `Week ${w}`;
+  // A week is the playoffs when all its games are postseason (P/C/X), rather
+  // than assuming a fixed week number (it has varied by year).
+  const playoffWeeks = useMemo(() => {
+    const byWeek = {};
+    GAME_LOG.filter(g => g[20] === selYear && g[6] === 1).forEach(g => {
+      (byWeek[g[3]] = byWeek[g[3]] || []).push(g[5]);
+    });
+    const s = new Set();
+    Object.entries(byWeek).forEach(([w, types]) => {
+      if (types.length && types.every(t => t === "P" || t === "C" || t === "X")) s.add(Number(w));
+    });
+    return s;
+  }, [selYear]);
+  const weekLabel = (w) => playoffWeeks.has(w) ? "Playoffs" : `Week ${w}`;
   const typeLabel = (t) => t === "R" ? "" : t === "P" ? "Semi" : t === "C" ? "Champ" : "";
 
   return (
