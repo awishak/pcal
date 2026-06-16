@@ -15462,7 +15462,7 @@ function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, je
           <div className="text-[13px] font-bold text-gray-900 truncate">Guest</div>
         ) : (
           <>
-            {firstName && <div className="text-[11px] text-gray-500 leading-tight truncate">{firstName}</div>}
+            {firstName && <div className="text-[13px] font-normal text-gray-600 leading-tight truncate">{firstName}</div>}
             <div className="text-[13px] font-bold text-gray-900 leading-tight break-words">{lastName}</div>
           </>
         )}
