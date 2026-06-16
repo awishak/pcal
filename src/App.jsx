@@ -12602,15 +12602,19 @@ function PlayerPhotoAdminSection() {
 
   // Player list = union of DATA players, 2026 roster players, and anyone who
   // already has a photo (so an uploaded photo is always findable to edit).
+  // Keyed on a normalized name so a roster entry that differs only by case or
+  // spacing doesn't create a second listing for the same player.
   const allPlayers = useMemo(() => {
-    const map = {};
+    const norm = (s) => String(s || "").trim().toUpperCase().replace(/\s+/g, " ");
+    const map = {}; // normKey -> { name, g, pts }
     DATA.forEach(r => {
-      if (!map[r.player]) map[r.player] = { name: r.player, g: 0, pts: 0 };
-      map[r.player].g += r.g;
-      map[r.player].pts += r.pts;
+      const k = norm(r.player);
+      if (!map[k]) map[k] = { name: r.player, g: 0, pts: 0 };
+      map[k].g += r.g;
+      map[k].pts += r.pts;
     });
-    rosterNames.forEach(n => { if (n && !map[n]) map[n] = { name: n, g: 0, pts: 0 }; });
-    Object.keys(PLAYER_PHOTOS).forEach(n => { if (n && !map[n]) map[n] = { name: n, g: 0, pts: 0 }; });
+    rosterNames.forEach(n => { const k = norm(n); if (k && !map[k]) map[k] = { name: n, g: 0, pts: 0 }; });
+    Object.keys(PLAYER_PHOTOS).forEach(n => { const k = norm(n); if (k && !map[k]) map[k] = { name: n, g: 0, pts: 0 }; });
     return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
   }, [rosterNames, tick]);
 
@@ -12700,6 +12704,27 @@ function PlayerPhotoAdminSection() {
     setEditCropOpen(false);
     setPreviewUrl(null);
     setStatus("");
+  };
+
+  // Open the cropper. With a freshly picked file, adjust that; otherwise pull
+  // the current photo down into a File so an already-uploaded image can be
+  // re-cropped (e.g. to zoom in on the face).
+  const openAdjust = async () => {
+    if (editOriginalFile) { setEditCropOpen(true); return; }
+    const url = PLAYER_PHOTOS[editingPlayer];
+    if (!url) return;
+    setStatus("Loading photo…");
+    try {
+      const resp = await fetch(url, { mode: "cors", cache: "no-store" });
+      if (!resp.ok) throw new Error("fetch " + resp.status);
+      const blob = await resp.blob();
+      const file = new File([blob], "current.jpg", { type: blob.type || "image/jpeg" });
+      setEditOriginalFile(file);
+      setEditCropOpen(true);
+      setStatus("");
+    } catch (e) {
+      setStatus("Couldn't load photo to adjust: " + (e.message || String(e)));
+    }
   };
 
   const handleFileSelect = async (file) => {
@@ -12913,14 +12938,14 @@ function PlayerPhotoAdminSection() {
               className="w-full text-xs mb-2"
             />
 
-            {editOriginalFile && (
+            {(editOriginalFile || PLAYER_PHOTOS[editingPlayer]) && (
               <button
                 type="button"
-                onClick={() => setEditCropOpen(true)}
+                onClick={openAdjust}
                 disabled={uploading || saving}
                 className="w-full mb-3 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-50"
               >
-                Adjust crop
+                {editOriginalFile ? "Adjust crop" : "Adjust current photo (zoom on face)"}
               </button>
             )}
 
