@@ -15426,11 +15426,17 @@ function ThAvatar({ name, size, photoUrl }) {
 
 // Compact roster grid cell. Avatar on top, jersey number badge (an editable
 // input for admins), display name, hometown, and an age / debut-year meta line.
-function RosterPlayerCard({ rosterEntry, displayName, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl }) {
+function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl }) {
   const name = rosterEntry.player_name;
   const guest = thIsGuest(name);
   const info = useMemo(() => thSeasonInfo(name), [name]);
   const num = rosterEntry.jersey_number || "";
+  // Roster names are "LASTNAME Firstname"; split so the last name is always
+  // shown in full (its own line, wraps if needed) and the first name sits above.
+  const parts = String(name).trim().split(/\s+/);
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  const lastName = parts[0] ? cap(parts[0]) : "";
+  const firstName = parts.slice(1).map(cap).join(" ");
 
   return (
     <button
@@ -15451,7 +15457,16 @@ function RosterPlayerCard({ rosterEntry, displayName, hometown, isOpen, onToggle
           <span className="absolute -bottom-1 -right-1 min-w-[22px] px-1.5 text-center text-[12px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[20px]">#{num}</span>
         ) : null}
       </div>
-      <div className="mt-1.5 w-full text-[13px] font-bold text-gray-900 leading-tight truncate">{displayName}</div>
+      <div className="mt-1.5 w-full leading-tight">
+        {guest ? (
+          <div className="text-[13px] font-bold text-gray-900 truncate">Guest</div>
+        ) : (
+          <>
+            {firstName && <div className="text-[11px] text-gray-500 leading-tight truncate">{firstName}</div>}
+            <div className="text-[13px] font-bold text-gray-900 leading-tight break-words">{lastName}</div>
+          </>
+        )}
+      </div>
       <div className="w-full text-[11px] text-gray-400 truncate leading-tight">{guest ? "Guest" : (hometown || " ")}</div>
       {!guest && (
         <div className="w-full text-[11px] text-gray-400 leading-tight mt-0.5">
@@ -15763,7 +15778,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                               <RosterPlayerCard
                                 key={p.roster_id}
                                 rosterEntry={p}
-                                displayName={thIsGuest(p.player_name) ? "Guest Player" : formatName(p.player_name)}
                                 hometown={cityMap[thNorm(p.player_name)]}
                                 isOpen={openPlayer === p.roster_id}
                                 onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
