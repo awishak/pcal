@@ -12620,7 +12620,7 @@ function PlayerPhotoAdminSection() {
       map[k].g += r.g;
       map[k].pts += r.pts;
     });
-    rosterNames.forEach(n => { const k = norm(n); if (k && !map[k]) map[k] = { name: n, g: 0, pts: 0 }; });
+    rosterNames.forEach(n => { const c = thCanon(n); const k = norm(c); if (k && !map[k]) map[k] = { name: c, g: 0, pts: 0 }; });
     Object.keys(PLAYER_PHOTOS).forEach(n => { const k = norm(n); if (k && !map[k]) map[k] = { name: n, g: 0, pts: 0 }; });
     return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
   }, [rosterNames, tick]);
@@ -15307,10 +15307,31 @@ function thAggregate(rows) {
   };
 }
 
+// PLAYER_MERGE keyed by normalized (collapsed, uppercased) names, with the
+// canonical target also normalized. Lets roster/registration names that use an
+// alias (e.g. "RAMZY John") resolve to the same person as the game log.
+const PLAYER_MERGE_NORM = (() => {
+  const collapse = (x) => String(x || "").trim().replace(/\s+/g, " ").toUpperCase();
+  const m = {};
+  for (const k in PLAYER_MERGE) m[collapse(k)] = collapse(PLAYER_MERGE[k]);
+  return m;
+})();
+
 // Match player names case- and whitespace-insensitively so a roster entry
 // like "ISHAK Andrew" still finds GAME_LOG rows even if either side differs
-// by casing or stray spaces. The index is rebuilt only when GAME_LOG changes.
-function thNorm(s) { return String(s || "").trim().replace(/\s+/g, " ").toUpperCase(); }
+// by casing or stray spaces. Aliases are folded to their canonical name so a
+// merged player (e.g. "RAMZY John" -> "RAMZY HANNA JOHN") resolves correctly.
+// The index is rebuilt only when GAME_LOG changes.
+function thNorm(s) {
+  const n = String(s || "").trim().replace(/\s+/g, " ").toUpperCase();
+  return PLAYER_MERGE_NORM[n] || n;
+}
+// Canonical display-safe name: returns the merged canonical for an alias,
+// otherwise the original string unchanged (preserves friendly casing).
+function thCanon(name) {
+  const n = String(name || "").trim().replace(/\s+/g, " ").toUpperCase();
+  return PLAYER_MERGE_NORM[n] || name;
+}
 let _thGlIndex = null, _thGlLen = -1;
 function thGlIndex() {
   if (_thGlIndex && _thGlLen === GAME_LOG.length) return _thGlIndex;
@@ -15485,7 +15506,7 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hideCareerLinks, photoU
       </div>
 
       {!guest && !hideCareerLinks && (
-        <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
+        <button onClick={() => goToPlayer(thCanon(name))} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
       )}
     </div>
   );
