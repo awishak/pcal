@@ -15238,14 +15238,18 @@ function thExperience(name) {
   for (const r of (thGlIndex()[thNorm(name)] || [])) { if (r[6] === 1) ys.add(r[20]); }
   return ys.size;
 }
-// Earliest year the player has a counted game-log appearance (debut season).
-function thDebutYear(name) {
-  if (thIsGuest(name)) return null;
-  let min = null;
-  for (const r of (thGlIndex()[thNorm(name)] || [])) {
-    if (r[6] === 1 && (min == null || r[20] < min)) min = r[20];
-  }
-  return min;
+// Debut year and season count for a 2026 roster player. The 2026 season is
+// always counted (they're rostered), so a player with no prior games is a
+// rookie debuting in 2026. seasons is the number of distinct years appeared.
+function thSeasonInfo(name) {
+  if (thIsGuest(name)) return { debut: null, seasons: 0 };
+  const ys = new Set([2026]);
+  for (const r of (thGlIndex()[thNorm(name)] || [])) { if (r[6] === 1) ys.add(r[20]); }
+  return { debut: Math.min(...ys), seasons: ys.size };
+}
+// "21st season" or "Rookie".
+function thExpLabel(seasons) {
+  return seasons <= 1 ? "Rookie" : `${thOrdinal(seasons)} season`;
 }
 function thAgeFromDob(dob) {
   if (!dob) return null;
@@ -15269,17 +15273,16 @@ function ThAvatar({ name, size, photoUrl }) {
 
 // Compact roster grid cell. Avatar on top, jersey number badge (an editable
 // input for admins), display name, hometown, and an age / debut-year meta line.
-function RosterPlayerCard({ rosterEntry, displayName, dob, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl }) {
+function RosterPlayerCard({ rosterEntry, displayName, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl }) {
   const name = rosterEntry.player_name;
   const guest = thIsGuest(name);
-  const age = thAgeFromDob(dob);
-  const debut = useMemo(() => thDebutYear(name), [name]);
+  const info = useMemo(() => thSeasonInfo(name), [name]);
   const num = rosterEntry.jersey_number || "";
 
   return (
     <button
       onClick={onToggle}
-      className={`flex flex-col items-center text-center rounded-xl border p-2 active:bg-gray-50 transition-colors ${isOpen ? "border-gray-900 ring-1 ring-gray-900 bg-gray-50" : "border-gray-100"}`}>
+      className={`relative flex flex-col items-center text-center rounded-xl border p-2 pb-3 active:bg-gray-50 transition-colors ${isOpen ? "border-gray-900 ring-1 ring-gray-900 bg-gray-50" : "border-gray-100"}`}>
       <div className="relative">
         <ThAvatar name={name} size={56} photoUrl={photoUrl} />
         {isAdmin ? (
@@ -15297,9 +15300,14 @@ function RosterPlayerCard({ rosterEntry, displayName, dob, hometown, isOpen, onT
       </div>
       <div className="mt-1.5 w-full text-[12px] font-bold text-gray-900 leading-tight truncate">{displayName}</div>
       <div className="w-full text-[10px] text-gray-400 truncate leading-tight">{guest ? "Guest" : (hometown || " ")}</div>
-      <div className="w-full text-[10px] text-gray-400 leading-tight tabular-nums">
-        {guest ? " " : [age ? `${age} yr` : null, debut ? `'${String(debut).slice(2)}` : null].filter(Boolean).join(" · ") || " "}
-      </div>
+      {!guest && (
+        <div className="w-full text-[10px] text-gray-400 leading-tight mt-0.5">
+          <div className="tabular-nums">Debut: {info.debut}</div>
+          <div className="tabular-nums">Exp: {thExpLabel(info.seasons)}</div>
+        </div>
+      )}
+      {/* Expand affordance */}
+      <svg className={`absolute bottom-1 right-1.5 w-3 h-3 text-gray-300 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
     </button>
   );
 }
@@ -15309,8 +15317,7 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hideCareerLinks, photoU
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const s = season.avg;
-  const exp = useMemo(() => thExperience(name), [name]);
-  const debut = useMemo(() => thDebutYear(name), [name]);
+  const info = useMemo(() => thSeasonInfo(name), [name]);
   const age = thAgeFromDob(dob);
   const guest = thIsGuest(name);
 
@@ -15331,7 +15338,7 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hideCareerLinks, photoU
             {!guest && age ? <span className="text-gray-400 font-normal"> age {age}</span> : null}
           </div>
           <div className="text-[11px] text-gray-500">
-            {guest ? "Team guest" : `${thOrdinal(exp + 1)} season${debut ? ` · since ${debut}` : ""}`}
+            {guest ? "Team guest" : `Debut ${info.debut} · ${thExpLabel(info.seasons)}`}
           </div>
         </div>
       </div>
@@ -15414,7 +15421,13 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   const [schedule, setSchedule] = useState(null);
   const [dobMap, setDobMap] = useState({});
   const [cityMap, setCityMap] = useState({});
-  const [expanded, setExpanded] = useState(null);
+  // Roster sections start expanded so players are visible without tapping.
+  const [expanded, setExpanded] = useState(() => new Set(TEAMS_2026));
+  const toggleTeam = (team) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(team)) next.delete(team); else next.add(team);
+    return next;
+  });
   const [openPlayer, setOpenPlayer] = useState(null);
   const [jerseyDrafts, setJerseyDrafts] = useState({});
   const [savingTeam, setSavingTeam] = useState(null);
@@ -15554,18 +15567,23 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           </button>
         )}
       </div>
-      <p className="text-[11px] text-gray-400 mb-3">All stats subject to adjustment from review.</p>
+      <p className="text-[11px] text-gray-400">All stats subject to adjustment from review.</p>
+      <p className="text-[11px] text-gray-500 mb-3">Tap any player to see their 2026 season stats.</p>
 
       <div className="space-y-2">
         {teamsAlpha.map(team => {
           const rec = recById[team] || { w: 0, l: 0 };
-          const open = expanded === team;
+          const open = expanded.has(team);
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
-          const openEntry = open ? roster.find(p => p.roster_id === openPlayer) : null;
+          // Chunk the roster into rows of 3 so an opened player's stat panel
+          // can render full-width directly below that player's row.
+          const cols = 3;
+          const rows = [];
+          for (let i = 0; i < roster.length; i += cols) rows.push(roster.slice(i, i + cols));
           return (
             <div key={team} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-              <button onClick={() => { setExpanded(open ? null : team); setOpenPlayer(null); }} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
+              <button onClick={() => toggleTeam(team)} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
                 <TeamLogo team={team} size={36} />
                 <span className="flex-1 text-base font-bold text-gray-900">{TEAM_NAMES[team] || team}</span>
                 <span className="text-xs text-gray-400 tabular-nums">{rec.w}-{rec.l}</span>
@@ -15575,33 +15593,40 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
               {open && (
                 <div className="px-3 pb-3">
                   {roster.length === 0 && <div className="text-xs text-gray-400 py-3">No active players.</div>}
-                  <div className="grid grid-cols-4 gap-2 pt-1">
-                    {roster.map(p => (
-                      <RosterPlayerCard
-                        key={p.roster_id}
-                        rosterEntry={p}
-                        displayName={nameMap[p.player_name] || thShortName(p.player_name)}
-                        dob={dobMap[thNorm(p.player_name)]}
-                        hometown={cityMap[thNorm(p.player_name)]}
-                        isOpen={openPlayer === p.roster_id}
-                        onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
-                        isAdmin={isAdmin}
-                        jerseyValue={jerseyOf(p)}
-                        onJerseyChange={onJerseyChange}
-                        photoUrl={photoFor(p.player_name)}
-                      />
-                    ))}
+                  <div className="space-y-2 pt-1">
+                    {rows.map((rowItems, ri) => {
+                      const openEntry = rowItems.find(p => p.roster_id === openPlayer);
+                      return (
+                        <div key={ri}>
+                          <div className="grid grid-cols-3 gap-2">
+                            {rowItems.map(p => (
+                              <RosterPlayerCard
+                                key={p.roster_id}
+                                rosterEntry={p}
+                                displayName={nameMap[p.player_name] || thShortName(p.player_name)}
+                                hometown={cityMap[thNorm(p.player_name)]}
+                                isOpen={openPlayer === p.roster_id}
+                                onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
+                                isAdmin={isAdmin}
+                                jerseyValue={jerseyOf(p)}
+                                onJerseyChange={onJerseyChange}
+                                photoUrl={photoFor(p.player_name)}
+                              />
+                            ))}
+                          </div>
+                          {openEntry && (
+                            <PlayerStatPanel
+                              rosterEntry={openEntry}
+                              goToPlayer={goToPlayer}
+                              dob={dobMap[thNorm(openEntry.player_name)]}
+                              hideCareerLinks={hideCareerLinks}
+                              photoUrl={photoFor(openEntry.player_name)}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-
-                  {openEntry && (
-                    <PlayerStatPanel
-                      rosterEntry={openEntry}
-                      goToPlayer={goToPlayer}
-                      dob={dobMap[thNorm(openEntry.player_name)]}
-                      hideCareerLinks={hideCareerLinks}
-                      photoUrl={photoFor(openEntry.player_name)}
-                    />
-                  )}
 
                   {isAdmin && (
                     <button
