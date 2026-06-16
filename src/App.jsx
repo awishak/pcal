@@ -15451,10 +15451,10 @@ function RosterPlayerCard({ rosterEntry, displayName, hometown, isOpen, onToggle
           <span className="absolute -bottom-1 -right-1 min-w-[22px] px-1.5 text-center text-[12px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[20px]">#{num}</span>
         ) : null}
       </div>
-      <div className="mt-1.5 w-full text-[12px] font-bold text-gray-900 leading-tight truncate">{displayName}</div>
-      <div className="w-full text-[10px] text-gray-400 truncate leading-tight">{guest ? "Guest" : (hometown || " ")}</div>
+      <div className="mt-1.5 w-full text-[13px] font-bold text-gray-900 leading-tight truncate">{displayName}</div>
+      <div className="w-full text-[11px] text-gray-400 truncate leading-tight">{guest ? "Guest" : (hometown || " ")}</div>
       {!guest && (
-        <div className="w-full text-[10px] text-gray-400 leading-tight mt-0.5">
+        <div className="w-full text-[11px] text-gray-400 leading-tight mt-0.5">
           <div className="tabular-nums">Debut: {info.debut}</div>
           <div className="tabular-nums">Exp: {thExpLabel(info.seasons)}</div>
         </div>
@@ -15622,9 +15622,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
     return m;
   }, [rosters]);
 
-  // League-wide display names (so disambiguation considers every team).
-  const nameMap = useMemo(() => thBuildNameMap((rosters || []).map(r => r.player_name)), [rosters]);
-
   // Resolve player photos case/whitespace-insensitively, and recompute when
   // photos finish loading (photoVersion) so avatars appear without a reload.
   const photoIndex = useMemo(() => {
@@ -15766,7 +15763,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                               <RosterPlayerCard
                                 key={p.roster_id}
                                 rosterEntry={p}
-                                displayName={nameMap[p.player_name] || thShortName(p.player_name)}
+                                displayName={thIsGuest(p.player_name) ? "Guest Player" : formatName(p.player_name)}
                                 hometown={cityMap[thNorm(p.player_name)]}
                                 isOpen={openPlayer === p.roster_id}
                                 onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
@@ -15813,18 +15810,20 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                       const win = played && myPts > oppPts;
                       const loss = played && myPts < oppPts;
                       return (
-                        <div key={g.game_id} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
-                          <span className="w-12 text-gray-400 tabular-nums">{fmtDate(g.game_date)}</span>
-                          <span className="w-14 text-gray-400 tabular-nums">{fmtTime(g.game_time)}</span>
-                          <span className="flex-1 font-bold text-gray-800 truncate">{TEAM_NAMES[opp] || opp}</span>
-                          {played ? (
-                            <span className="flex items-center gap-1.5">
-                              <span className="tabular-nums text-gray-600">{myPts}-{oppPts}</span>
-                              <span className={`w-3.5 text-center font-black ${win ? "text-emerald-600" : loss ? "text-red-500" : "text-gray-400"}`}>{win ? "W" : loss ? "L" : "T"}</span>
-                            </span>
-                          ) : (
-                            g.scoring_team && <span className="text-[10px] text-gray-400">Scorer {g.scoring_team}</span>
-                          )}
+                        <div key={g.game_id} className="flex items-center gap-2 text-[13px] py-1.5 border-b border-gray-50 last:border-0">
+                          <span className="w-14 text-gray-400 tabular-nums flex-shrink-0">{fmtDate(g.game_date)}</span>
+                          <span className="w-16 text-gray-400 tabular-nums flex-shrink-0">{fmtTime(g.game_time)}</span>
+                          <div className="flex-1 min-w-0 flex items-center gap-2">
+                            <span className="truncate font-bold text-gray-800">{TEAM_FULL_NAMES[opp] || TEAM_NAMES[opp] || opp}</span>
+                            {played ? (
+                              <span className="flex items-center gap-1.5 flex-shrink-0">
+                                <span className="tabular-nums text-gray-600">{myPts}-{oppPts}</span>
+                                <span className={`w-4 text-center font-black ${win ? "text-emerald-600" : loss ? "text-red-500" : "text-gray-400"}`}>{win ? "W" : loss ? "L" : "T"}</span>
+                              </span>
+                            ) : (
+                              g.scoring_team && <span className="text-[11px] text-gray-400 flex-shrink-0">Scorer {g.scoring_team}</span>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
