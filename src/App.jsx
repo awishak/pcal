@@ -504,6 +504,12 @@ const TEAM_NAMES = {
   SAC: "Sacramento", SJK: "Knights", SJO: "San Jose", SRA: "San Ramon"
 };
 
+// Full franchise names (city + mascot) for the 2026 teams.
+const TEAM_FULL_NAMES = {
+  HAY: "Hayward Monks", SAC: "Sacramento Halos", SJO: "San Jose Dragon Slayers",
+  PLE: "Pleasanton Eagles", PDF: "Pacific Desert Fathers", MOD: "Modesto Lions",
+};
+
 // First-name nickname to canonical mapping. Applied when looking up player history
 // so registrations using nicknames find their game-log entry.
 const FIRST_NAME_NICKNAMES = {
@@ -12463,20 +12469,26 @@ async function cropToFace(file, size = 400) {
     if (typeof window !== "undefined" && "FaceDetector" in window) {
       try {
         const fd = new window.FaceDetector({ maxDetectedFaces: 1, fastMode: true });
-        const faces = await fd.detect(img);
+        // detect() can hang on some browsers; cap it so the crop never stalls.
+        const faces = await Promise.race([
+          fd.detect(img),
+          new Promise(res => setTimeout(() => res(null), 2500)),
+        ]);
         if (faces && faces[0]) box = faces[0].boundingBox;
       } catch { /* face detection unavailable; fall through */ }
     }
     let side, sx, sy;
     if (box) {
       const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
-      side = Math.min(Math.max(box.width, box.height) * 1.8, img.width, img.height);
+      // Tighter padding keeps the face large in the frame.
+      side = Math.min(Math.max(box.width, box.height) * 1.45, img.width, img.height);
       sx = Math.max(0, Math.min(cx - side / 2, img.width - side));
       sy = Math.max(0, Math.min(cy - side / 2, img.height - side));
     } else {
-      side = Math.min(img.width, img.height);
+      // No face found: crop a tighter upper-center square so the head fills more.
+      side = Math.min(img.width, img.height) * 0.72;
       sx = (img.width - side) / 2;
-      sy = Math.min(img.height * 0.05, img.height - side); // slight top bias for faces
+      sy = Math.min(img.height * 0.08, img.height - side); // slight top bias for faces
     }
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = size;
@@ -12504,8 +12516,10 @@ function CropModal({ file, onDone, onClose }) {
     const im = new Image();
     im.onload = () => {
       const cover = Math.max(V / im.naturalWidth, V / im.naturalHeight);
-      setImg(im); setMinK(cover); setK(cover);
-      setOff({ x: (V - im.naturalWidth * cover) / 2, y: (V - im.naturalHeight * cover) / 2 });
+      // Open zoomed in a bit so the face starts closer; cover stays the min.
+      const initK = cover * 1.35;
+      setImg(im); setMinK(cover); setK(initK);
+      setOff({ x: (V - im.naturalWidth * initK) / 2, y: (V - im.naturalHeight * initK) / 2 });
     };
     im.src = url;
     return () => URL.revokeObjectURL(url);
@@ -12570,9 +12584,24 @@ function PlayerPhotoAdminSection() {
   const [status, setStatus] = useState("");
   const [previewUrl, setPreviewUrl] = useState(null);
   const [pendingFile, setPendingFile] = useState(null);
-  const [, forceRerender] = useState(0);
+  const [editOriginalFile, setEditOriginalFile] = useState(null);
+  const [editCropOpen, setEditCropOpen] = useState(false);
+  const [rosterNames, setRosterNames] = useState([]);
+  const [tick, forceRerender] = useState(0);
 
-  // All unique players from DATA, alphabetical, with games played for sort context
+  // Active 2026 roster players, so debut players with no game-log rows yet
+  // still appear and can be matched/edited.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.from("rosters").select("player_name").eq("season", 2026).eq("active", true);
+      if (alive && data) setRosterNames(data.map(r => r.player_name).filter(Boolean));
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Player list = union of DATA players, 2026 roster players, and anyone who
+  // already has a photo (so an uploaded photo is always findable to edit).
   const allPlayers = useMemo(() => {
     const map = {};
     DATA.forEach(r => {
@@ -12580,8 +12609,10 @@ function PlayerPhotoAdminSection() {
       map[r.player].g += r.g;
       map[r.player].pts += r.pts;
     });
+    rosterNames.forEach(n => { if (n && !map[n]) map[n] = { name: n, g: 0, pts: 0 }; });
+    Object.keys(PLAYER_PHOTOS).forEach(n => { if (n && !map[n]) map[n] = { name: n, g: 0, pts: 0 }; });
     return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
-  }, []);
+  }, [rosterNames, tick]);
 
   const filtered = search.trim()
     ? allPlayers.filter(p => p.name.toLowerCase().includes(search.trim().toLowerCase()))
@@ -12611,11 +12642,15 @@ function PlayerPhotoAdminSection() {
     setBulkItems(items);
     for (const item of items) {
       try {
-        const { file: cropped, url } = await cropToFace(item.file);
+        // Cap each crop so one undecodable file can't freeze the whole queue.
+        const { file: cropped, url } = await Promise.race([
+          cropToFace(item.file),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("crop timed out")), 8000)),
+        ]);
         item.upload = cropped; item.preview = url; item.status = "";
       } catch {
         // Couldn't process (e.g. HEIC); fall back to the original file.
-        item.upload = item.file; item.status = "couldn't auto-crop — using original";
+        item.upload = item.file; item.status = "couldn't auto-crop, using original";
         const reader = new FileReader();
         reader.onload = e => { item.preview = e.target.result; forceRerender(n => n + 1); };
         reader.readAsDataURL(item.file);
@@ -12641,6 +12676,7 @@ function PlayerPhotoAdminSection() {
   const openEdit = (name) => {
     setEditingPlayer(name);
     setPendingFile(null);
+    setEditOriginalFile(null);
     setPreviewUrl(null);
     setStatus("");
   };
@@ -12648,16 +12684,32 @@ function PlayerPhotoAdminSection() {
   const closeEdit = () => {
     setEditingPlayer(null);
     setPendingFile(null);
+    setEditOriginalFile(null);
+    setEditCropOpen(false);
     setPreviewUrl(null);
     setStatus("");
   };
 
-  const handleFileSelect = (file) => {
+  const handleFileSelect = async (file) => {
     if (!file) return;
-    setPendingFile(file);
-    const reader = new FileReader();
-    reader.onload = (e) => setPreviewUrl(e.target.result);
-    reader.readAsDataURL(file);
+    setEditOriginalFile(file);
+    setStatus("Cropping…");
+    try {
+      const { file: cropped, url } = await Promise.race([
+        cropToFace(file),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("crop timed out")), 8000)),
+      ]);
+      setPendingFile(cropped);
+      setPreviewUrl(url);
+      setStatus("");
+    } catch {
+      // Couldn't auto-crop; use the original and let the user Adjust manually.
+      setPendingFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => setPreviewUrl(e.target.result);
+      reader.readAsDataURL(file);
+      setStatus("");
+    }
   };
 
   const handleSave = async () => {
@@ -12749,7 +12801,7 @@ function PlayerPhotoAdminSection() {
                       placeholder="Type player…" disabled={bulkRunning || item.done}
                       onChange={e => { const v = e.target.value.trim().toLowerCase(); const f = allPlayers.find(p => formatName(p.name).toLowerCase() === v); item.matched = f ? f.name : null; forceRerender(n => n + 1); }}
                       className={`w-full text-xs rounded border px-2 py-1 ${item.matched ? "border-gray-200" : "border-red-300 bg-red-50"}`} />
-                    <p className="text-[9px] text-gray-400 truncate">{item.fname}{item.status ? " · " + item.status : (item.matched ? "" : " · no match — set player")}</p>
+                    <p className="text-[9px] text-gray-400 truncate">{item.fname}{item.status ? " · " + item.status : (item.matched ? "" : " · no match, set player")}</p>
                   </div>
                   <button type="button" onClick={() => !bulkRunning && !item.done && setCropIndex(i)} disabled={bulkRunning || item.done}
                     className="text-[10px] font-bold px-2 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200 flex-shrink-0">
@@ -12846,8 +12898,19 @@ function PlayerPhotoAdminSection() {
               accept="image/*"
               disabled={uploading || saving}
               onChange={e => handleFileSelect(e.target.files?.[0])}
-              className="w-full text-xs mb-3"
+              className="w-full text-xs mb-2"
             />
+
+            {editOriginalFile && (
+              <button
+                type="button"
+                onClick={() => setEditCropOpen(true)}
+                disabled={uploading || saving}
+                className="w-full mb-3 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-50"
+              >
+                Adjust crop
+              </button>
+            )}
 
             {status && <p className="text-[11px] text-blue-600 mb-2">{status}</p>}
 
@@ -12878,6 +12941,14 @@ function PlayerPhotoAdminSection() {
             </div>
           </div>
         </div>
+      )}
+
+      {editCropOpen && editOriginalFile && (
+        <CropModal
+          file={editOriginalFile}
+          onClose={() => setEditCropOpen(false)}
+          onDone={(f, url) => { setPendingFile(f); setPreviewUrl(url); setEditCropOpen(false); }}
+        />
       )}
     </div>
   );
@@ -15585,7 +15656,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
             <div key={team} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
               <button onClick={() => toggleTeam(team)} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
                 <TeamLogo team={team} size={36} />
-                <span className="flex-1 text-base font-bold text-gray-900">{TEAM_NAMES[team] || team}</span>
+                <span className="flex-1 text-base font-bold text-gray-900">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
                 <span className="text-xs text-gray-400 tabular-nums">{rec.w}-{rec.l}</span>
                 <svg className={`w-4 h-4 text-gray-300 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
               </button>
