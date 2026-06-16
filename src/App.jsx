@@ -15288,6 +15288,21 @@ function sortStandings(regularOnly = true) {
   return order.map(t => ({ team: t, w: records[t].w, l: records[t].l, pct: pct(t), pf: records[t].pf, pa: records[t].pa, diff: records[t].pf - records[t].pa }));
 }
 
+// Points scored per 2026 team-game, keyed "date|team|opp" (date is the game
+// log's M/D form). Lets the schedule show final scores for games already
+// played. Includes playoff/exhibition games so any completed game shows.
+function compute2026Results() {
+  const m = {};
+  for (const r of GAME_LOG) {
+    if (r[20] !== 2026 || r[6] !== 1) continue;
+    const team = r[1], opp = r[2], date = r[4];
+    if (!team || !opp || !date) continue;
+    const key = date + "|" + team + "|" + opp;
+    m[key] = (m[key] || 0) + (r[7] || 0);
+  }
+  return m;
+}
+
 // Aggregate a player's rows into totals, averages, and shooting splits.
 function thAggregate(rows) {
   const t = { g: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0, gmsc: 0 };
@@ -15433,7 +15448,7 @@ function RosterPlayerCard({ rosterEntry, displayName, hometown, isOpen, onToggle
             className="absolute -bottom-1 -right-1 w-7 text-center text-[10px] font-bold text-gray-700 tabular-nums border border-gray-300 rounded bg-white py-0.5"
           />
         ) : num ? (
-          <span className="absolute -bottom-1 -right-1 min-w-[18px] px-1 text-center text-[10px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[16px]">{num}</span>
+          <span className="absolute -bottom-1 -right-1 min-w-[22px] px-1.5 text-center text-[12px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[20px]">#{num}</span>
         ) : null}
       </div>
       <div className="mt-1.5 w-full text-[12px] font-bold text-gray-900 leading-tight truncate">{displayName}</div>
@@ -15625,6 +15640,11 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
     return m;
   }, [schedule]);
 
+  // Final scores for games already played, keyed "M/D|team|opp".
+  const resultByKey = useMemo(() => compute2026Results(), [rosters]);
+  // Convert a schedule "YYYY-MM-DD" into the game log's "M/D" (no leading zeros).
+  const mdKey = (iso) => { if (!iso) return ""; const p = iso.split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : iso; };
+
   const jerseyOf = (r) => (jerseyDrafts[r.roster_id] !== undefined ? jerseyDrafts[r.roster_id] : (r.jersey_number || ""));
   const onJerseyChange = (id, val) => setJerseyDrafts(d => ({ ...d, [id]: val }));
 
@@ -15786,12 +15806,25 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                     {sched.map(g => {
                       const home = g.home_team === team;
                       const opp = home ? g.away_team : g.home_team;
+                      const md = mdKey(g.game_date);
+                      const myPts = resultByKey[`${md}|${team}|${opp}`];
+                      const oppPts = resultByKey[`${md}|${opp}|${team}`];
+                      const played = myPts != null && oppPts != null;
+                      const win = played && myPts > oppPts;
+                      const loss = played && myPts < oppPts;
                       return (
                         <div key={g.game_id} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
                           <span className="w-12 text-gray-400 tabular-nums">{fmtDate(g.game_date)}</span>
                           <span className="w-14 text-gray-400 tabular-nums">{fmtTime(g.game_time)}</span>
-                          <span className="flex-1 font-bold text-gray-800">{home ? "vs" : "at"} {TEAM_NAMES[opp] || opp}</span>
-                          {g.scoring_team && <span className="text-[10px] text-gray-400">Scorer {g.scoring_team}</span>}
+                          <span className="flex-1 font-bold text-gray-800 truncate">{TEAM_NAMES[opp] || opp}</span>
+                          {played ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="tabular-nums text-gray-600">{myPts}-{oppPts}</span>
+                              <span className={`w-3.5 text-center font-black ${win ? "text-emerald-600" : loss ? "text-red-500" : "text-gray-400"}`}>{win ? "W" : loss ? "L" : "T"}</span>
+                            </span>
+                          ) : (
+                            g.scoring_team && <span className="text-[10px] text-gray-400">Scorer {g.scoring_team}</span>
+                          )}
                         </div>
                       );
                     })}
