@@ -12684,9 +12684,9 @@ function PlayerPhotoAdminSection() {
           uploadPhoto(item.upload || item.file),
           new Promise((_, rej) => setTimeout(() => rej(new Error("upload timed out")), 30000)),
         ]);
-        if (up.error) { item.status = "Upload failed: " + up.error; forceRerender(n => n + 1); continue; }
+        if (up?.error) { item.status = "Upload failed: " + up.error; forceRerender(n => n + 1); continue; }
         const save = await adminUpsertRow("player_photos", { id: item.matched, image_url: up.url, updated_at: new Date().toISOString() });
-        if (save.error) { item.status = "Save failed: " + save.error; forceRerender(n => n + 1); continue; }
+        if (save?.error) { item.status = "Save failed: " + save.error; forceRerender(n => n + 1); continue; }
         PLAYER_PHOTOS[item.matched] = up.url;
         item.done = true; item.status = "Saved ✓"; forceRerender(n => n + 1);
       } catch (e) {
@@ -12762,7 +12762,7 @@ function PlayerPhotoAdminSection() {
     setStatus("Uploading image...");
     try {
       const uploadRes = await uploadPhoto(pendingFile);
-      if (uploadRes.error) {
+      if (uploadRes?.error) {
         setStatus("Upload failed: " + uploadRes.error);
         setUploading(false);
         return;
@@ -12770,13 +12770,15 @@ function PlayerPhotoAdminSection() {
       setUploading(false);
       setSaving(true);
       setStatus("Saving link...");
+      // adminUpsertRow returns null on success (the RPC is void); only an
+      // object with an `error` field means it failed.
       const saveRes = await adminUpsertRow("player_photos", {
         id: editingPlayer,
         image_url: uploadRes.url,
         updated_at: new Date().toISOString(),
       });
       setSaving(false);
-      if (saveRes.error) {
+      if (saveRes?.error) {
         setStatus("Save failed: " + saveRes.error);
         return;
       }
@@ -12799,7 +12801,7 @@ function PlayerPhotoAdminSection() {
     try {
       const res = await adminDeleteRow("player_photos", editingPlayer);
       setSaving(false);
-      if (res.error) {
+      if (res?.error) {
         setStatus("Remove failed: " + res.error);
         return;
       }
