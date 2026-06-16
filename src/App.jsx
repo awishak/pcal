@@ -15128,7 +15128,7 @@ function compute2026Standings(regularOnly = true) {
     teamGame[key] = (teamGame[key] || 0) + (r[7] || 0);
   }
   const records = {}, h2h = {}, beaten = {};
-  for (const t of TEAMS_2026) { records[t] = { w: 0, l: 0 }; h2h[t] = {}; beaten[t] = new Set(); }
+  for (const t of TEAMS_2026) { records[t] = { w: 0, l: 0, pf: 0, pa: 0 }; h2h[t] = {}; beaten[t] = new Set(); }
   const seen = new Set();
   for (const key of Object.keys(teamGame)) {
     const [date, team, opp] = key.split("|");
@@ -15138,8 +15138,11 @@ function compute2026Standings(regularOnly = true) {
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
     const pf = teamGame[key], pa = teamGame[mirror];
-    if (pf === pa) continue;
     if (!records[team] || !records[opp]) continue;
+    // Point totals count every completed game, ties included.
+    records[team].pf += pf; records[team].pa += pa;
+    records[opp].pf += pa; records[opp].pa += pf;
+    if (pf === pa) continue;
     const winner = pf > pa ? team : opp;
     const loser = pf > pa ? opp : team;
     records[winner].w++; records[loser].l++;
@@ -15165,7 +15168,7 @@ function sortStandings(regularOnly = true) {
     if (strength[b] !== strength[a]) return strength[b] - strength[a]; // 4 strength of wins
     return a.localeCompare(b);
   });
-  return order.map(t => ({ team: t, w: records[t].w, l: records[t].l, pct: pct(t) }));
+  return order.map(t => ({ team: t, w: records[t].w, l: records[t].l, pct: pct(t), pf: records[t].pf, pa: records[t].pa, diff: records[t].pf - records[t].pa }));
 }
 
 // Aggregate a player's rows into totals, averages, and shooting splits.
@@ -15235,6 +15238,15 @@ function thExperience(name) {
   for (const r of (thGlIndex()[thNorm(name)] || [])) { if (r[6] === 1) ys.add(r[20]); }
   return ys.size;
 }
+// Earliest year the player has a counted game-log appearance (debut season).
+function thDebutYear(name) {
+  if (thIsGuest(name)) return null;
+  let min = null;
+  for (const r of (thGlIndex()[thNorm(name)] || [])) {
+    if (r[6] === 1 && (min == null || r[20] < min)) min = r[20];
+  }
+  return min;
+}
 function thAgeFromDob(dob) {
   if (!dob) return null;
   const d = new Date(dob);
@@ -15255,16 +15267,50 @@ function ThAvatar({ name, size, photoUrl }) {
   );
 }
 
-function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, hideCareerLinks, photoUrl }) {
+// Compact roster grid cell. Avatar on top, jersey number badge (an editable
+// input for admins), display name, hometown, and an age / debut-year meta line.
+function RosterPlayerCard({ rosterEntry, displayName, dob, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl }) {
+  const name = rosterEntry.player_name;
+  const guest = thIsGuest(name);
+  const age = thAgeFromDob(dob);
+  const debut = useMemo(() => thDebutYear(name), [name]);
+  const num = rosterEntry.jersey_number || "";
+
+  return (
+    <button
+      onClick={onToggle}
+      className={`flex flex-col items-center text-center rounded-xl border p-2 active:bg-gray-50 transition-colors ${isOpen ? "border-gray-900 ring-1 ring-gray-900 bg-gray-50" : "border-gray-100"}`}>
+      <div className="relative">
+        <ThAvatar name={name} size={56} photoUrl={photoUrl} />
+        {isAdmin ? (
+          <input
+            value={jerseyValue}
+            onChange={(e) => onJerseyChange(rosterEntry.roster_id, e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+            onClick={(e) => e.stopPropagation()}
+            inputMode="numeric"
+            placeholder="#"
+            className="absolute -bottom-1 -right-1 w-7 text-center text-[10px] font-bold text-gray-700 tabular-nums border border-gray-300 rounded bg-white py-0.5"
+          />
+        ) : num ? (
+          <span className="absolute -bottom-1 -right-1 min-w-[18px] px-1 text-center text-[10px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[16px]">{num}</span>
+        ) : null}
+      </div>
+      <div className="mt-1.5 w-full text-[12px] font-bold text-gray-900 leading-tight truncate">{displayName}</div>
+      <div className="w-full text-[10px] text-gray-400 truncate leading-tight">{guest ? "Guest" : (hometown || " ")}</div>
+      <div className="w-full text-[10px] text-gray-400 leading-tight tabular-nums">
+        {guest ? " " : [age ? `${age} yr` : null, debut ? `'${String(debut).slice(2)}` : null].filter(Boolean).join(" · ") || " "}
+      </div>
+    </button>
+  );
+}
+
+// Full-width season-stats panel shown below the roster grid when a card is open.
+function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hideCareerLinks, photoUrl }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const s = season.avg;
-  const best = useMemo(() => {
-    const opts = [["APG", s.apg], ["SPG", s.spg], ["BPG", s.bpg]];
-    opts.sort((a, b) => b[1] - a[1]);
-    return opts[0];
-  }, [s.apg, s.spg, s.bpg]);
   const exp = useMemo(() => thExperience(name), [name]);
+  const debut = useMemo(() => thDebutYear(name), [name]);
   const age = thAgeFromDob(dob);
   const guest = thIsGuest(name);
 
@@ -15276,73 +15322,46 @@ function PlayerRosterRow({ rosterEntry, goToPlayer, dob, displayName, isOpen, on
   );
 
   return (
-    <div className="border-b border-gray-100 last:border-0">
-      <div className="flex items-center gap-1.5 py-1.5">
-        {isAdmin ? (
-          <input
-            value={jerseyValue}
-            onChange={(e) => onJerseyChange(rosterEntry.roster_id, e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
-            onClick={(e) => e.stopPropagation()}
-            inputMode="numeric"
-            placeholder="#"
-            className="w-7 text-center text-[11px] font-bold text-gray-700 tabular-nums border border-gray-200 rounded py-0.5 flex-shrink-0"
-          />
-        ) : (
-          <span className="w-5 text-center text-[11px] font-bold text-gray-400 tabular-nums flex-shrink-0">{rosterEntry.jersey_number || ""}</span>
-        )}
-        <button onClick={onToggle} className="flex-1 min-w-0 flex items-center gap-1.5 text-left active:opacity-70">
-          <span className="flex-1 text-sm font-bold text-gray-900 truncate min-w-0">{displayName}</span>
-          <span className="w-5 text-right text-[10px] text-gray-500 tabular-nums">{season.g}</span>
-          <span className="w-8 text-right text-[10px] text-gray-700 font-semibold tabular-nums">{th1(s.ppg)}</span>
-          <span className="w-8 text-right text-[10px] text-gray-500 tabular-nums">{th1(s.rpg)}</span>
-          <span className="w-10 text-right text-[10px] text-gray-500 tabular-nums">{th1(best[1])}{best[0].charAt(0)}</span>
-          <span className="w-10 text-right text-[10px] text-gray-500 tabular-nums">{thPct(season.ts)}</span>
-        </button>
+    <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3">
+      <div className="flex items-center gap-3 mb-3">
+        <ThAvatar name={name} size={72} photoUrl={photoUrl} />
+        <div>
+          <div className="text-base">
+            <span className="font-bold text-gray-900">{guest ? "Guest Player" : formatName(name)}</span>
+            {!guest && age ? <span className="text-gray-400 font-normal"> age {age}</span> : null}
+          </div>
+          <div className="text-[11px] text-gray-500">
+            {guest ? "Team guest" : `${thOrdinal(exp + 1)} season${debut ? ` · since ${debut}` : ""}`}
+          </div>
+        </div>
       </div>
 
-      {isOpen && (
-        <div className="pb-3 pt-1">
-          <div className="flex items-center gap-3 mb-3">
-            <ThAvatar name={name} size={72} photoUrl={photoUrl} />
-            <div>
-              <div className="text-base">
-                <span className="font-bold text-gray-900">{guest ? "Guest Player" : formatName(name)}</span>
-                {!guest && age ? <span className="text-gray-400 font-normal"> age {age}</span> : null}
-              </div>
-              <div className="text-[11px] text-gray-500">
-                {guest ? "Team guest" : `Experience: ${thOrdinal(exp + 1)} season`}
-              </div>
-            </div>
-          </div>
+      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages ({season.g}G)</div>
+      <div className="grid grid-cols-5 gap-1 mb-3">
+        <Stat label="PPG" value={th1(s.ppg)} />
+        <Stat label="RPG" value={th1(s.rpg)} />
+        <Stat label="APG" value={th1(s.apg)} />
+        <Stat label="SPG" value={th1(s.spg)} />
+        <Stat label="BPG" value={th1(s.bpg)} />
+      </div>
+      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Season Totals</div>
+      <div className="grid grid-cols-5 gap-1 mb-3">
+        <Stat label="PTS" value={season.totals.pts} />
+        <Stat label="REB" value={season.totals.reb} />
+        <Stat label="AST" value={season.totals.ast} />
+        <Stat label="STL" value={season.totals.stl} />
+        <Stat label="BLK" value={season.totals.blk} />
+      </div>
+      <div className="grid grid-cols-5 gap-1 mb-3">
+        <Stat label="FG%" value={thPct(season.fg)} />
+        <Stat label="3P%" value={thPct(season.tp)} />
+        <Stat label="FT%" value={thPct(season.ft)} />
+        <Stat label="TS%" value={thPct(season.ts)} />
+        <Stat label="GmSc" value={th1(s.gmsc)} />
+      </div>
 
-          <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages ({season.g}G)</div>
-          <div className="grid grid-cols-5 gap-1 mb-3">
-            <Stat label="PPG" value={th1(s.ppg)} />
-            <Stat label="RPG" value={th1(s.rpg)} />
-            <Stat label="APG" value={th1(s.apg)} />
-            <Stat label="SPG" value={th1(s.spg)} />
-            <Stat label="BPG" value={th1(s.bpg)} />
-          </div>
-          <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Season Totals</div>
-          <div className="grid grid-cols-5 gap-1 mb-3">
-            <Stat label="PTS" value={season.totals.pts} />
-            <Stat label="REB" value={season.totals.reb} />
-            <Stat label="AST" value={season.totals.ast} />
-            <Stat label="STL" value={season.totals.stl} />
-            <Stat label="BLK" value={season.totals.blk} />
-          </div>
-          <div className="grid grid-cols-5 gap-1 mb-3">
-            <Stat label="FG%" value={thPct(season.fg)} />
-            <Stat label="3P%" value={thPct(season.tp)} />
-            <Stat label="FT%" value={thPct(season.ft)} />
-            <Stat label="TS%" value={thPct(season.ts)} />
-            <Stat label="GmSc" value={th1(s.gmsc)} />
-          </div>
-
-          {!guest && !hideCareerLinks && (
-            <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
-          )}
-        </div>
+      {!guest && !hideCareerLinks && (
+        <button onClick={() => goToPlayer(name)} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
       )}
     </div>
   );
@@ -15388,9 +15407,13 @@ function thBuildNameMap(names) {
 
 function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, photoVersion = 0 }) {
   const standings = useMemo(() => sortStandings(regularOnly), [regularOnly]);
+  const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
+  // Roster section lists teams alphabetically by name (standings stays ranked).
+  const teamsAlpha = useMemo(() => [...TEAMS_2026].sort((a, b) => (TEAM_NAMES[a] || a).localeCompare(TEAM_NAMES[b] || b)), []);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
   const [dobMap, setDobMap] = useState({});
+  const [cityMap, setCityMap] = useState({});
   const [expanded, setExpanded] = useState(null);
   const [openPlayer, setOpenPlayer] = useState(null);
   const [jerseyDrafts, setJerseyDrafts] = useState({});
@@ -15402,14 +15425,20 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
       const [ros, sch, reg] = await Promise.all([
         supabase.from("rosters").select("*").eq("season", 2026).eq("active", true).order("player_name", { ascending: true }),
         supabase.from("schedule").select("*").eq("season", 2026).order("game_date", { ascending: true }).order("game_time", { ascending: true }),
-        supabase.from("registrations").select("linked_player, dob"),
+        supabase.from("registrations").select("linked_player, dob, city"),
       ]);
       if (!alive) return;
       setRosters(ros.data || []);
       setSchedule(sch.data || []);
-      const m = {};
-      (reg.data || []).forEach(r => { if (r.linked_player) m[thNorm(r.linked_player)] = r.dob; });
+      const m = {}, c = {};
+      (reg.data || []).forEach(r => {
+        if (!r.linked_player) return;
+        const k = thNorm(r.linked_player);
+        m[k] = r.dob;
+        if (r.city) c[k] = r.city;
+      });
       setDobMap(m);
+      setCityMap(c);
     })();
     return () => { alive = false; };
   }, []);
@@ -15484,23 +15513,38 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   return (
     <div>
       <p className="text-xl font-black text-gray-900 mb-3">2026 Standings</p>
-      <div className="space-y-1.5 mb-7">
-        <div className="flex items-center gap-2 px-3 text-[10px] text-gray-400 uppercase tracking-wide">
-          <span className="w-5" /><span className="w-7" /><span className="flex-1">Team</span>
-          <span className="w-12 text-right">W-L</span><span className="w-10 text-right">Pct</span>
+      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden mb-7">
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+          <span className="w-5 text-center">#</span>
+          <span className="w-7" />
+          <span className="flex-1">Team</span>
+          <span className="w-12 text-right">W-L</span>
+          <span className="w-11 text-right">Pct</span>
+          <span className="w-8 text-right">GB</span>
+          <span className="w-10 text-right">Diff</span>
         </div>
-        {standings.map((row, i) => (
-          <div key={row.team} className="flex items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2">
-            <span className="w-5 text-center text-sm font-black text-gray-400">{i + 1}</span>
-            <TeamLogo team={row.team} size={28} />
-            <span className="flex-1 text-sm font-bold text-gray-900 truncate">{TEAM_NAMES[row.team] || row.team}</span>
-            <span className="w-12 text-right text-sm font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
-            <span className="w-10 text-right text-xs text-gray-400 tabular-nums">{row.pct ? row.pct.toFixed(3).replace(/^0/, "") : ".000"}</span>
-          </div>
-        ))}
+        {standings.map((row, i) => {
+          const lead = standings[0];
+          const gb = ((lead.w - row.w) + (row.l - lead.l)) / 2;
+          const diff = row.diff || 0;
+          return (
+            <div key={row.team} className={`flex items-center gap-2 px-3 py-2.5 border-b border-gray-50 last:border-0 ${i === 0 ? "bg-gray-50/60" : ""}`}>
+              <span className={`w-5 text-center text-sm font-black tabular-nums ${i === 0 ? "text-gray-900" : "text-gray-300"}`}>{i + 1}</span>
+              <TeamLogo team={row.team} size={28} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold text-gray-900 truncate leading-tight">{TEAM_NAMES[row.team] || row.team}</div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wider leading-tight">{row.team}</div>
+              </div>
+              <span className="w-12 text-right text-sm font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
+              <span className="w-11 text-right text-xs text-gray-500 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
+              <span className="w-8 text-right text-xs text-gray-400 tabular-nums">{gb === 0 ? "-" : (Number.isInteger(gb) ? gb : gb.toFixed(1))}</span>
+              <span className={`w-10 text-right text-xs font-semibold tabular-nums ${diff > 0 ? "text-emerald-600" : diff < 0 ? "text-red-500" : "text-gray-400"}`}>{diff > 0 ? "+" : ""}{diff}</span>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-1">
         <p className="text-xl font-black text-gray-900">Rosters and Season Stats</p>
         {isAdmin && (
           <button
@@ -15510,46 +15554,54 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           </button>
         )}
       </div>
+      <p className="text-[11px] text-gray-400 mb-3">All stats subject to adjustment from review.</p>
 
       <div className="space-y-2">
-        {standings.map(row => {
-          const team = row.team;
+        {teamsAlpha.map(team => {
+          const rec = recById[team] || { w: 0, l: 0 };
           const open = expanded === team;
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
+          const openEntry = open ? roster.find(p => p.roster_id === openPlayer) : null;
           return (
             <div key={team} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-              <button onClick={() => setExpanded(open ? null : team)} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
+              <button onClick={() => { setExpanded(open ? null : team); setOpenPlayer(null); }} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
                 <TeamLogo team={team} size={36} />
                 <span className="flex-1 text-base font-bold text-gray-900">{TEAM_NAMES[team] || team}</span>
-                <span className="text-xs text-gray-400 tabular-nums">{row.w}-{row.l}</span>
+                <span className="text-xs text-gray-400 tabular-nums">{rec.w}-{rec.l}</span>
                 <svg className={`w-4 h-4 text-gray-300 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
               </button>
 
               {open && (
                 <div className="px-3 pb-3">
-                  <div className="flex items-center gap-1.5 py-1 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
-                    <span className="w-5 text-center">#</span><span className="flex-1">Player</span>
-                    <span className="w-5 text-right">G</span><span className="w-8 text-right">PPG</span>
-                    <span className="w-8 text-right">RPG</span><span className="w-10 text-right">Best</span><span className="w-10 text-right">TS%</span>
-                  </div>
                   {roster.length === 0 && <div className="text-xs text-gray-400 py-3">No active players.</div>}
-                  {roster.map(p => (
-                    <PlayerRosterRow
-                      key={p.roster_id}
-                      rosterEntry={p}
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    {roster.map(p => (
+                      <RosterPlayerCard
+                        key={p.roster_id}
+                        rosterEntry={p}
+                        displayName={nameMap[p.player_name] || thShortName(p.player_name)}
+                        dob={dobMap[thNorm(p.player_name)]}
+                        hometown={cityMap[thNorm(p.player_name)]}
+                        isOpen={openPlayer === p.roster_id}
+                        onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
+                        isAdmin={isAdmin}
+                        jerseyValue={jerseyOf(p)}
+                        onJerseyChange={onJerseyChange}
+                        photoUrl={photoFor(p.player_name)}
+                      />
+                    ))}
+                  </div>
+
+                  {openEntry && (
+                    <PlayerStatPanel
+                      rosterEntry={openEntry}
                       goToPlayer={goToPlayer}
-                      dob={dobMap[thNorm(p.player_name)]}
-                      displayName={nameMap[p.player_name] || thShortName(p.player_name)}
-                      isOpen={openPlayer === p.roster_id}
-                      onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
-                      isAdmin={isAdmin}
-                      jerseyValue={jerseyOf(p)}
-                      onJerseyChange={onJerseyChange}
+                      dob={dobMap[thNorm(openEntry.player_name)]}
                       hideCareerLinks={hideCareerLinks}
-                      photoUrl={photoFor(p.player_name)}
+                      photoUrl={photoFor(openEntry.player_name)}
                     />
-                  ))}
+                  )}
 
                   {isAdmin && (
                     <button
