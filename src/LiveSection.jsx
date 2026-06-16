@@ -1289,8 +1289,10 @@ function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false
 // ============================================================
 function UpcomingByWeek({ games, onOpenGame, fmtDate, activeTeamFilter }) {
   const byWeek = useMemo(() => {
+    const ts = (g) => new Date(`${g.game_date}T${g.game_time}`).getTime();
     const m = new Map();
-    games.forEach(g => {
+    // Iterate chronologically so games within a week stay in time order.
+    [...games].sort((a, b) => ts(a) - ts(b)).forEach(g => {
       const k = g.week;
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(g);
@@ -1338,13 +1340,16 @@ function UpcomingByWeek({ games, onOpenGame, fmtDate, activeTeamFilter }) {
 // ============================================================
 function PastByWeek({ games, liveStates, liveScores, onOpenGame, fmtDate, activeTeamFilter }) {
   const byWeek = useMemo(() => {
+    const ts = (g) => new Date(`${g.game_date}T${g.game_time}`).getTime();
     const m = new Map();
-    games.forEach(g => {
+    // Iterate chronologically so games within a week keep time order (3pm
+    // first), even though the incoming list is sorted newest-first.
+    [...games].sort((a, b) => ts(a) - ts(b)).forEach(g => {
       const k = g.week;
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(g);
     });
-    // Past: newest week first.
+    // Past: newest week card first; games within each week stay chronological.
     return Array.from(m.entries()).sort((a, b) => b[0] - a[0]);
   }, [games]);
 
