@@ -15612,17 +15612,30 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
       const [ros, sch, reg] = await Promise.all([
         supabase.from("rosters").select("*").eq("season", 2026).eq("active", true).order("player_name", { ascending: true }),
         supabase.from("schedule").select("*").eq("season", 2026).order("game_date", { ascending: true }).order("game_time", { ascending: true }),
-        supabase.from("registrations").select("linked_player, dob, city"),
+        supabase.from("registrations").select("linked_player, first_name, last_name, dob, city"),
       ]);
       if (!alive) return;
       setRosters(ros.data || []);
       setSchedule(sch.data || []);
       const m = {}, c = {};
+      const put = (key, r) => {
+        if (!key) return;
+        if (r.dob && m[key] === undefined) m[key] = r.dob;
+        if (r.city && c[key] === undefined) c[key] = r.city;
+      };
       (reg.data || []).forEach(r => {
-        if (!r.linked_player) return;
-        const k = thNorm(r.linked_player);
-        m[k] = r.dob;
-        if (r.city) c[k] = r.city;
+        // New players have no linked_player, so also key by "LASTNAME Firstname"
+        // (the roster name format) built from the registration's own name.
+        if (r.last_name || r.first_name) {
+          put(thNorm(`${r.last_name || ""} ${r.first_name || ""}`), r);
+        }
+        // linked_player takes priority for tracked players whose roster name
+        // may differ from their registration name (nicknames, merges).
+        if (r.linked_player) {
+          const k = thNorm(r.linked_player);
+          m[k] = r.dob;
+          if (r.city) c[k] = r.city;
+        }
       });
       setDobMap(m);
       setCityMap(c);
