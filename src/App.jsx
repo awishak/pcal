@@ -15481,13 +15481,18 @@ function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, je
 }
 
 // Full-width season-stats panel shown below the roster grid when a card is open.
-function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, hideCareerLinks, photoUrl }) {
+function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCareerLinks, photoUrl }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const s = season.avg;
   const info = useMemo(() => thSeasonInfo(name), [name]);
   const age = thAgeFromDob(dob);
   const guest = thIsGuest(name);
+  const parts = String(name).trim().split(/\s+/);
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  const lastName = parts[0] ? cap(parts[0]) : "";
+  const firstName = parts.slice(1).map(cap).join(" ");
+  const fromText = hometown ? `${hometown}${inCA ? ", CA" : ""}` : "-";
 
   const Stat = ({ label, value }) => (
     <div className="rounded-lg bg-gray-50 py-1.5 text-center">
@@ -15498,25 +15503,43 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, hideCareerLin
 
   return (
     <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3">
-      <div className="flex items-center gap-4 mb-4">
-        <ThAvatar name={name} size={104} photoUrl={photoUrl} />
-        <div className="min-w-0 flex-1">
-          <div className="text-xl font-black text-gray-900 leading-tight break-words">{guest ? "Guest Player" : formatName(name)}</div>
-          {!guest && (
-            <div className="text-xs text-gray-500 mt-1 leading-snug">
-              {[hometown, age ? `Age ${age}` : null, `Debut ${info.debut}`, thExpLabel(info.seasons)].filter(Boolean).join(" · ")}
+      <div className="mb-4">
+        <div className="flex items-center gap-4">
+          <ThAvatar name={name} size={104} photoUrl={photoUrl} />
+          <div className="min-w-0 flex-1">
+            <div className="text-xl text-gray-900 leading-tight break-words">
+              {guest ? (
+                <span className="font-black">Guest Player</span>
+              ) : (
+                <>
+                  {firstName && <span className="font-normal">{firstName} </span>}
+                  <span className="font-black">{lastName}</span>
+                </>
+              )}
             </div>
-          )}
-          {!guest && (
-            <div className="mt-2 flex items-baseline gap-1.5">
-              <span className="text-3xl font-black text-gray-900 tabular-nums leading-none">{season.g}</span>
-              <span className="text-xs font-semibold text-gray-500">game{season.g === 1 ? "" : "s"} this season</span>
-            </div>
-          )}
+            {!guest && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <TeamLogo team={rosterEntry.team} size={22} />
+                <span className="text-sm font-bold text-gray-700">{TEAM_FULL_NAMES[rosterEntry.team] || TEAM_NAMES[rosterEntry.team] || rosterEntry.team}</span>
+              </div>
+            )}
+          </div>
         </div>
+        {!guest && (
+          <div className="flex items-center justify-between mt-3 text-[13px]">
+            <div className="space-y-0.5">
+              <div><span className="text-gray-400">Age:</span> <span className="font-semibold text-gray-800">{age || "-"}</span></div>
+              <div><span className="text-gray-400">Debut:</span> <span className="font-semibold text-gray-800 tabular-nums">{info.debut}</span></div>
+              <div><span className="text-gray-400">Experience:</span> <span className="font-semibold text-gray-800">{thExpLabel(info.seasons)}</span></div>
+            </div>
+            <div className="text-right">
+              <div><span className="text-gray-400">From:</span> <span className="font-semibold text-gray-800">{fromText}</span></div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages</div>
+      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages - {season.g} Games Played</div>
       <div className="grid grid-cols-5 gap-1 mb-3">
         <Stat label="PPG" value={th1(s.ppg)} />
         <Stat label="RPG" value={th1(s.rpg)} />
@@ -15594,6 +15617,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   const [schedule, setSchedule] = useState(null);
   const [dobMap, setDobMap] = useState({});
   const [cityMap, setCityMap] = useState({});
+  const [caMap, setCaMap] = useState({});
   // Roster sections start expanded so players are visible without tapping.
   const [expanded, setExpanded] = useState(() => new Set(TEAMS_2026));
   const toggleTeam = (team) => setExpanded(prev => {
@@ -15617,16 +15641,19 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
       const [ros, sch, reg] = await Promise.all([
         supabase.from("rosters").select("*").eq("season", 2026).eq("active", true).order("player_name", { ascending: true }),
         supabase.from("schedule").select("*").eq("season", 2026).order("game_date", { ascending: true }).order("game_time", { ascending: true }),
-        supabase.from("registrations").select("linked_player, first_name, last_name, dob, city"),
+        supabase.from("registrations").select("linked_player, first_name, last_name, dob, city, zip"),
       ]);
       if (!alive) return;
       setRosters(ros.data || []);
       setSchedule(sch.data || []);
-      const m = {}, c = {};
+      const m = {}, c = {}, ca = {};
+      // CA zip codes run 90000-96199.
+      const isCaZip = (z) => { const n = parseInt(String(z || "").trim().slice(0, 5), 10); return n >= 90000 && n <= 96199; };
       const put = (key, r) => {
         if (!key) return;
         if (r.dob && m[key] === undefined) m[key] = r.dob;
         if (r.city && c[key] === undefined) c[key] = r.city;
+        if (r.zip && ca[key] === undefined) ca[key] = isCaZip(r.zip);
       };
       (reg.data || []).forEach(r => {
         // New players have no linked_player, so also key by "LASTNAME Firstname"
@@ -15640,10 +15667,12 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           const k = thNorm(r.linked_player);
           m[k] = r.dob;
           if (r.city) c[k] = r.city;
+          if (r.zip) ca[k] = isCaZip(r.zip);
         }
       });
       setDobMap(m);
       setCityMap(c);
+      setCaMap(ca);
     })();
     return () => { alive = false; };
   }, []);
@@ -15812,6 +15841,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                               goToPlayer={goToPlayer}
                               dob={dobMap[thNorm(openEntry.player_name)]}
                               hometown={cityMap[thNorm(openEntry.player_name)]}
+                              inCA={caMap[thNorm(openEntry.player_name)]}
                               hideCareerLinks={hideCareerLinks}
                               photoUrl={photoFor(openEntry.player_name)}
                             />
