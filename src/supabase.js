@@ -533,8 +533,9 @@ export async function sendRegistrationConfirmation(form, pin) {
 // refetch (the cache is client-side localStorage with a 12h TTL and has no
 // server-side invalidation, so out-of-band writes such as a raw SQL recovery
 // won't otherwise reach already-loaded browsers). Bumped v2 -> v3 after the
-// week-1 doubleheader row recovery.
-const GAME_LOG_CACHE_KEY = "pcal_game_log_v3";
+// week-1 doubleheader row recovery; v3 -> v4 to flush the June 14 games that
+// were stale on devices still inside the 12h cache window.
+const GAME_LOG_CACHE_KEY = "pcal_game_log_v4";
 const GAME_LOG_VERSION_KEY = "pcal_game_log_version";
 const GAME_LOG_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
