@@ -15481,7 +15481,7 @@ function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, je
 }
 
 // Full-width season-stats panel shown below the roster grid when a card is open.
-function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hideCareerLinks, photoUrl }) {
+function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, hideCareerLinks, photoUrl }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const s = season.avg;
@@ -15498,20 +15498,25 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hideCareerLinks, photoU
 
   return (
     <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3">
-      <div className="flex items-center gap-3 mb-3">
-        <ThAvatar name={name} size={72} photoUrl={photoUrl} />
-        <div>
-          <div className="text-base">
-            <span className="font-bold text-gray-900">{guest ? "Guest Player" : formatName(name)}</span>
-            {!guest && age ? <span className="text-gray-400 font-normal"> age {age}</span> : null}
-          </div>
-          <div className="text-[11px] text-gray-500">
-            {guest ? "Team guest" : `Debut ${info.debut} · ${thExpLabel(info.seasons)}`}
-          </div>
+      <div className="flex items-center gap-4 mb-4">
+        <ThAvatar name={name} size={104} photoUrl={photoUrl} />
+        <div className="min-w-0 flex-1">
+          <div className="text-xl font-black text-gray-900 leading-tight break-words">{guest ? "Guest Player" : formatName(name)}</div>
+          {!guest && (
+            <div className="text-xs text-gray-500 mt-1 leading-snug">
+              {[hometown, age ? `Age ${age}` : null, `Debut ${info.debut}`, thExpLabel(info.seasons)].filter(Boolean).join(" · ")}
+            </div>
+          )}
+          {!guest && (
+            <div className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-3xl font-black text-gray-900 tabular-nums leading-none">{season.g}</span>
+              <span className="text-xs font-semibold text-gray-500">game{season.g === 1 ? "" : "s"} this season</span>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages ({season.g}G)</div>
+      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages</div>
       <div className="grid grid-cols-5 gap-1 mb-3">
         <Stat label="PPG" value={th1(s.ppg)} />
         <Stat label="RPG" value={th1(s.rpg)} />
@@ -15806,6 +15811,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                               rosterEntry={openEntry}
                               goToPlayer={goToPlayer}
                               dob={dobMap[thNorm(openEntry.player_name)]}
+                              hometown={cityMap[thNorm(openEntry.player_name)]}
                               hideCareerLinks={hideCareerLinks}
                               photoUrl={photoFor(openEntry.player_name)}
                             />
