@@ -530,14 +530,14 @@ export async function sendRegistrationConfirmation(form, pin) {
 // or pass { force: true } to loadGameLog().
 
 // Bump this key to force every client to drop its cached game_log and
-// refetch (the cache is client-side localStorage with a 12h TTL and has no
+// refetch (the cache is client-side localStorage with a 1h TTL and has no
 // server-side invalidation, so out-of-band writes such as a raw SQL recovery
 // won't otherwise reach already-loaded browsers). Bumped v2 -> v3 after the
 // week-1 doubleheader row recovery; v3 -> v4 to flush the June 14 games that
 // were stale on devices still inside the 12h cache window.
 const GAME_LOG_CACHE_KEY = "pcal_game_log_v4";
 const GAME_LOG_VERSION_KEY = "pcal_game_log_version";
-const GAME_LOG_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const GAME_LOG_TTL_MS = 60 * 60 * 1000; // 1 hour (in-season games update weekly)
 
 // Map a game_log row object (from Supabase) into the 21-element positional
 // array format the App.jsx code expects. Missing fields default to 0 / "".
