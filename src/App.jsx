@@ -2239,6 +2239,8 @@ function AppInner() {
   // When true, the "View full career page" links in the Teams hub are hidden
   // for everyone. Persisted in the admin config (Supabase).
   const [hideCareerLinks, setHideCareerLinks] = useState(false);
+  // Roster grid columns on the Teams page (1-4). Global, set by admins.
+  const [rosterCols, setRosterCols] = useState(3);
 
   // Load admin config from Supabase on mount. Falls back to localStorage cache
   // for offline / slow-network scenarios so the app shows something immediately.
@@ -2268,6 +2270,7 @@ function AppInner() {
         if (parsed.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...parsed.homeCardVisibility }));
         if (parsed.scheduleWarning) setScheduleWarning(prev => ({ ...prev, ...parsed.scheduleWarning }));
         if (parsed.hideCareerLinks !== undefined) setHideCareerLinks(parsed.hideCareerLinks);
+        if (parsed.rosterCols !== undefined) setRosterCols(parsed.rosterCols);
         setConfigSource("cache");
       }
     } catch (e) {}
@@ -2292,6 +2295,7 @@ function AppInner() {
         if (config.homeCardVisibility) setHomeCardVisibility(prev => ({ ...prev, ...config.homeCardVisibility }));
         if (config.scheduleWarning) setScheduleWarning(prev => ({ ...prev, ...config.scheduleWarning }));
         if (config.hideCareerLinks !== undefined) setHideCareerLinks(config.hideCareerLinks);
+        if (config.rosterCols !== undefined) setRosterCols(config.rosterCols);
         setCommissionerMessages(home.commissionerMessages);
         setStickyLinks(home.stickyLinks);
         setQuickLinks(home.quickLinks);
@@ -2348,7 +2352,7 @@ function AppInner() {
   useEffect(() => {
     if (!configLoaded) return;
     const config = {
-      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, hideCareerLinks,
+      tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, hideCareerLinks, rosterCols,
     };
     try {
       if (typeof window !== "undefined" && window.localStorage) {
@@ -2363,7 +2367,7 @@ function AppInner() {
     if (adminUnlocked) {
       saveAdminConfig(config); // fire-and-forget
     }
-  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, hideCareerLinks, adminUnlocked, configLoaded,
+  }, [tabVisibility, tileStates, tileComingDates, groupOrder, groupTitles, tileTitles, tileDescs, tileOrderInGroup, announcement, homeCardVisibility, scheduleWarning, hideCareerLinks, rosterCols, adminUnlocked, configLoaded,
       commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards]);
 
   // Scroll to top whenever the active page changes
@@ -3728,7 +3732,7 @@ function AppInner() {
               <TeamsView data={DATA} teamSeasons={TEAM_SEASONS} goToPlayer={goToPlayer} initialTeam={franchiseTeam} />
             </div>
           ) : (
-            <TeamsHubView goToPlayer={goToPlayer} onOpenFranchise={setFranchiseTeam} isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks} photoVersion={photoVersion} />
+            <TeamsHubView goToPlayer={goToPlayer} onOpenFranchise={setFranchiseTeam} isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks} rosterCols={rosterCols} setRosterCols={setRosterCols} photoVersion={photoVersion} />
           )
         )}
 
@@ -15523,7 +15527,7 @@ function thBuildNameMap(names) {
   return out;
 }
 
-function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, photoVersion = 0 }) {
+function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, rosterCols = 3, setRosterCols, photoVersion = 0 }) {
   const standings = useMemo(() => sortStandings(regularOnly), [regularOnly]);
   const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
   // Roster section lists teams alphabetically by name (standings stays ranked).
@@ -15542,11 +15546,9 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   const [openPlayer, setOpenPlayer] = useState(null);
   const [jerseyDrafts, setJerseyDrafts] = useState({});
   const [savingTeam, setSavingTeam] = useState(null);
-  // Admin: roster grid columns (1-4), remembered per device.
-  const [cols, setCols] = useState(() => {
-    try { const v = parseInt(localStorage.getItem("pcal_roster_cols") || "3", 10); return [1, 2, 3, 4].includes(v) ? v : 3; } catch { return 3; }
-  });
-  useEffect(() => { try { localStorage.setItem("pcal_roster_cols", String(cols)); } catch { /* ignore */ } }, [cols]);
+  // Roster grid columns (1-4) come from global admin config so an admin's
+  // choice applies for everyone.
+  const cols = [1, 2, 3, 4].includes(rosterCols) ? rosterCols : 3;
   // Admin: photo editor overlay + a tick to refresh avatars after edits.
   const [photoAdminOpen, setPhotoAdminOpen] = useState(false);
   const [photoTick, setPhotoTick] = useState(0);
@@ -15786,10 +15788,11 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
         <div className="mt-8 rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-3">
           <p className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Admin</p>
           <div>
-            <p className="text-xs font-bold text-gray-700 mb-1.5">Roster layout</p>
+            <p className="text-xs font-bold text-gray-700">Roster layout</p>
+            <p className="text-[10px] text-gray-400 mb-1.5">Applies to everyone.</p>
             <div className="flex gap-1.5">
               {[1, 2, 3, 4].map(n => (
-                <button key={n} onClick={() => setCols(n)}
+                <button key={n} onClick={() => setRosterCols && setRosterCols(n)}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${cols === n ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
                   {n} across
                 </button>
