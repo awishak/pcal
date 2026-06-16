@@ -12561,6 +12561,9 @@ function CropModal({ file, onDone, onClose }) {
             <img src={img.src} alt="" draggable={false} style={{
               position: "absolute", left: 0, top: 0,
               width: img.naturalWidth * k, height: img.naturalHeight * k,
+              // Defeat Tailwind preflight's `img { max-width:100% }`, which
+              // would clamp width and stretch the picture's aspect ratio.
+              maxWidth: "none", maxHeight: "none",
               transform: `translate(${off.x}px, ${off.y}px)`,
             }} />
           )}
