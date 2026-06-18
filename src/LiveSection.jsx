@@ -3387,67 +3387,69 @@ function BoxScoreView({ game, box, rosters }) {
   const awayTot = sumRows(awayRows);
   const homeTot = sumRows(homeRows);
 
+  const th = "text-right py-1 px-2 font-semibold";
+  const td = "text-right py-1 px-2 text-gray-900";
   const renderTeam = (team, rows, tot) => (
     <div className="mb-3">
-      <div className="flex items-center gap-1.5 mb-2">
-        <span className="w-2.5 h-2.5 rounded-full" style={{ background: TEAM_COLORS[team] || "#111827" }} />
-        <span className="text-sm font-bold text-gray-900">{TEAM_NAMES[team] || team}</span>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: TEAM_COLORS[team] || "#111827" }} />
+        <span className="text-sm font-bold text-gray-900 flex-1 min-w-0 truncate">{TEAM_NAMES[team] || team}</span>
+        <span className="text-2xl font-black text-gray-900 tabular-nums leading-none">{tot.pts}</span>
       </div>
       {rows.length === 0 ? (
         <div className="text-xs text-gray-400 px-2 py-3">No stats yet.</div>
       ) : (
         <div className="overflow-x-auto -mx-4 px-4">
-          <table className="w-full text-[11px] min-w-[500px]">
+          <table className="w-full text-[13px] tabular-nums">
             <thead>
-              <tr className="text-gray-400 uppercase tracking-wider text-[9px] border-b border-gray-100">
-                <th className="text-left py-1.5 pr-2">Player</th>
-                <th className="text-right py-1.5 px-1">PTS</th>
-                <th className="text-right py-1.5 px-1">REB</th>
-                <th className="text-right py-1.5 px-1">AST</th>
-                <th className="text-right py-1.5 px-1">STL</th>
-                <th className="text-right py-1.5 px-1">BLK</th>
-                <th className="text-right py-1.5 px-1">FG</th>
-                <th className="text-right py-1.5 px-1">3P</th>
-                <th className="text-right py-1.5 px-1">FT</th>
-                <th className="text-right py-1.5 pl-1">PF</th>
+              <tr className="text-gray-400 text-[10px] uppercase tracking-wide border-b border-gray-200">
+                <th className="text-left py-1 pr-3 font-semibold sticky left-0 bg-white">Player</th>
+                <th className={th}>FG</th>
+                <th className={th}>3PT</th>
+                <th className={th}>FT</th>
+                <th className={th}>REB</th>
+                <th className={th}>AST</th>
+                <th className={th}>STL</th>
+                <th className={th}>BLK</th>
+                <th className={th}>PF</th>
+                <th className="text-right py-1 pl-2 font-bold text-gray-500">PTS</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className="border-b border-gray-50">
-                  <td className="py-1.5 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">{formatName(r.name)}</td>
-                  <td className="text-right py-1.5 px-1 font-bold">{r.pts}</td>
-                  <td className="text-right py-1.5 px-1">{r.reb}</td>
-                  <td className="text-right py-1.5 px-1">{r.ast}</td>
-                  <td className="text-right py-1.5 px-1">{r.stl}</td>
-                  <td className="text-right py-1.5 px-1">{r.blk}</td>
-                  <td className="text-right py-1.5 px-1 tabular-nums">{r.fgm}/{r.fga}</td>
-                  <td className="text-right py-1.5 px-1 tabular-nums">{r.tpm}/{r.tpa}</td>
-                  <td className="text-right py-1.5 px-1 tabular-nums">{r.ftm}/{r.fta}</td>
-                  <td className="text-right py-1.5 pl-1">{r.foul}</td>
+                  <td className="py-1 pr-3 font-semibold text-gray-900 whitespace-nowrap sticky left-0 bg-white">{formatName(r.name)}</td>
+                  <td className="text-right py-1 px-2 text-gray-600">{r.fgm}-{r.fga}</td>
+                  <td className="text-right py-1 px-2 text-gray-600">{r.tpm}-{r.tpa}</td>
+                  <td className="text-right py-1 px-2 text-gray-600">{r.ftm}-{r.fta}</td>
+                  <td className={td}>{r.reb}</td>
+                  <td className={td}>{r.ast}</td>
+                  <td className={td}>{r.stl}</td>
+                  <td className={td}>{r.blk}</td>
+                  <td className="text-right py-1 px-2 text-gray-400">{r.foul}</td>
+                  <td className="text-right py-1 pl-2 font-black text-gray-900 text-[15px]">{r.pts}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t-2 border-gray-200 font-black text-gray-900">
-                <td className="py-1.5 pr-2 uppercase text-[10px] tracking-wide">Totals</td>
-                <td className="text-right py-1.5 px-1">{tot.pts}</td>
-                <td className="text-right py-1.5 px-1">{tot.reb}</td>
-                <td className="text-right py-1.5 px-1">{tot.ast}</td>
-                <td className="text-right py-1.5 px-1">{tot.stl}</td>
-                <td className="text-right py-1.5 px-1">{tot.blk}</td>
-                <td className="text-right py-1.5 px-1 tabular-nums">{tot.fgm}/{tot.fga}</td>
-                <td className="text-right py-1.5 px-1 tabular-nums">{tot.tpm}/{tot.tpa}</td>
-                <td className="text-right py-1.5 px-1 tabular-nums">{tot.ftm}/{tot.fta}</td>
-                <td className="text-right py-1.5 pl-1">{tot.foul}</td>
+              <tr className="border-t-2 border-gray-300 font-black text-gray-900">
+                <td className="py-1 pr-3 sticky left-0 bg-white text-[11px] uppercase tracking-wide text-gray-500">Totals</td>
+                <td className="text-right py-1 px-2">{tot.fgm}-{tot.fga}</td>
+                <td className="text-right py-1 px-2">{tot.tpm}-{tot.tpa}</td>
+                <td className="text-right py-1 px-2">{tot.ftm}-{tot.fta}</td>
+                <td className="text-right py-1 px-2">{tot.reb}</td>
+                <td className="text-right py-1 px-2">{tot.ast}</td>
+                <td className="text-right py-1 px-2">{tot.stl}</td>
+                <td className="text-right py-1 px-2">{tot.blk}</td>
+                <td className="text-right py-1 px-2">{tot.foul}</td>
+                <td className="text-right py-1 pl-2 text-[15px]">{tot.pts}</td>
               </tr>
-              <tr className="text-gray-400 text-[9px]">
-                <td className="pr-2 uppercase tracking-wide">Pct</td>
-                <td colSpan={5}></td>
-                <td className="text-right px-1">{pct(tot.fgm, tot.fga)}</td>
-                <td className="text-right px-1">{pct(tot.tpm, tot.tpa)}</td>
-                <td className="text-right px-1">{pct(tot.ftm, tot.fta)}</td>
-                <td></td>
+              <tr className="bg-gray-50 text-gray-900 font-bold text-[12px]">
+                <td className="py-1 pr-3 sticky left-0 bg-gray-50 uppercase tracking-wide text-[10px] text-gray-400">Pct</td>
+                <td className="text-right py-1 px-2">{pct(tot.fgm, tot.fga)}</td>
+                <td className="text-right py-1 px-2">{pct(tot.tpm, tot.tpa)}</td>
+                <td className="text-right py-1 px-2">{pct(tot.ftm, tot.fta)}</td>
+                <td colSpan={6}></td>
               </tr>
             </tfoot>
           </table>
