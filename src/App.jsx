@@ -9876,19 +9876,89 @@ function GameLeadersView({ goToPlayer }) {
 }
 
 
+// ESPN-style per-team box score table. `players` are GAME_LOG-index rows for one team.
+function BoxScoreTable({ teamCode, teamLabel, score, players }) {
+  const c = TEAM_COLORS[teamCode] || "#111827";
+  const tot = players.reduce((s, p) => {
+    s.pts += p[7]; s.reb += p[8]; s.stl += p[9]; s.ast += p[10]; s.blk += p[11];
+    s.fgm += p[12]; s.fga += p[13]; s.ftm += p[14]; s.fta += p[15]; s.tpm += p[16]; s.tpa += p[17]; s.foul += p[18];
+    return s;
+  }, { pts: 0, reb: 0, stl: 0, ast: 0, blk: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0, foul: 0 });
+  const pct = (m, a) => a > 0 ? Math.round(m / a * 100) + "%" : "—";
+  const rows = [...players].sort((a, b) => b[7] - a[7]);
+  const th = "text-right py-2 px-2 font-semibold";
+  const td = "text-right py-2.5 px-2 text-gray-900";
+  return (
+    <div className="mb-4 last:mb-0">
+      {/* Team header */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+        <span className="text-sm font-bold text-gray-900 flex-1 min-w-0 truncate">{teamLabel}</span>
+        <span className="text-2xl font-black text-gray-900 tabular-nums leading-none">{score}</span>
+      </div>
+      <div className="overflow-x-auto -mx-4 px-4">
+        <table className="w-full text-[13px] tabular-nums">
+          <thead>
+            <tr className="text-gray-400 text-[10px] uppercase tracking-wide border-b border-gray-200">
+              <th className="text-left py-2 pr-3 font-semibold sticky left-0 bg-white">Player</th>
+              <th className={th}>FG</th>
+              <th className={th}>3PT</th>
+              <th className={th}>FT</th>
+              <th className={th}>REB</th>
+              <th className={th}>AST</th>
+              <th className={th}>STL</th>
+              <th className={th}>BLK</th>
+              <th className={th}>PF</th>
+              <th className="text-right py-2 pl-2 font-bold text-gray-500">PTS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p, i) => (
+              <tr key={i} className="border-b border-gray-50">
+                <td className="py-2.5 pr-3 font-semibold text-gray-900 whitespace-nowrap sticky left-0 bg-white">{formatName(p[0])}</td>
+                <td className="text-right py-2.5 px-2 text-gray-600">{p[12]}-{p[13]}</td>
+                <td className="text-right py-2.5 px-2 text-gray-600">{p[16]}-{p[17]}</td>
+                <td className="text-right py-2.5 px-2 text-gray-600">{p[14]}-{p[15]}</td>
+                <td className={td}>{p[8]}</td>
+                <td className={td}>{p[10]}</td>
+                <td className={td}>{p[9]}</td>
+                <td className={td}>{p[11]}</td>
+                <td className="text-right py-2.5 px-2 text-gray-400">{p[18]}</td>
+                <td className="text-right py-2.5 pl-2 font-black text-gray-900 text-[15px]">{p[7]}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-gray-300 font-black text-gray-900">
+              <td className="py-2 pr-3 sticky left-0 bg-white text-[11px] uppercase tracking-wide text-gray-500">Totals</td>
+              <td className="text-right py-2 px-2">{tot.fgm}-{tot.fga}</td>
+              <td className="text-right py-2 px-2">{tot.tpm}-{tot.tpa}</td>
+              <td className="text-right py-2 px-2">{tot.ftm}-{tot.fta}</td>
+              <td className="text-right py-2 px-2">{tot.reb}</td>
+              <td className="text-right py-2 px-2">{tot.ast}</td>
+              <td className="text-right py-2 px-2">{tot.stl}</td>
+              <td className="text-right py-2 px-2">{tot.blk}</td>
+              <td className="text-right py-2 px-2">{tot.foul}</td>
+              <td className="text-right py-2 pl-2 text-[15px]">{tot.pts}</td>
+            </tr>
+            <tr className="text-gray-400 text-[10px]">
+              <td className="py-1 pr-3 sticky left-0 bg-white uppercase tracking-wide">Pct</td>
+              <td className="text-right py-1 px-2">{pct(tot.fgm, tot.fga)}</td>
+              <td className="text-right py-1 px-2">{pct(tot.tpm, tot.tpa)}</td>
+              <td className="text-right py-1 px-2">{pct(tot.ftm, tot.fta)}</td>
+              <td colSpan={6}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function GameStatsView() {
   const [selYear, setSelYear] = useState(2025);
   const [selWeek, setSelWeek] = useState(1);
   const [selGame, setSelGame] = useState(null);
-  const [sortBy, setSortBy] = useState("team");
-
-  const SORT_OPTIONS = [
-    { key: "team", label: "Team" },
-    { key: "pts", label: "PTS" },
-    { key: "reb", label: "REB" },
-    { key: "ast", label: "AST" },
-    { key: "stl", label: "STL" },
-  ];
 
   const availableYears = useMemo(() => [...new Set(GAME_LOG.map(g => g[20]))].filter(Boolean).sort((a, b) => b - a), []);
   const availableWeeks = useMemo(() => {
@@ -9917,21 +9987,6 @@ function GameStatsView() {
       return { ...gm, s1, s2 };
     });
   }, [selYear, selWeek]);
-
-  // Players for selected game
-  const gamePlayers = useMemo(() => {
-    if (selGame === null || !games[selGame]) return [];
-    const gm = games[selGame];
-    const sortIdx = { gmSc: 19, pts: 7, reb: 8, ast: 10, stl: 9 };
-    if (sortBy === "team") {
-      return [...gm.players].sort((a, b) => {
-        if (a[1] !== b[1]) return a[1] === gm.t1 ? -1 : 1;
-        return b[19] - a[19];
-      });
-    }
-    const idx = sortIdx[sortBy] || 19;
-    return [...gm.players].sort((a, b) => b[idx] - a[idx]);
-  }, [selGame, games, sortBy]);
 
   // A week is the playoffs when all its games are postseason (P/C/X), rather
   // than assuming a fixed week number (it has varied by year).
@@ -9994,75 +10049,18 @@ function GameStatsView() {
         })}
       </div>
 
-      {/* Player stats table */}
-      {selGame !== null && games[selGame] && (
-        <div>
-          {/* Sort options */}
-          <div className="flex gap-1 mb-2">
-            {SORT_OPTIONS.map(opt => (
-              <button key={opt.key} onClick={() => setSortBy(opt.key)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${sortBy === opt.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
-                {opt.label}
-              </button>
-            ))}
+      {/* Player stats: ESPN-style per-team box scores */}
+      {selGame !== null && games[selGame] && (() => {
+        const gm = games[selGame];
+        const t1Players = gm.players.filter(p => p[1] === gm.t1);
+        const t2Players = gm.players.filter(p => p[1] === gm.t2);
+        return (
+          <div>
+            <BoxScoreTable teamCode={gm.t1} teamLabel={getTeamDisplay(gm.t1, selYear)} score={gm.s1} players={t1Players} />
+            <BoxScoreTable teamCode={gm.t2} teamLabel={getTeamDisplay(gm.t2, selYear)} score={gm.s2} players={t2Players} />
           </div>
-
-          <div className="overflow-x-auto -mx-4 px-4">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-gray-400 text-[10px] border-b border-gray-200">
-                  <th className="text-left py-1.5 pr-2 font-medium">Player</th>
-                  {sortBy !== "team" && <th className="text-left py-1.5 px-1 font-medium">Team</th>}
-                  <th className="text-right py-1.5 px-1 font-medium">PTS</th>
-                  <th className="text-right py-1.5 px-1 font-medium">REB</th>
-                  <th className="text-right py-1.5 px-1 font-medium">AST</th>
-                  <th className="text-right py-1.5 px-1 font-medium">STL</th>
-                  <th className="text-right py-1.5 px-1 font-medium">BLK</th>
-                  <th className="text-center py-1.5 px-1 font-medium">FG</th>
-                  <th className="text-center py-1.5 px-1 font-medium">FT</th>
-                  <th className="text-center py-1.5 px-1 font-medium">3PT</th>
-                  <th className="text-right py-1.5 px-1 font-medium">F</th>
-                </tr>
-              </thead>
-              <tbody>
-                {gamePlayers.map((p, pi) => {
-                  const team = p[1];
-                  const c = TEAM_COLORS[team] || "#888";
-                  const gm = games[selGame];
-                  const showTeamHeader = sortBy === "team" && (pi === 0 || gamePlayers[pi - 1][1] !== team);
-                  return (
-                    <React.Fragment key={pi}>
-                      {showTeamHeader && (
-                        <tr><td colSpan={sortBy === "team" ? 10 : 11} className="pt-3 pb-1 text-xs font-bold text-gray-900 border-b border-gray-200">{getTeamDisplay(team, selYear)} {team === gm.t1 ? gm.s1 : gm.s2}</td></tr>
-                      )}
-                      <tr className="border-b border-gray-50">
-                        <td className="py-1.5 pr-2 font-medium text-gray-900 whitespace-nowrap">
-                          {sortBy === "team" && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ backgroundColor: c }} />}
-                          {formatName(p[0])}
-                        </td>
-                        {sortBy !== "team" && (
-                          <td className="py-1.5 px-1">
-                            <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: (c || "#888") + "20", color: c || "#888" }}>{p[1]}</span>
-                          </td>
-                        )}
-                        <td className="text-right py-1.5 px-1 font-bold">{p[7]}</td>
-                        <td className="text-right py-1.5 px-1">{p[8]}</td>
-                        <td className="text-right py-1.5 px-1">{p[10]}</td>
-                        <td className="text-right py-1.5 px-1">{p[9]}</td>
-                        <td className="text-right py-1.5 px-1">{p[11]}</td>
-                        <td className="text-center py-1.5 px-1 text-gray-500">{p[12]}-{p[13]}</td>
-                        <td className="text-center py-1.5 px-1 text-gray-500">{p[14]}-{p[15]}</td>
-                        <td className="text-center py-1.5 px-1 text-gray-500">{p[16]}-{p[17]}</td>
-                        <td className="text-right py-1.5 px-1 text-gray-400">{p[18]}</td>
-                      </tr>
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {selGame === null && (
         <div className="text-center py-6 text-sm text-gray-400">Select a game above to see player stats</div>
@@ -14984,6 +14982,7 @@ function ScheduleView() {
   }, []);
 
   const [expandedGame, setExpandedGame] = useState(null);
+  const [fullBoxKey, setFullBoxKey] = useState(null);
 
   // Top performers per game from GAME_LOG
   const getGamePerformers = useCallback((week, t1, t2) => {
@@ -15137,6 +15136,9 @@ function ScheduleView() {
                       {isExpanded && !g.forfeit && (() => {
                         const perf = getGamePerformers(week.num, g.t1, g.t2);
                         const pct = (m, a) => a > 0 ? Math.round(m / a * 100) + "%" : "—";
+                        const t1Full = GAME_LOG.filter(r => r[20] === 2025 && r[1] === g.t1 && r[2] === g.t2 && r[3] === week.num && r[6] === 1);
+                        const t2Full = GAME_LOG.filter(r => r[20] === 2025 && r[1] === g.t2 && r[2] === g.t1 && r[3] === week.num && r[6] === 1);
+                        const boxOpen = fullBoxKey === gameKey;
 
                         const PlayerRow = ({ p }) => (
                           <div className="flex items-start gap-2 mb-2">
@@ -15213,6 +15215,22 @@ function ScheduleView() {
                               <CompRow label="BLK" v1={perf.s1.blk} v2={perf.s2.blk} />
                               <CompRow label="FOUL" v1={perf.s1.foul} v2={perf.s2.foul} />
                             </div>
+
+                            {/* Full box score */}
+                            {(t1Full.length > 0 || t2Full.length > 0) && (
+                              <div className="mt-3 pt-3 border-t border-gray-200">
+                                <button onClick={() => setFullBoxKey(boxOpen ? null : gameKey)}
+                                  className="w-full text-center text-[11px] font-bold rounded-lg py-1.5 bg-gray-100 text-gray-600 active:bg-gray-200">
+                                  {boxOpen ? "Hide full box score" : "Show full box score"}
+                                </button>
+                                {boxOpen && (
+                                  <div className="mt-3 bg-white rounded-xl border border-gray-100 p-3">
+                                    <BoxScoreTable teamCode={g.t1} teamLabel={TEAM_NAMES[g.t1] || g.t1} score={g.s1} players={t1Full} />
+                                    <BoxScoreTable teamCode={g.t2} teamLabel={TEAM_NAMES[g.t2] || g.t2} score={g.s2} players={t2Full} />
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
