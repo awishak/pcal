@@ -1823,6 +1823,8 @@ function LiveGameView({ gameId, me, onLogin, onBack }) {
         currentHalf={currentHalf}
         topScorerByTeam={topScorerByTeam}
         events={events}
+        box={box}
+        rosters={rosters}
       />
 
       {/* Admin: reset a game (started by mistake, or a finished-but-not-yet-
@@ -1932,7 +1934,7 @@ function BackRow({ onBack }) {
 // ============================================================
 // Scoreboard (big top display)
 // ============================================================
-function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf, topScorerByTeam, events }) {
+function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf, topScorerByTeam, events, box = {}, rosters = {} }) {
   const home = game.home_team;
   const away = game.away_team;
   const hs = teamScore[home] || 0;
@@ -1942,6 +1944,25 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
 
   const homeFouls = teamFoulsThisHalf?.[currentHalf]?.[home] || 0;
   const awayFouls = teamFoulsThisHalf?.[currentHalf]?.[away] || 0;
+
+  // Top 3 performers across both teams, ranked by Game Score.
+  const jerseyByName = {};
+  [...(rosters.away || []), ...(rosters.home || [])].forEach(r => { jerseyByName[r.player_name] = r.jersey_number; });
+  const top3 = Object.entries(box)
+    .map(([name, s]) => ({ name, ...s, gmsc: computeGmSc(s) }))
+    .filter(p => p.pts || p.reb || p.ast || p.stl || p.blk)
+    .sort((a, b) => b.gmsc - a.gmsc)
+    .slice(0, 3);
+
+  const scoreBlock = (team, score) => (
+    <div className="rounded-xl px-2 py-1.5 bg-gray-50 border border-gray-100 text-center">
+      <div className="flex items-center justify-center gap-1 mb-0.5">
+        <TeamLogoLocal team={team} size={18} />
+        <span className="text-[11px] font-black text-gray-900 truncate">{TEAM_NAMES[team] || team}</span>
+      </div>
+      <div className="text-3xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</div>
+    </div>
+  );
 
   const [logExpanded, setLogExpanded] = useState(false);
 
@@ -2085,13 +2106,44 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
              <span className="text-gray-400">SCHEDULED</span>}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          {/* Away */}
-          <TeamScorePanel team={away} score={as} color={awayColor}
-            fouls={awayFouls} topScorer={topScorerByTeam[away]} />
-          {/* Home */}
-          <TeamScorePanel team={home} score={hs} color={homeColor}
-            fouls={homeFouls} topScorer={topScorerByTeam[home]} />
+        <div className="flex gap-3 items-stretch">
+          {/* Left: top 3 performers by Game Score */}
+          <div className="flex-1 min-w-0">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Top Performers</div>
+            {top3.length === 0 ? (
+              <div className="text-[11px] text-gray-400 py-3">No stats yet.</div>
+            ) : (
+              <div className="space-y-1.5">
+                {top3.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5">
+                    <PlayerAvatar name={p.name} team={p.team} size={34} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-black text-gray-900 truncate">{formatName(p.name)}</span>
+                        <span className="text-[9px] font-bold text-gray-400 whitespace-nowrap">{jerseyByName[p.name] ? `#${jerseyByName[p.name]} ` : ""}{p.team}</span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 font-semibold tabular-nums mt-0.5">
+                        <span className="text-gray-900 font-black">{p.pts}</span> PTS
+                        <span className="text-gray-300"> · </span>{p.reb} REB
+                        <span className="text-gray-300"> · </span>{p.ast} AST
+                        {p.stl > 0 && <><span className="text-gray-300"> · </span>{p.stl} STL</>}
+                        {p.blk > 0 && <><span className="text-gray-300"> · </span>{p.blk} BLK</>}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-[8px] text-gray-400 font-bold uppercase tracking-wide">GmSc</div>
+                      <div className="text-sm font-black text-gray-900 tabular-nums leading-none">{p.gmsc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Right: stacked scores */}
+          <div className="w-24 flex-shrink-0 flex flex-col justify-center gap-2">
+            {scoreBlock(away, as)}
+            {scoreBlock(home, hs)}
+          </div>
         </div>
 
         {/* Quarter scores summary */}
