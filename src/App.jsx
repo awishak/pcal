@@ -9886,10 +9886,10 @@ function BoxScoreTable({ teamCode, teamLabel, score, players }) {
   }, { pts: 0, reb: 0, stl: 0, ast: 0, blk: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0, foul: 0 });
   const pct = (m, a) => a > 0 ? Math.round(m / a * 100) + "%" : "—";
   const rows = [...players].sort((a, b) => b[7] - a[7]);
-  const th = "text-right py-2 px-2 font-semibold";
-  const td = "text-right py-2.5 px-2 text-gray-900";
+  const th = "text-right py-1 px-2 font-semibold";
+  const td = "text-right py-1 px-2 text-gray-900";
   return (
-    <div className="mb-4 last:mb-0">
+    <div className="mb-3 last:mb-0">
       {/* Team header */}
       <div className="flex items-center gap-2 mb-1.5">
         <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
@@ -9900,7 +9900,7 @@ function BoxScoreTable({ teamCode, teamLabel, score, players }) {
         <table className="w-full text-[13px] tabular-nums">
           <thead>
             <tr className="text-gray-400 text-[10px] uppercase tracking-wide border-b border-gray-200">
-              <th className="text-left py-2 pr-3 font-semibold sticky left-0 bg-white">Player</th>
+              <th className="text-left py-1 pr-3 font-semibold sticky left-0 bg-white">Player</th>
               <th className={th}>FG</th>
               <th className={th}>3PT</th>
               <th className={th}>FT</th>
@@ -9909,40 +9909,40 @@ function BoxScoreTable({ teamCode, teamLabel, score, players }) {
               <th className={th}>STL</th>
               <th className={th}>BLK</th>
               <th className={th}>PF</th>
-              <th className="text-right py-2 pl-2 font-bold text-gray-500">PTS</th>
+              <th className="text-right py-1 pl-2 font-bold text-gray-500">PTS</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((p, i) => (
               <tr key={i} className="border-b border-gray-50">
-                <td className="py-2.5 pr-3 font-semibold text-gray-900 whitespace-nowrap sticky left-0 bg-white">{formatName(p[0])}</td>
-                <td className="text-right py-2.5 px-2 text-gray-600">{p[12]}-{p[13]}</td>
-                <td className="text-right py-2.5 px-2 text-gray-600">{p[16]}-{p[17]}</td>
-                <td className="text-right py-2.5 px-2 text-gray-600">{p[14]}-{p[15]}</td>
+                <td className="py-1 pr-3 font-semibold text-gray-900 whitespace-nowrap sticky left-0 bg-white">{formatName(p[0])}</td>
+                <td className="text-right py-1 px-2 text-gray-600">{p[12]}-{p[13]}</td>
+                <td className="text-right py-1 px-2 text-gray-600">{p[16]}-{p[17]}</td>
+                <td className="text-right py-1 px-2 text-gray-600">{p[14]}-{p[15]}</td>
                 <td className={td}>{p[8]}</td>
                 <td className={td}>{p[10]}</td>
                 <td className={td}>{p[9]}</td>
                 <td className={td}>{p[11]}</td>
-                <td className="text-right py-2.5 px-2 text-gray-400">{p[18]}</td>
-                <td className="text-right py-2.5 pl-2 font-black text-gray-900 text-[15px]">{p[7]}</td>
+                <td className="text-right py-1 px-2 text-gray-400">{p[18]}</td>
+                <td className="text-right py-1 pl-2 font-black text-gray-900 text-[15px]">{p[7]}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-gray-300 font-black text-gray-900">
-              <td className="py-2 pr-3 sticky left-0 bg-white text-[11px] uppercase tracking-wide text-gray-500">Totals</td>
-              <td className="text-right py-2 px-2">{tot.fgm}-{tot.fga}</td>
-              <td className="text-right py-2 px-2">{tot.tpm}-{tot.tpa}</td>
-              <td className="text-right py-2 px-2">{tot.ftm}-{tot.fta}</td>
-              <td className="text-right py-2 px-2">{tot.reb}</td>
-              <td className="text-right py-2 px-2">{tot.ast}</td>
-              <td className="text-right py-2 px-2">{tot.stl}</td>
-              <td className="text-right py-2 px-2">{tot.blk}</td>
-              <td className="text-right py-2 px-2">{tot.foul}</td>
-              <td className="text-right py-2 pl-2 text-[15px]">{tot.pts}</td>
+              <td className="py-1 pr-3 sticky left-0 bg-white text-[11px] uppercase tracking-wide text-gray-500">Totals</td>
+              <td className="text-right py-1 px-2">{tot.fgm}-{tot.fga}</td>
+              <td className="text-right py-1 px-2">{tot.tpm}-{tot.tpa}</td>
+              <td className="text-right py-1 px-2">{tot.ftm}-{tot.fta}</td>
+              <td className="text-right py-1 px-2">{tot.reb}</td>
+              <td className="text-right py-1 px-2">{tot.ast}</td>
+              <td className="text-right py-1 px-2">{tot.stl}</td>
+              <td className="text-right py-1 px-2">{tot.blk}</td>
+              <td className="text-right py-1 px-2">{tot.foul}</td>
+              <td className="text-right py-1 pl-2 text-[15px]">{tot.pts}</td>
             </tr>
-            <tr className="text-gray-400 text-[10px]">
-              <td className="py-1 pr-3 sticky left-0 bg-white uppercase tracking-wide">Pct</td>
+            <tr className="bg-gray-50 text-gray-900 font-bold text-[12px]">
+              <td className="py-1 pr-3 sticky left-0 bg-gray-50 uppercase tracking-wide text-[10px] text-gray-400">Pct</td>
               <td className="text-right py-1 px-2">{pct(tot.fgm, tot.fga)}</td>
               <td className="text-right py-1 px-2">{pct(tot.tpm, tot.tpa)}</td>
               <td className="text-right py-1 px-2">{pct(tot.ftm, tot.fta)}</td>
