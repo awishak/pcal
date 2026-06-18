@@ -2246,14 +2246,14 @@ function TeamScorePanel({ team, score, color, fouls, topScorer }) {
   const foulRed = fouls >= 10;
   const fullName = TEAM_NAMES[team] || team;
   return (
-    <div className="rounded-xl p-3 bg-gray-50 border border-gray-100 flex flex-col items-center text-center">
-      <TeamLogoLocal team={team} size={36} />
-      <div className="mt-1 text-base font-black text-gray-900 truncate w-full">{fullName}</div>
-      <div className="mt-1 text-5xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</div>
-      <div className="mt-2 text-xs">
-        <span className={`font-bold ${foulRed ? "text-red-600" : "text-gray-500"}`}>
-          FOULS {fouls}
-        </span>
+    <div className="rounded-xl px-3 py-2 bg-gray-50 border border-gray-100">
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <TeamLogoLocal team={team} size={22} />
+        <span className="text-xs font-black text-gray-900 truncate flex-1 min-w-0">{fullName}</span>
+      </div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-4xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</span>
+        <span className={`text-[10px] font-bold whitespace-nowrap ${foulRed ? "text-red-600" : "text-gray-400"}`}>FOULS {fouls}</span>
       </div>
     </div>
   );
@@ -3387,7 +3387,7 @@ function BoxScoreView({ game, box, rosters }) {
     Object.entries(box).forEach(([n, s]) => {
       if (s.team === team && !nameSet.has(n)) rows.push({ name: n, ...s });
     });
-    return rows;
+    return rows.sort((a, b) => (b.pts || 0) - (a.pts || 0));
   };
 
   const awayRows = getRows(game.away_team, rosters.away);
