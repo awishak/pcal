@@ -9877,8 +9877,8 @@ function GameLeadersView({ goToPlayer }) {
 
 
 // ESPN-style per-team box score table. `players` are GAME_LOG-index rows for one team.
-function BoxScoreTable({ teamCode, teamLabel, score, players }) {
-  const c = TEAM_COLORS[teamCode] || "#111827";
+function BoxScoreTable({ teamCode, teamLabel, score, players, year }) {
+  const label = TEAM_FULL_NAMES[teamCode] || teamLabel;
   const tot = players.reduce((s, p) => {
     s.pts += p[7]; s.reb += p[8]; s.stl += p[9]; s.ast += p[10]; s.blk += p[11];
     s.fgm += p[12]; s.fga += p[13]; s.ftm += p[14]; s.fta += p[15]; s.tpm += p[16]; s.tpa += p[17]; s.foul += p[18];
@@ -9892,8 +9892,8 @@ function BoxScoreTable({ teamCode, teamLabel, score, players }) {
     <div className="mb-3 last:mb-0">
       {/* Team header */}
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
-        <span className="text-sm font-bold text-gray-900 flex-1 min-w-0 truncate">{teamLabel}</span>
+        <TeamLogo team={teamCode} year={year} size={22} />
+        <span className="text-sm font-bold text-gray-900 flex-1 min-w-0 truncate">{label}</span>
         <span className="text-2xl font-black text-gray-900 tabular-nums leading-none">{score}</span>
       </div>
       <div className="overflow-x-auto -mx-4 px-4">
@@ -10056,8 +10056,8 @@ function GameStatsView() {
         const t2Players = gm.players.filter(p => p[1] === gm.t2);
         return (
           <div>
-            <BoxScoreTable teamCode={gm.t1} teamLabel={getTeamDisplay(gm.t1, selYear)} score={gm.s1} players={t1Players} />
-            <BoxScoreTable teamCode={gm.t2} teamLabel={getTeamDisplay(gm.t2, selYear)} score={gm.s2} players={t2Players} />
+            <BoxScoreTable teamCode={gm.t1} teamLabel={getTeamDisplay(gm.t1, selYear)} score={gm.s1} players={t1Players} year={selYear} />
+            <BoxScoreTable teamCode={gm.t2} teamLabel={getTeamDisplay(gm.t2, selYear)} score={gm.s2} players={t2Players} year={selYear} />
           </div>
         );
       })()}
@@ -15225,8 +15225,8 @@ function ScheduleView() {
                                 </button>
                                 {boxOpen && (
                                   <div className="mt-3 bg-white rounded-xl border border-gray-100 p-3">
-                                    <BoxScoreTable teamCode={g.t1} teamLabel={TEAM_NAMES[g.t1] || g.t1} score={g.s1} players={t1Full} />
-                                    <BoxScoreTable teamCode={g.t2} teamLabel={TEAM_NAMES[g.t2] || g.t2} score={g.s2} players={t2Full} />
+                                    <BoxScoreTable teamCode={g.t1} teamLabel={TEAM_NAMES[g.t1] || g.t1} score={g.s1} players={t1Full} year={2025} />
+                                    <BoxScoreTable teamCode={g.t2} teamLabel={TEAM_NAMES[g.t2] || g.t2} score={g.s2} players={t2Full} year={2025} />
                                   </div>
                                 )}
                               </div>

@@ -60,6 +60,14 @@ const TEAM_NAMES = {
   SJK: "Knights", SJO: "San Jose", SRA: "San Ramon",
 };
 
+// Full franchise names (city + mascot) for the 2026 teams. Falls back to
+// TEAM_NAMES for historical teams without a current franchise name.
+const TEAM_FULL_NAMES = {
+  HAY: "Hayward Monks", SAC: "Sacramento Halos", SJO: "San Jose Dragon Slayers",
+  PLE: "Pleasanton Eagles", PDF: "Pacific Desert Fathers", MOD: "Modesto Lions",
+};
+const teamFullName = (team) => TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team;
+
 const TEAM_COLORS = {
   SAC: "#7c3aed",
   PDF: "#0d9488",
@@ -3392,8 +3400,8 @@ function BoxScoreView({ game, box, rosters }) {
   const renderTeam = (team, rows, tot) => (
     <div className="mb-3">
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: TEAM_COLORS[team] || "#111827" }} />
-        <span className="text-sm font-bold text-gray-900 flex-1 min-w-0 truncate">{TEAM_NAMES[team] || team}</span>
+        <TeamLogoLocal team={team} size={22} />
+        <span className="text-sm font-bold text-gray-900 flex-1 min-w-0 truncate">{teamFullName(team)}</span>
         <span className="text-2xl font-black text-gray-900 tabular-nums leading-none">{tot.pts}</span>
       </div>
       {rows.length === 0 ? (
