@@ -2246,15 +2246,13 @@ function TeamScorePanel({ team, score, color, fouls, topScorer }) {
   const foulRed = fouls >= 10;
   const fullName = TEAM_NAMES[team] || team;
   return (
-    <div className="rounded-xl px-3 py-2 bg-gray-50 border border-gray-100">
-      <div className="flex items-center gap-1.5 mb-0.5">
+    <div className="rounded-xl px-3 py-2 bg-gray-50 border border-gray-100 text-center">
+      <div className="flex items-center justify-center gap-1.5 mb-0.5">
         <TeamLogoLocal team={team} size={22} />
-        <span className="text-xs font-black text-gray-900 truncate flex-1 min-w-0">{fullName}</span>
+        <span className="text-base font-black text-gray-900 truncate">{fullName}</span>
       </div>
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-4xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</span>
-        <span className={`text-[10px] font-bold whitespace-nowrap ${foulRed ? "text-red-600" : "text-gray-400"}`}>FOULS {fouls}</span>
-      </div>
+      <div className="text-4xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</div>
+      <div className={`text-[10px] font-bold mt-1 ${foulRed ? "text-red-600" : "text-gray-400"}`}>FOULS {fouls}</div>
     </div>
   );
 }
