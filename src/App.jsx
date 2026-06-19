@@ -16,35 +16,7 @@ import {
   onAuthStateChange, loadCurrentUserRoles, verifyCommissionerPassword,
 } from "./supabase.js";
 import LiveSection from "./LiveSection.jsx";
-
-const PLAYER_MERGE = {
-  "HANNA JOHN": "RAMZY HANNA JOHN",
-  "RAMZY JOHN": "RAMZY HANNA JOHN",
-  "MASDARY JOSHUA": "MASDARY JOSH",
-  "BOTROS JOHN": "BOTROS JOHNNY",
-  "MOUSSA ANTHONY": "MOUSSA TONY",
-  "MALEK CHRIS": "MALEK CHRISTOPHER",
-  "GUIRGUIS KIROLOUS": "GUIRGUIS KIRO",
-  "GUIRGUIS  KIRO": "GUIRGUIS KIRO",
-  "OKI CHRISTOPHER": "OKI CHRIS",
-  "ROUHANI DAVE": "ROUHANI DAVID",
-  "ELIA STEVE": "ELIA STEPHEN",
-  "MALEK JOHNNY": "MALEK JOHN",
-  "ABDELSHAID  MOSES": "ABDELSHAID MOSES",
-  "SAWIRIS RAFY": "SAWIRIS RAFAEL",
-  "AGAIBY MATTHEW": "GEBRAEIL MATTHEW",
-  // Phase 3 alias merges (game_log spelling -> canonical display name).
-  "FARAG PAVLY": "ATALLAH PAVLY",
-  "HANNA JOSEPH": "HANNA JOE",
-  "EKDAWY ANGELINA": "EKDAWY ANGIE",
-  "MICHAEL JAMES": "MICHAEL JIMMY",
-  "ABDELSHAHID LANS": "ABDELSHAHID LANCE",
-  "ABDELSHAID  JOSH": "ABDELSHAID JOSHUA",
-  "ESTEFAN FADI": "ESTEFAN FADY",
-  "JONATHAN KALDANI": "KALDANI JONATHAN",
-  "NAKHLA GUEST BESADA": "GUEST NAKHLA BESADA",
-  "SAWIRIS 23": "GUEST SAWIRIS",
-};
+import { PLAYER_MERGE } from "./playerNames.js";
 // Season data is derived from GAME_LOG once it loads, by rebuildDerived().
 // These start empty and are populated when installGameLog() runs on mount.
 let DATA = [];
@@ -9880,13 +9852,23 @@ function GameLeadersView({ goToPlayer }) {
 // ESPN-style per-team box score table. `players` are GAME_LOG-index rows for one team.
 function BoxScoreTable({ teamCode, teamLabel, score, players, year }) {
   const label = TEAM_FULL_NAMES[teamCode] || teamLabel;
-  const tot = players.reduce((s, p) => {
+  // Combine rows that share a player name into one line. Alias merges can
+  // leave two game_log rows for the same person in a single game; sum their
+  // stat columns so the box shows one row.
+  const STAT_IDX = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+  const mergedPlayers = Object.values(players.reduce((acc, p) => {
+    const k = p[0];
+    if (!acc[k]) acc[k] = [...p];
+    else STAT_IDX.forEach(i => { acc[k][i] = (acc[k][i] || 0) + (p[i] || 0); });
+    return acc;
+  }, {}));
+  const tot = mergedPlayers.reduce((s, p) => {
     s.pts += p[7]; s.reb += p[8]; s.stl += p[9]; s.ast += p[10]; s.blk += p[11];
     s.fgm += p[12]; s.fga += p[13]; s.ftm += p[14]; s.fta += p[15]; s.tpm += p[16]; s.tpa += p[17]; s.foul += p[18];
     return s;
   }, { pts: 0, reb: 0, stl: 0, ast: 0, blk: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0, foul: 0 });
   const pct = (m, a) => a > 0 ? Math.round(m / a * 100) + "%" : "—";
-  const rows = [...players].sort((a, b) => b[7] - a[7]);
+  const rows = [...mergedPlayers].sort((a, b) => b[7] - a[7]);
   const th = "text-right py-1 px-2 font-semibold";
   const td = "text-right py-1 px-2 text-gray-900";
   return (

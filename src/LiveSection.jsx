@@ -25,6 +25,7 @@ import React, { useEffect, useMemo, useState, useCallback, useRef, createContext
 import { supabase, adminInsertGameLog, adminDeleteGameLogForGame, fetchGameLogForGame, adminUpdateScheduleGame, bumpGameLogCache,
   requestLoginCode, verifyLoginCode, signOutUser, getCurrentSession, onAuthStateChange } from "./supabase.js";
 import { locationAddress, mapsUrl } from "./locations.js";
+import { canonicalKey } from "./playerNames.js";
 
 // Renders a location name with a tappable Google Maps link to its address
 // (when known). Used in week headers so players can navigate to the venue.
@@ -1755,16 +1756,23 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
       });
       if (cancelled) return;
       if (!rows.length) { setOfficialBox(null); setOfficialTeamScore(null); return; }
+      // Group rows by canonical name so alias duplicates (e.g. a reversed/
+      // misspelled spelling of the same player) combine into one line. The
+      // display key prefers the spelling that matches the canonical name.
+      const groups = {};
+      rows.forEach(r => { const k = canonicalKey(r.player); (groups[k] = groups[k] || []).push(r); });
       const ob = {};
       const ts = {};
-      rows.forEach(r => {
-        ob[r.player] = {
-          team: r.team,
-          pts: r.pts || 0, reb: r.reb || 0, ast: r.ast || 0, stl: r.stl || 0, blk: r.blk || 0,
-          fgm: r.fgm || 0, fga: r.fga || 0, tpm: r.tpm || 0, tpa: r.tpa || 0,
-          ftm: r.ftm || 0, fta: r.fta || 0, foul: r.foul || 0,
-        };
-        ts[r.team] = (ts[r.team] || 0) + (r.pts || 0);
+      Object.entries(groups).forEach(([canon, grp]) => {
+        const display = (grp.find(r => (r.player || "").toUpperCase() === canon) || grp[0]).player;
+        const team = grp[0].team;
+        const sum = { team, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, foul: 0 };
+        grp.forEach(r => {
+          sum.pts += r.pts || 0; sum.reb += r.reb || 0; sum.ast += r.ast || 0; sum.stl += r.stl || 0; sum.blk += r.blk || 0;
+          sum.fgm += r.fgm || 0; sum.fga += r.fga || 0; sum.tpm += r.tpm || 0; sum.tpa += r.tpa || 0; sum.ftm += r.ftm || 0; sum.fta += r.fta || 0; sum.foul += r.foul || 0;
+        });
+        ob[display] = sum;
+        ts[team] = (ts[team] || 0) + sum.pts;
       });
       setOfficialBox(ob);
       setOfficialTeamScore(ts);
@@ -2001,12 +2009,12 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
     .slice(0, 3);
 
   const scoreBlock = (team, score) => (
-    <div className="rounded-xl px-2 py-1.5 bg-gray-50 border border-gray-100 text-center">
-      <div className="flex items-center justify-center gap-1 mb-0.5">
-        <TeamLogoLocal team={team} size={18} />
-        <span className="text-[11px] font-black text-gray-900 truncate">{TEAM_NAMES[team] || team}</span>
+    <div className="rounded-xl px-3 py-2.5 bg-gray-50 border border-gray-100 text-center">
+      <div className="flex items-center justify-center gap-1.5 mb-1">
+        <TeamLogoLocal team={team} size={26} />
+        <span className="text-sm font-black text-gray-900 truncate">{TEAM_NAMES[team] || team}</span>
       </div>
-      <div className="text-3xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</div>
+      <div className="text-5xl font-black text-gray-900 leading-none tracking-tight tabular-nums">{score}</div>
     </div>
   );
 
@@ -2152,44 +2160,39 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
              <span className="text-gray-400">SCHEDULED</span>}
           </div>
         </div>
-        <div className="flex gap-3 items-stretch">
-          {/* Left: top 3 performers by Game Score */}
-          <div className="flex-1 min-w-0">
-            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Top Performers</div>
-            {top3.length === 0 ? (
-              <div className="text-[11px] text-gray-400 py-3">No stats yet.</div>
-            ) : (
-              <div className="space-y-1.5">
-                {top3.map((p, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5">
-                    <PlayerAvatar name={p.name} team={p.team} size={34} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs font-black text-gray-900 truncate">{formatName(p.name)}</span>
-                        <span className="text-[9px] font-bold text-gray-400 whitespace-nowrap">{jerseyByName[p.name] ? `#${jerseyByName[p.name]} ` : ""}{p.team}</span>
-                      </div>
-                      <div className="text-[10px] text-gray-500 font-semibold tabular-nums mt-0.5">
-                        <span className="text-gray-900 font-black">{p.pts}</span> PTS
-                        <span className="text-gray-300"> · </span>{p.reb} REB
-                        <span className="text-gray-300"> · </span>{p.ast} AST
-                        {p.stl > 0 && <><span className="text-gray-300"> · </span>{p.stl} STL</>}
-                        {p.blk > 0 && <><span className="text-gray-300"> · </span>{p.blk} BLK</>}
-                      </div>
+        {/* Scores side by side on top */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          {scoreBlock(away, as)}
+          {scoreBlock(home, hs)}
+        </div>
+
+        {/* Top 3 performers (chosen by Game Score) below */}
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Top Performers</div>
+          {top3.length === 0 ? (
+            <div className="text-[11px] text-gray-400 py-3">No stats yet.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {top3.map((p, i) => (
+                <div key={i} className="flex items-center gap-2.5 rounded-xl bg-gray-50 border border-gray-100 px-2.5 py-2">
+                  <PlayerAvatar name={p.name} team={p.team} size={38} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-sm font-black text-gray-900 truncate">{formatName(p.name)}</span>
+                      <span className="text-[10px] font-bold text-gray-400 whitespace-nowrap">{jerseyByName[p.name] ? `#${jerseyByName[p.name]} ` : ""}{p.team}</span>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="text-[8px] text-gray-400 font-bold uppercase tracking-wide">GmSc</div>
-                      <div className="text-sm font-black text-gray-900 tabular-nums leading-none">{p.gmsc}</div>
+                    <div className="text-[11px] text-gray-500 font-semibold tabular-nums mt-0.5">
+                      <span className="text-gray-900 font-black">{p.pts}</span> PTS
+                      <span className="text-gray-300"> · </span>{p.reb} REB
+                      <span className="text-gray-300"> · </span>{p.ast} AST
+                      {p.stl > 0 && <><span className="text-gray-300"> · </span>{p.stl} STL</>}
+                      {p.blk > 0 && <><span className="text-gray-300"> · </span>{p.blk} BLK</>}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {/* Right: stacked scores */}
-          <div className="w-24 flex-shrink-0 flex flex-col justify-center gap-2">
-            {scoreBlock(away, as)}
-            {scoreBlock(home, hs)}
-          </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quarter scores summary */}
