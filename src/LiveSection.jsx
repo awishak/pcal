@@ -2172,23 +2172,22 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
           {top3.length === 0 ? (
             <div className="text-[11px] text-gray-400 py-3">No stats yet.</div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="grid grid-cols-3 gap-2">
               {top3.map((p, i) => (
-                <div key={i} className="flex items-center gap-2.5 rounded-xl bg-gray-50 border border-gray-100 px-2.5 py-2">
-                  <PlayerAvatar name={p.name} team={p.team} size={38} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-sm font-black text-gray-900 truncate">{formatName(p.name)}</span>
-                      <span className="text-[10px] font-bold text-gray-400 whitespace-nowrap">{jerseyByName[p.name] ? `#${jerseyByName[p.name]} ` : ""}{p.team}</span>
-                    </div>
-                    <div className="text-[11px] text-gray-500 font-semibold tabular-nums mt-0.5">
-                      <span className="text-gray-900 font-black">{p.pts}</span> PTS
-                      <span className="text-gray-300"> · </span>{p.reb} REB
-                      <span className="text-gray-300"> · </span>{p.ast} AST
-                      {p.stl > 0 && <><span className="text-gray-300"> · </span>{p.stl} STL</>}
-                      {p.blk > 0 && <><span className="text-gray-300"> · </span>{p.blk} BLK</>}
-                    </div>
+                <div key={i} className="rounded-xl bg-gray-50 border border-gray-100 p-2 flex flex-col items-center text-center">
+                  <PlayerAvatar name={p.name} team={p.team} size={40} />
+                  <div className="mt-1 text-[11px] font-black text-gray-900 truncate w-full leading-tight">{formatName(p.name)}</div>
+                  <div className="text-[9px] font-bold text-gray-400 truncate w-full">{jerseyByName[p.name] ? `#${jerseyByName[p.name]} ` : ""}{p.team}</div>
+                  <div className="mt-1 leading-none">
+                    <span className="text-lg font-black text-gray-900 tabular-nums">{p.pts}</span>
+                    <span className="text-[8px] font-bold text-gray-400"> PTS</span>
                   </div>
+                  <div className="text-[9px] text-gray-500 font-semibold tabular-nums leading-tight">{p.reb} REB · {p.ast} AST</div>
+                  {(p.stl > 0 || p.blk > 0) && (
+                    <div className="text-[9px] text-gray-500 font-semibold tabular-nums leading-tight">
+                      {[p.stl > 0 ? `${p.stl} STL` : null, p.blk > 0 ? `${p.blk} BLK` : null].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
