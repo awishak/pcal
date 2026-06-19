@@ -3513,6 +3513,7 @@ function AppInner() {
             onConsumeInitialGameId={() => setLiveInitialGameId(null)}
             logos={TEAM_LOGOS_CURRENT}
             scheduleWarning={scheduleWarning}
+            isAdmin={isAdminView}
           />
         )}
         {tab === "watch" && (

@@ -812,6 +812,22 @@ export async function adminInsertGameLog(rows) {
   return data;
 }
 
+// Read the committed game_log rows for a single game. game_log has no
+// game_id, so we match by the same proxy used for delete: year + week +
+// date + the specific matchup (both directions). Public read RLS allows
+// this without auth. Returns raw row objects ([] on error).
+export async function fetchGameLogForGame({ year, week, date, homeTeam, awayTeam }) {
+  const { data, error } = await supabase
+    .from("game_log")
+    .select("*")
+    .eq("year", year)
+    .eq("week", week)
+    .eq("date", date)
+    .or(`and(team.eq.${homeTeam},opp.eq.${awayTeam}),and(team.eq.${awayTeam},opp.eq.${homeTeam})`);
+  if (error) { console.error("fetchGameLogForGame error:", error); return []; }
+  return data || [];
+}
+
 export async function adminDeleteGameLogForGame({ year, week, date, homeTeam, awayTeam }) {
   const { data, error } = await supabase.rpc("admin_delete_game_log_for_game", {
     p_year: year,
