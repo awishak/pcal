@@ -2173,23 +2173,29 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
             <div className="text-[11px] text-gray-400 py-3">No stats yet.</div>
           ) : (
             <div className="grid grid-cols-3 gap-2">
-              {top3.map((p, i) => (
-                <div key={i} className="rounded-xl bg-gray-50 border border-gray-100 p-2 flex flex-col items-center text-center">
-                  <PlayerAvatar name={p.name} team={p.team} size={40} />
-                  <div className="mt-1 text-[11px] font-black text-gray-900 truncate w-full leading-tight">{formatName(p.name)}</div>
-                  <div className="text-[9px] font-bold text-gray-400 truncate w-full">{jerseyByName[p.name] ? `#${jerseyByName[p.name]} ` : ""}{p.team}</div>
-                  <div className="mt-1 leading-none">
-                    <span className="text-lg font-black text-gray-900 tabular-nums">{p.pts}</span>
-                    <span className="text-[8px] font-bold text-gray-400"> PTS</span>
-                  </div>
-                  <div className="text-[9px] text-gray-500 font-semibold tabular-nums leading-tight">{p.reb} REB · {p.ast} AST</div>
-                  {(p.stl > 0 || p.blk > 0) && (
-                    <div className="text-[9px] text-gray-500 font-semibold tabular-nums leading-tight">
-                      {[p.stl > 0 ? `${p.stl} STL` : null, p.blk > 0 ? `${p.blk} BLK` : null].filter(Boolean).join(" · ")}
+              {top3.map((p, i) => {
+                // Only show stats the player actually recorded, so cards don't
+                // read "0 AST". FG is always shown (shooting is meaningful even
+                // when the other counting stats are empty).
+                const counts = [];
+                if (p.reb) counts.push(`${p.reb} REB`);
+                if (p.ast) counts.push(`${p.ast} AST`);
+                if (p.stl) counts.push(`${p.stl} STL`);
+                if (p.blk) counts.push(`${p.blk} BLK`);
+                return (
+                  <div key={i} className="rounded-xl bg-gray-50 border border-gray-100 p-2 flex flex-col items-center text-center">
+                    <PlayerAvatar name={p.name} team={p.team} size={42} />
+                    <div className="mt-1 text-xs font-black text-gray-900 truncate w-full leading-tight">{formatName(p.name)}</div>
+                    <div className="text-[10px] font-bold text-gray-400 truncate w-full">{jerseyByName[p.name] ? `#${jerseyByName[p.name]} ` : ""}{p.team}</div>
+                    <div className="mt-1 leading-none">
+                      <span className="text-xl font-black text-gray-900 tabular-nums">{p.pts}</span>
+                      <span className="text-[10px] font-bold text-gray-400"> PTS</span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {p.fga > 0 && <div className="text-[11px] text-gray-600 font-semibold tabular-nums leading-tight">{p.fgm}-{p.fga} FG</div>}
+                    {counts.length > 0 && <div className="text-[11px] text-gray-600 font-semibold tabular-nums leading-snug">{counts.join(" · ")}</div>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
