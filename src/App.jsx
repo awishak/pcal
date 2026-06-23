@@ -10261,8 +10261,8 @@ const SCHEDULE_2026 = [
       { time: "3:00 PM", t1: "PLE", t2: "SAC", scoredBy: "HAY", meeting: "1st meeting" },
       { time: "4:00 PM", t1: "SJO", t2: "HAY", scoredBy: "PLE", meeting: "REMATCH" },
       { time: "5:00 PM", t1: "SAC", t2: "PDF", scoredBy: "SJO", meeting: "1st meeting" },
-      { time: "6:00 PM", t1: "HAY", t2: "PLE", scoredBy: "PDF", meeting: "REMATCH" },
-      { time: "7:00 PM", t1: "PDF", t2: "SJO", scoredBy: "SAC", meeting: "1st meeting" },
+      { time: "6:00 PM", t1: "HAY", t2: "PLE", scoredBy: "SAC", meeting: "REMATCH" },
+      { time: "7:00 PM", t1: "PDF", t2: "SJO", scoredBy: "PDF", meeting: "1st meeting" },
     ],
   },
   {
