@@ -3295,6 +3295,14 @@ function AppInner() {
                   {authDisplayName}
                 </span>
               )}
+              {isRealAdmin && (
+                <button
+                  onClick={() => setAdminPreviewMode(m => !m)}
+                  title={adminPreviewMode ? "Admin mode off. Tap to edit this page." : "Admin mode on. Tap to view as a normal user."}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-lg active:scale-[0.98] transition ${!adminPreviewMode ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                  Admin
+                </button>
+              )}
               <button
                 onClick={async () => {
                   setAdminToken(null);
@@ -3443,25 +3451,15 @@ function AppInner() {
                 </div>
               ))}
             </div>
-            <div className="mt-8 pt-4 border-t border-gray-100 text-center">
-              <button
-                onClick={() => {
-                  if (adminUnlocked && isRealAdmin) {
-                    setTab("admin");
-                  } else {
-                    // Remember where we were so we can come back here after login.
-                    try {
-                      window.localStorage.setItem("pcal_pending_section", JSON.stringify({
-                        section, tab, ts: Date.now(),
-                      }));
-                    } catch {}
-                    setAdminPasswordModal(true);
-                  }
-                }}
-                className="text-[10px] text-gray-300 hover:text-gray-500">
-                {adminUnlocked && isRealAdmin ? "Admin Panel" : "Admin"}
-              </button>
-            </div>
+            {isRealAdmin && (
+              <div className="mt-8 pt-4 border-t border-gray-100 text-center">
+                <button
+                  onClick={() => setTab("admin")}
+                  className="text-[10px] text-gray-300 hover:text-gray-500">
+                  Admin Panel
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -11705,9 +11703,6 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-gray-400 uppercase tracking-widest font-medium">Admin Panel</p>
         <div className="flex gap-2">
-          <button onClick={() => setAdminPreviewMode(!adminPreviewMode)} className={`px-2.5 py-1 rounded-lg text-xs font-bold ${adminPreviewMode ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-600"}`}>
-            {adminPreviewMode ? "Preview ON" : "Preview"}
-          </button>
           <button onClick={onLogout} className="px-2.5 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-600">Logout</button>
         </div>
       </div>
@@ -11920,6 +11915,7 @@ function AdminPanel({ registrations, tabVisibility, setTabVisibility, tileStates
 // ========== REGISTRATIONS ADMIN (reads from Supabase) ==========
 function RegistrationsAdminSection() {
   const [rows, setRows] = useState([]);
+  const [rosterRows, setRosterRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState(null);
   const [sortBy, setSortBy] = useState("name"); // "name" | "team" | "age" | "date"
@@ -12019,6 +12015,8 @@ function RegistrationsAdminSection() {
       setLoading(true);
       const data = await adminListRegistrations();
       setRows(data);
+      const { data: roster } = await supabase.from("rosters").select("player_name, team").eq("season", 2026).eq("active", true);
+      setRosterRows(roster || []);
       setLoading(false);
       if (lastSeenAt) {
         const recent = data.filter(r => r.last_edited_by_player_at && new Date(r.last_edited_by_player_at) > new Date(lastSeenAt));
@@ -12050,9 +12048,37 @@ function RegistrationsAdminSection() {
     });
   }, [rows]);
 
+  // Current 2026 team from the rosters table. Roster player_name is "LASTNAME Firstname";
+  // match on last+first case-insensitively, then fall back to a unique last-name match
+  // to tolerate nickname differences (Mike/Michael). Blank if not on any roster.
+  const rosterTeamIndex = useMemo(() => {
+    const byFull = {};
+    const byLast = {};
+    rosterRows.forEach(r => {
+      const name = (r.player_name || "").trim();
+      const parts = name.split(/\s+/);
+      const last = (parts[0] || "").toLowerCase();
+      const first = parts.slice(1).join(" ").toLowerCase();
+      if (last && first) byFull[last + "|" + first] = r.team;
+      if (last) (byLast[last] = byLast[last] || []).push(r.team);
+    });
+    return { byFull, byLast };
+  }, [rosterRows]);
+
+  const currentTeamFor = (r) => {
+    const last = (r.last_name || "").trim().toLowerCase();
+    const first = (r.first_name || "").trim().toLowerCase();
+    if (!last) return "";
+    const full = rosterTeamIndex.byFull[last + "|" + first];
+    if (full) return full;
+    const lastMatches = rosterTeamIndex.byLast[last];
+    if (lastMatches && lastMatches.length === 1) return lastMatches[0];
+    return "";
+  };
+
   const exportCSV = () => {
-    const headers = ["First Name", "Last Name", "Email", "Phone", "DOB", "Age", "Address", "City", "Zip", "Emergency Contact", "Emergency Phone", "Eligibility", "Team Pref", "Reg Basis", "Community Team", "Dates", "Roles", "Buyout", "Email Verified", "Admin Override", "Conflicts", "Created At", "Last Player Edit"];
-    const out = rows.map(r => [r.first_name, r.last_name, r.email, r.phone, r.dob, getAge(r.dob) || "", r.address, r.city, r.zip, r.emergency_contact, r.emergency_phone, r.eligibility, r.team_pref, r.reg_basis, r.community_team, (r.dates || []).join("; "), (r.roles || []).join("; "), r.buyout_volunteer ? "Yes" : "No", r.email_verified ? "Yes" : "No", r.admin_override ? "Yes" : "No", r.conflicts_note || "", r.created_at || "", r.last_edited_by_player_at || ""]);
+    const headers = ["First Name", "Last Name", "Current Team", "Email", "Phone", "DOB", "Age", "Address", "City", "Zip", "Emergency Contact", "Emergency Phone", "Eligibility", "Team Pref", "Reg Basis", "Community Team", "Dates", "Roles", "Buyout", "Email Verified", "Admin Override", "Conflicts", "Created At", "Last Player Edit"];
+    const out = rows.map(r => [r.first_name, r.last_name, currentTeamFor(r), r.email, r.phone, r.dob, getAge(r.dob) || "", r.address, r.city, r.zip, r.emergency_contact, r.emergency_phone, r.eligibility, r.team_pref, r.reg_basis, r.community_team, (r.dates || []).join("; "), (r.roles || []).join("; "), r.buyout_volunteer ? "Yes" : "No", r.email_verified ? "Yes" : "No", r.admin_override ? "Yes" : "No", r.conflicts_note || "", r.created_at || "", r.last_edited_by_player_at || ""]);
     const csv = [headers, ...out].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
