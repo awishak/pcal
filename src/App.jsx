@@ -12956,11 +12956,19 @@ function PlayerPhotoAdminSection({ initialPlayer = null }) {
               <button onClick={closeEdit} className="text-gray-400 hover:text-gray-700 text-lg">×</button>
             </div>
 
-            <div className="bg-gray-50 rounded-xl p-3 mb-3 flex items-center justify-center" style={{ minHeight: 180 }}>
-              {previewUrl ? (
-                <img src={previewUrl} alt="preview" style={{ maxWidth: "100%", maxHeight: 180, objectFit: "contain" }} />
-              ) : PLAYER_PHOTOS[editingPlayer] ? (
-                <img src={PLAYER_PHOTOS[editingPlayer]} alt="current" style={{ maxWidth: "100%", maxHeight: 180, objectFit: "contain" }} />
+            <div className="bg-gray-50 rounded-xl p-3 mb-3 flex flex-col items-center justify-center gap-1.5" style={{ minHeight: 180 }}>
+              {previewUrl || PLAYER_PHOTOS[editingPlayer] ? (
+                <>
+                  {/* Render the exact same way the roster avatar does (circular,
+                      cover, top center) so this preview is truthful WYSIWYG. */}
+                  <img
+                    src={previewUrl || PLAYER_PHOTOS[editingPlayer]}
+                    alt="how it shows"
+                    style={{ width: 160, height: 160, objectFit: "cover", objectPosition: "top center" }}
+                    className="rounded-full bg-gray-100"
+                  />
+                  <p className="text-[10px] text-gray-400">This is how it shows on the roster.</p>
+                </>
               ) : (
                 <p className="text-xs text-gray-400">No photo yet</p>
               )}
