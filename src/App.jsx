@@ -12716,7 +12716,14 @@ function PlayerPhotoAdminSection({ initialPlayer = null }) {
     setBulkRunning(false);
   };
 
-  const openEdit = (name) => {
+  const openEdit = (rawName) => {
+    // The roster passes its own name format, which can differ in case, spacing,
+    // or via a merge alias from the stored photo key. Reuse the existing photo
+    // key when there is one so Adjust, Save, and Remove all act on the same
+    // record; otherwise key by the normalized name the roster reads photos by.
+    const norm = thNorm(rawName);
+    const existing = Object.keys(PLAYER_PHOTOS).find(k => thNorm(k) === norm);
+    const name = existing || norm;
     setEditingPlayer(name);
     setPendingFile(null);
     setEditOriginalFile(null);
