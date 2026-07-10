@@ -12603,7 +12603,7 @@ function CropModal({ file, onDone, onClose }) {
   );
 }
 
-function PlayerPhotoAdminSection() {
+function PlayerPhotoAdminSection({ initialPlayer = null }) {
   const [search, setSearch] = useState("");
   const [editingPlayer, setEditingPlayer] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -12732,6 +12732,13 @@ function PlayerPhotoAdminSection() {
     setPreviewUrl(null);
     setStatus("");
   };
+
+  // When opened targeting a specific player (e.g. tapping a roster photo), jump
+  // straight into that player's edit view instead of the full search list.
+  useEffect(() => {
+    if (initialPlayer) openEdit(initialPlayer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPlayer]);
 
   // Open the cropper. With a freshly picked file, adjust that; otherwise pull
   // the current photo down into a File so an already-uploaded image can be
@@ -15466,7 +15473,7 @@ function ThAvatar({ name, size, photoUrl }) {
 
 // Compact roster grid cell. Avatar on top, jersey number badge (an editable
 // input for admins), display name, hometown, and an age / debut-year meta line.
-function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl }) {
+function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl, onEditPhoto }) {
   const name = rosterEntry.player_name;
   const guest = thIsGuest(name);
   const info = useMemo(() => thSeasonInfo(name), [name]);
@@ -15483,7 +15490,24 @@ function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, je
       onClick={onToggle}
       className={`relative flex flex-col items-center text-center rounded-xl border p-2 pb-3 active:bg-gray-50 transition-colors ${isOpen ? "border-gray-900 ring-1 ring-gray-900 bg-gray-50" : "border-gray-100"}`}>
       <div className="relative">
-        <ThAvatar name={name} size={56} photoUrl={photoUrl} />
+        {isAdmin && onEditPhoto ? (
+          <span
+            role="button"
+            tabIndex={0}
+            title="Edit photo"
+            onClick={(e) => { e.stopPropagation(); onEditPhoto(name); }}
+            className="relative block cursor-pointer">
+            <ThAvatar name={name} size={56} photoUrl={photoUrl} />
+            <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center border-2 border-white">
+              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </span>
+          </span>
+        ) : (
+          <ThAvatar name={name} size={56} photoUrl={photoUrl} />
+        )}
         {isAdmin ? (
           <input
             value={jerseyValue}
@@ -15674,6 +15698,8 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   // Admin: photo editor overlay + a tick to refresh avatars after edits.
   const [photoAdminOpen, setPhotoAdminOpen] = useState(false);
   const [photoTick, setPhotoTick] = useState(0);
+  // Set when an admin taps a specific roster photo, to edit that player directly.
+  const [photoEditName, setPhotoEditName] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -15872,6 +15898,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                                 jerseyValue={jerseyOf(p)}
                                 onJerseyChange={onJerseyChange}
                                 photoUrl={photoFor(p.player_name)}
+                                onEditPhoto={isAdmin ? setPhotoEditName : undefined}
                               />
                             ))}
                           </div>
@@ -15964,16 +15991,16 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
         </div>
       )}
 
-      {photoAdminOpen && (
+      {(photoAdminOpen || photoEditName) && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-3 overflow-y-auto"
-          onClick={() => { setPhotoAdminOpen(false); setPhotoTick(t => t + 1); }}>
+          onClick={() => { setPhotoAdminOpen(false); setPhotoEditName(null); setPhotoTick(t => t + 1); }}>
           <div className="bg-white rounded-2xl w-full max-w-lg my-4 p-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-black text-gray-900">Edit player photos</p>
-              <button onClick={() => { setPhotoAdminOpen(false); setPhotoTick(t => t + 1); }}
+              <button onClick={() => { setPhotoAdminOpen(false); setPhotoEditName(null); setPhotoTick(t => t + 1); }}
                 className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
             </div>
-            <PlayerPhotoAdminSection />
+            <PlayerPhotoAdminSection initialPlayer={photoEditName} />
           </div>
         </div>
       )}
