@@ -3331,7 +3331,7 @@ function AppInner() {
       </div>
 
       {/* Content area */}
-      <div className="max-w-lg mx-auto px-4 py-4">
+      <div className={`${tab === "scouting" ? "max-w-6xl" : "max-w-lg"} mx-auto px-4 py-4`}>
 
         {announcement && (
           <div className="mb-3 rounded-2xl bg-amber-50 border border-amber-200 p-3">
@@ -3361,6 +3361,24 @@ function AppInner() {
         {tab === "stats_home" && (
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Stats & History</p>
+            {isRealAdmin && (
+              <button
+                onClick={() => setTab("scouting")}
+                className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-900 to-gray-700 p-3.5 mb-2.5 hover:from-gray-800 hover:to-gray-600 active:scale-[0.99] transition-all">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-black text-white mb-0.5">Scouting Report <span className="text-[9px] font-bold text-white/50 uppercase tracking-wide ml-1">Admin</span></div>
+                    <div className="text-[11px] text-white/70 leading-snug">
+                      Full-team stat board with shooter highlights and season-over-season player history. Best on desktop.
+                    </div>
+                    <div className="text-[10px] text-white/80 font-bold mt-1.5">Open scouting →</div>
+                  </div>
+                </div>
+              </button>
+            )}
             <button
               onClick={() => setTab("rules")}
               className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-amber-50 to-white p-3.5 mb-2.5 hover:border-amber-300 active:scale-[0.99] transition-all">
@@ -3499,6 +3517,9 @@ function AppInner() {
         )}
         {tab === "rules" && (
           <RulesView />
+        )}
+        {tab === "scouting" && isRealAdmin && (
+          <ScoutingView onBack={() => setTab("stats_home")} goToPlayer={goToPlayer} defaultSeason={2026} photoVersion={photoVersion} />
         )}
         {tab === "admin" && adminUnlocked && isRealAdmin && (
           <AdminPanel
@@ -15644,6 +15665,349 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCar
 
       {!guest && !hideCareerLinks && (
         <button onClick={() => goToPlayer(thCanon(name))} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// SCOUTING DASHBOARD (admin only, desktop layout)
+// Reads season stats uniformly from GAME_LOG via the th* helpers so every
+// season (2005-2026, including the live current year) works the same way.
+// AI Score is enriched from the derived DATA array where it exists.
+// ============================================================
+
+// Shooting highlight bands (percent). Cells below the attempt gate render
+// muted rather than colored so a tiny sample can't read as elite or awful.
+const SCOUT_BANDS = { tp: { hi: 30, lo: 20 }, ft: { hi: 65, lo: 40 } };
+const SCOUT_ATT_GATE = 5;
+
+function scoutShootClass(rate, att, kind) {
+  if (att < SCOUT_ATT_GATE || rate == null) return "text-gray-300";
+  const v = rate * 100, b = SCOUT_BANDS[kind];
+  if (v > b.hi) return "bg-emerald-100 text-emerald-800 font-bold";
+  if (v < b.lo) return "bg-red-100 text-red-700 font-bold";
+  return "text-gray-700";
+}
+
+// Teams that actually appear in a given season, ordered current teams first.
+function scoutTeamsForSeason(year) {
+  const present = new Set();
+  for (const r of GAME_LOG) { if (r[20] === year && r[6] === 1 && r[1]) present.add(r[1]); }
+  const cur = TEAMS_2026.filter(t => present.has(t));
+  const extra = [...present].filter(t => !TEAMS_2026.includes(t)).sort();
+  return [...cur, ...extra];
+}
+
+// Index DATA by normalized player|team|year for AI Score / award lookup.
+function scoutDataIndex() {
+  const m = {};
+  for (const r of DATA) m[thNorm(r.player) + "|" + r.team + "|" + r.year] = r;
+  return m;
+}
+
+// Index PLAYER_PHOTOS case/whitespace-insensitively.
+function scoutPhotoIndex() {
+  const m = {};
+  for (const k in PLAYER_PHOTOS) m[thNorm(k)] = PLAYER_PHOTOS[k];
+  return m;
+}
+
+function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion = 0 }) {
+  const seasons = useMemo(
+    () => [...new Set(GAME_LOG.map(g => g[20]))].filter(Boolean).sort((a, b) => b - a),
+    [GAME_LOG.length]
+  );
+  const [season, setSeason] = useState(() =>
+    seasons.includes(defaultSeason) ? defaultSeason : (seasons[0] || defaultSeason)
+  );
+  const teams = useMemo(() => scoutTeamsForSeason(season), [season, GAME_LOG.length]);
+  const [team, setTeam] = useState(() => teams[0] || "SAC");
+  const [sortKey, setSortKey] = useState("ppg");
+  const [sortDir, setSortDir] = useState("desc");
+  const [selected, setSelected] = useState(null);
+
+  // Keep the selected team valid when the season changes.
+  useEffect(() => {
+    if (teams.length && !teams.includes(team)) { setTeam(teams[0]); setSelected(null); }
+  }, [teams]);
+
+  const dataIdx = useMemo(() => scoutDataIndex(), [season, DATA.length]);
+  const photoIdx = useMemo(() => scoutPhotoIndex(), [photoVersion, GAME_LOG.length]);
+  const photoFor = (name) => photoIdx[thNorm(name)] || null;
+
+  const record = useMemo(() => {
+    if (season !== 2026) return null;
+    return sortStandings(true).find(r => r.team === team) || null;
+  }, [season, team]);
+
+  // Build the roster: every non-guest player who logged a game for this
+  // team in this season, aggregated with the shared th* aggregator.
+  const roster = useMemo(() => {
+    const rowsByPlayer = {};
+    for (const r of GAME_LOG) {
+      if (r[20] !== season || r[1] !== team || r[6] !== 1) continue;
+      if (thIsGuest(r[0])) continue;
+      const k = thNorm(r[0]);
+      (rowsByPlayer[k] = rowsByPlayer[k] || { name: r[0], rows: [] }).rows.push(r);
+    }
+    return Object.values(rowsByPlayer).map(({ name, rows }) => {
+      const agg = thAggregate(rows);
+      const d = dataIdx[thNorm(name) + "|" + team + "|" + season];
+      return {
+        key: thNorm(name),
+        name: thCanon(name),
+        display: formatName(thCanon(name)),
+        g: agg.g,
+        avg: agg.avg,
+        totals: agg.totals,
+        fg: agg.fg, tp: agg.tp, ft: agg.ft, ts: agg.ts,
+        aiScore: d ? d.aiScore : null,
+        aiRank: d ? d.aiRank : null,
+        award: d ? d.award : "",
+      };
+    });
+  }, [season, team, dataIdx]);
+
+  const COLS = [
+    { key: "display", label: "Player", align: "left", str: true },
+    { key: "g", label: "G", get: r => r.g, fmt: v => v },
+    { key: "ppg", label: "PPG", get: r => r.avg.ppg, fmt: v => v.toFixed(1) },
+    { key: "rpg", label: "RPG", get: r => r.avg.rpg, fmt: v => v.toFixed(1) },
+    { key: "apg", label: "APG", get: r => r.avg.apg, fmt: v => v.toFixed(1) },
+    { key: "spg", label: "SPG", get: r => r.avg.spg, fmt: v => v.toFixed(1) },
+    { key: "bpg", label: "BPG", get: r => r.avg.bpg, fmt: v => v.toFixed(1) },
+    { key: "fg", label: "FG%", get: r => r.fg, fmt: v => v == null ? "—" : (v * 100).toFixed(1) },
+    { key: "tp", label: "3P%", shoot: "tp", get: r => r.tp, att: r => r.totals.tpa, made: r => r.totals.tpm },
+    { key: "ft", label: "FT%", shoot: "ft", get: r => r.ft, att: r => r.totals.fta, made: r => r.totals.ftm },
+    { key: "ts", label: "TS%", get: r => r.ts, fmt: v => v == null ? "—" : (v * 100).toFixed(1) },
+    { key: "aiScore", label: "AI Score", get: r => r.aiScore, fmt: v => v == null ? "—" : v.toFixed(1) },
+  ];
+
+  const sorted = useMemo(() => {
+    const col = COLS.find(c => c.key === sortKey) || COLS[2];
+    const val = (r) => {
+      if (col.str) return null;
+      const v = col.get(r);
+      return v == null ? -Infinity : v;
+    };
+    const arr = [...roster];
+    arr.sort((a, b) => {
+      if (col.str) {
+        return sortDir === "desc" ? b.display.localeCompare(a.display) : a.display.localeCompare(b.display);
+      }
+      const d = val(a) - val(b);
+      return sortDir === "desc" ? -d : d;
+    });
+    return arr;
+  }, [roster, sortKey, sortDir]);
+
+  const toggleSort = (key, str) => {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(str ? "asc" : "desc"); }
+  };
+
+  // Season-over-season history for the selected player, every season summed.
+  const history = useMemo(() => {
+    if (!selected) return null;
+    const rows = (thGlIndex()[selected] || []).filter(r => r[6] === 1);
+    const byYear = {};
+    for (const r of rows) (byYear[r[20]] = byYear[r[20]] || []).push(r);
+    const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+    return years.map(y => {
+      const rr = byYear[y];
+      const agg = thAggregate(rr);
+      const tms = [...new Set(rr.map(x => x[1]))];
+      const d = dataIdx[selected + "|" + tms[0] + "|" + y] || DATA.find(x => thNorm(x.player) === selected && x.year === y);
+      return { year: y, teams: tms, g: agg.g, avg: agg.avg, fg: agg.fg, tp: agg.tp, ft: agg.ft, ts: agg.ts, totals: agg.totals, aiScore: d ? d.aiScore : null, award: d ? d.award : "" };
+    });
+  }, [selected, dataIdx]);
+
+  // Career highs per stat so we can flag them in the history table.
+  const highs = useMemo(() => {
+    if (!history) return {};
+    const keys = ["ppg", "rpg", "apg", "spg", "bpg"];
+    const h = {};
+    for (const k of keys) h[k] = Math.max(...history.map(r => r.avg[k]), 0);
+    for (const k of ["fg", "tp", "ft", "ts"]) h[k] = Math.max(...history.map(r => (r[k] == null ? -1 : r[k])), -1);
+    h.aiScore = Math.max(...history.map(r => (r.aiScore == null ? -1 : r.aiScore)), -1);
+    return h;
+  }, [history]);
+
+  const selRow = selected ? roster.find(r => r.key === selected) : null;
+  const HCELL = "px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide select-none cursor-pointer";
+  const arrow = (key) => sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : "";
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-1">
+        <button onClick={onBack} className="text-[13px] font-bold text-gray-400 hover:text-gray-900">← Stats</button>
+      </div>
+      <h1 className="text-2xl font-black text-gray-900 tracking-tight mb-4">Scouting Report</h1>
+
+      {/* Season + team controls */}
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <select
+          value={season}
+          onChange={e => { setSeason(Number(e.target.value)); setSelected(null); }}
+          className="text-sm font-bold text-gray-800 border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
+          {seasons.map(y => <option key={y} value={y}>{y} Season</option>)}
+        </select>
+        <div className="flex flex-wrap gap-1.5">
+          {teams.map(t => (
+            <button key={t} onClick={() => { setTeam(t); setSelected(null); }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${team === t ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+              <TeamLogo team={t} year={season} size={16} />{t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Team band */}
+      <div className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-gray-50 p-4 mb-4">
+        <TeamLogo team={team} year={season} size={48} />
+        <div className="flex-1 min-w-0">
+          <div className="text-lg font-black text-gray-900 leading-tight">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</div>
+          <div className="text-xs text-gray-500 font-medium">{season} Season · {roster.length} players{record ? ` · ${record.w}-${record.l}` : ""}</div>
+        </div>
+        {record && (
+          <div className="text-right text-xs text-gray-500 tabular-nums">
+            <div><span className="font-bold text-gray-800">{record.pf}</span> PF · <span className="font-bold text-gray-800">{record.pa}</span> PA</div>
+            <div>Diff <span className={`font-bold ${record.diff >= 0 ? "text-emerald-700" : "text-red-600"}`}>{record.diff >= 0 ? "+" : ""}{record.diff}</span></div>
+          </div>
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500 mb-3">
+        <span className="font-bold uppercase tracking-wide text-gray-400">3P% / FT% shading:</span>
+        <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-200" />Strong</span>
+        <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-200" />Weak</span>
+        <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-200" /><span className="text-gray-400">Under {SCOUT_ATT_GATE} att</span></span>
+        <span className="text-gray-400">3P: &gt;{SCOUT_BANDS.tp.hi} strong, &lt;{SCOUT_BANDS.tp.lo} weak · FT: &gt;{SCOUT_BANDS.ft.hi} strong, &lt;{SCOUT_BANDS.ft.lo} weak</span>
+      </div>
+
+      {/* Roster table */}
+      <div className="rounded-2xl border border-gray-100 overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+              {COLS.map(c => (
+                <th key={c.key} onClick={() => toggleSort(c.key, c.str)}
+                  className={`${HCELL} ${c.align === "left" ? "text-left" : "text-right"} ${sortKey === c.key ? "text-gray-900" : "hover:text-gray-700"}`}>
+                  {c.label}{arrow(c.key)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(r => (
+              <tr key={r.key} onClick={() => setSelected(r.key === selected ? null : r.key)}
+                className={`border-b border-gray-50 cursor-pointer transition-colors ${r.key === selected ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
+                {COLS.map(c => {
+                  if (c.align === "left") {
+                    return (
+                      <td key={c.key} className="px-2.5 py-2 text-left">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: TEAM_COLORS[team] || "#9ca3af" }} />
+                          <span className="font-bold text-gray-900 whitespace-nowrap">{r.display}</span>
+                          {r.award === "MVP" && <span className="text-[9px] font-black text-amber-700 bg-amber-100 rounded px-1">MVP</span>}
+                          {r.award === "All-PCAL" && <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 rounded px-1">All-PCAL</span>}
+                        </div>
+                      </td>
+                    );
+                  }
+                  if (c.shoot) {
+                    const rate = c.get(r), att = c.att(r), made = c.made(r);
+                    return (
+                      <td key={c.key} className={`px-2.5 py-2 text-right tabular-nums ${scoutShootClass(rate, att, c.shoot)}`}>
+                        {att === 0 ? "—" : (rate * 100).toFixed(1)}
+                        <span className="text-[9px] text-gray-400 font-normal ml-1">{made}/{att}</span>
+                      </td>
+                    );
+                  }
+                  const v = c.get(r);
+                  const isAi = c.key === "aiScore";
+                  return (
+                    <td key={c.key} className="px-2.5 py-2 text-right tabular-nums text-gray-700">
+                      {c.fmt(v)}
+                      {isAi && r.aiRank ? <span className="text-[9px] text-gray-400 font-normal ml-1">#{r.aiRank}</span> : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr><td colSpan={COLS.length} className="px-4 py-8 text-center text-sm text-gray-400">No games logged for this team in {season}.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-[11px] text-gray-400 mt-2">Tap a player to see season-over-season history.</div>
+
+      {/* Player deep-dive */}
+      {selRow && history && (
+        <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="flex items-center gap-4 mb-4">
+            <ThAvatar name={selRow.name} size={64} photoUrl={photoFor(selRow.name)} />
+            <div className="min-w-0 flex-1">
+              <div className="text-xl font-black text-gray-900 leading-tight">{selRow.display}</div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <TeamLogo team={team} year={season} size={18} />
+                <span className="text-sm font-bold text-gray-600">{TEAM_FULL_NAMES[team] || team}</span>
+                <span className="text-xs text-gray-400">· {history.length} season{history.length === 1 ? "" : "s"} tracked</span>
+              </div>
+            </div>
+            {goToPlayer && (
+              <button onClick={() => goToPlayer(thCanon(selRow.name))} className="text-[11px] font-bold text-gray-500 hover:text-gray-900">Full career →</button>
+            )}
+          </div>
+          <div className="text-[11px] text-gray-400 uppercase tracking-wide font-bold mb-2">Season by season</div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-100 text-[11px] uppercase tracking-wide">
+                  <th className="px-2 py-1.5 text-left font-bold">Year</th>
+                  <th className="px-2 py-1.5 text-left font-bold">Team</th>
+                  <th className="px-2 py-1.5 text-right font-bold">G</th>
+                  <th className="px-2 py-1.5 text-right font-bold">PPG</th>
+                  <th className="px-2 py-1.5 text-right font-bold">RPG</th>
+                  <th className="px-2 py-1.5 text-right font-bold">APG</th>
+                  <th className="px-2 py-1.5 text-right font-bold">SPG</th>
+                  <th className="px-2 py-1.5 text-right font-bold">BPG</th>
+                  <th className="px-2 py-1.5 text-right font-bold">FG%</th>
+                  <th className="px-2 py-1.5 text-right font-bold">3P%</th>
+                  <th className="px-2 py-1.5 text-right font-bold">FT%</th>
+                  <th className="px-2 py-1.5 text-right font-bold">TS%</th>
+                  <th className="px-2 py-1.5 text-right font-bold">AI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(h => {
+                  const hi = (k, v) => v != null && highs[k] != null && v === highs[k] && v > 0;
+                  const avgCell = (k) => <td className={`px-2 py-1.5 text-right tabular-nums ${hi(k, h.avg[k]) ? "font-black text-gray-900" : "text-gray-700"}`}>{h.avg[k].toFixed(1)}</td>;
+                  const pctCell = (k, kind) => {
+                    const v = h[k], att = kind === "tp" ? h.totals.tpa : kind === "ft" ? h.totals.fta : null;
+                    const cls = kind ? scoutShootClass(v, att ?? SCOUT_ATT_GATE, kind) : (hi(k, v) ? "font-black text-gray-900" : "text-gray-700");
+                    return <td className={`px-2 py-1.5 text-right tabular-nums ${cls}`}>{v == null ? "—" : (v * 100).toFixed(1)}</td>;
+                  };
+                  return (
+                    <tr key={h.year} className={`border-b border-gray-50 ${h.year === season ? "bg-indigo-50" : ""}`}>
+                      <td className="px-2 py-1.5 text-left font-bold text-gray-900 tabular-nums">{h.year}</td>
+                      <td className="px-2 py-1.5 text-left text-gray-500">{h.teams.join("/")}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">{h.g}</td>
+                      {avgCell("ppg")}{avgCell("rpg")}{avgCell("apg")}{avgCell("spg")}{avgCell("bpg")}
+                      {pctCell("fg")}{pctCell("tp", "tp")}{pctCell("ft", "ft")}{pctCell("ts")}
+                      <td className={`px-2 py-1.5 text-right tabular-nums ${hi("aiScore", h.aiScore) ? "font-black text-gray-900" : "text-gray-700"}`}>{h.aiScore == null ? "—" : h.aiScore.toFixed(1)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="text-[10px] text-gray-400 mt-2">Bold marks a career high. The {season} row is highlighted. 3P%/FT% shaded on the same bands as the roster.</div>
+        </div>
       )}
     </div>
   );
