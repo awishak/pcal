@@ -15884,7 +15884,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     const col = COLS.find(c => c.key === sortKey) || COLS[3];
     const cmp = (a, b) => {
       if (col.str) return sortDir === "desc" ? b.display.localeCompare(a.display) : a.display.localeCompare(b.display);
-      const av = col.get(a.sort), bv = col.get(b.sort);
+      const av = col.get(a.view), bv = col.get(b.view);
       const d = (av == null ? -Infinity : av) - (bv == null ? -Infinity : bv);
       return sortDir === "desc" ? -d : d;
     };
