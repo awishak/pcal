@@ -15811,6 +15811,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     const selSet = new Set(effTeams);
     const yrSet = new Set(selSeasons);
     const idx = thGlIndex();
+    const played2026 = new Set();
+    for (const r of GAME_LOG) { if (r[20] === 2026 && r[6] === 1) played2026.add(thNorm(r[0])); }
     const teamCache = {};
     const teamAgg = (tm) => (teamCache[tm] ??= (() => {
       let pts = 0, fga = 0, fta = 0;
@@ -15846,7 +15848,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
         view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
         view.team = primary; view.diffTeam = yr.length > 0 && primary !== tm;
         attachShares(view, primary);
-        rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, team2026: tm, jersey: jerseyByKey[k] ?? null, view });
+        rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, active26: true, team2026: tm, jersey: jerseyByKey[k] ?? null, view });
       }
     }
     const grayMap = {};
@@ -15865,7 +15867,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
       view.team = primary; view.diffTeam = false;
       attachShares(view, primary);
-      rows.push({ key: k, name: thCanon(name), display: formatName(thCanon(name)), isCurrent: false, team2026: null, jersey: null, view });
+      rows.push({ key: k, name: thCanon(name), display: formatName(thCanon(name)), isCurrent: false, active26: played2026.has(k), team2026: null, jersey: null, view });
     }
     return rows;
   }, [selSeasons, effTeams.join(","), dataIdx, roster2026, jerseyByKey, singleSeason]);
@@ -15899,9 +15901,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       const d = (av == null ? -Infinity : av) - (bv == null ? -Infinity : bv);
       return sortDir === "desc" ? -d : d;
     };
-    const top = roster.filter(r => r.isCurrent).sort(cmp);
-    const bottom = roster.filter(r => !r.isCurrent).sort(cmp);
-    return [...top, ...bottom];
+    return [...roster].sort(cmp);
   }, [roster, sortKey, sortDir]);
 
   const toggleSort = (key, str) => {
@@ -16043,14 +16043,14 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                 className={`border-b border-gray-50 cursor-pointer transition-colors ${r.key === selected ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
                 {COLS.map(c => {
                   if (c.player) {
-                    const chip = TEAM_COLORS[r.view.team] || "#9ca3af";
+                    const chip = r.active26 ? (TEAM_COLORS[r.view.team] || "#9ca3af") : "#d1d5db";
                     return (
                       <td key={c.key} className="px-2.5 py-1.5 text-left">
                         <div className="flex items-center gap-2">
                           <span className="w-7 text-right text-xs font-bold text-gray-400 tabular-nums flex-shrink-0">{r.jersey != null ? "#" + r.jersey : ""}</span>
                           <ThAvatar name={r.name} size={28} photoUrl={photoFor(r.name)} />
                           <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: chip }} />
-                          <span className={`font-bold whitespace-nowrap ${r.view.g > 0 ? "text-gray-900" : "text-gray-400"}`}>{r.display}</span>
+                          <span className={`font-bold whitespace-nowrap ${r.active26 ? "text-gray-900" : "text-gray-400"}`}>{r.display}</span>
                           {r.view.diffTeam && <span className="text-[9px] font-black rounded px-1" style={{ background: chip + "22", color: chip }}>{r.view.team}</span>}
                           {r.view.award === "MVP" && <span className="text-[9px] font-black text-amber-700 bg-amber-100 rounded px-1">MVP</span>}
                           {r.view.award === "All-PCAL" && <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 rounded px-1">All-PCAL</span>}
@@ -16071,7 +16071,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                   const isAi = c.key === "aiScore";
                   const muted = c.pct && c.att && c.att(r.view) < minAtt;
                   return (
-                    <td key={c.key} className={`px-2 py-1.5 text-center tabular-nums ${muted ? "text-gray-300" : (r.view.g > 0 ? "text-gray-700" : "text-gray-400")}`}>
+                    <td key={c.key} className={`px-2 py-1.5 text-center tabular-nums ${muted ? "text-gray-300" : "text-gray-700"}`}>
                       {c.fmt(v)}
                       {isAi && r.view.aiRank ? <span className="text-[10px] text-gray-400 font-normal ml-0.5">#{r.view.aiRank}</span> : null}
                     </td>
@@ -16085,7 +16085,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           </tbody>
         </table>
       </div>
-      <div className="text-[11px] text-gray-400 mt-2">Stats combine all selected seasons ({seasonLabel}). 2026 roster pinned on top. Grayed names logged no games in that span; anyone with games shows in full color. The color chip is the team they played most in the span. AI Score only shows for a single season. Tap a player for full season-over-season history.</div>
+      <div className="text-[11px] text-gray-400 mt-2">Stats combine all selected seasons ({seasonLabel}), everyone sorted together. Names and chips are grayed for players who did not play in 2026. The color chip is the team they played most in the span. AI Score only shows for a single season. Tap a player for full season-over-season history.</div>
 
       {/* Player deep-dive */}
       {selRow && history && (
