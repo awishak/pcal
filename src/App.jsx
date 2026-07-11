@@ -15713,6 +15713,25 @@ function scoutPhotoIndex() {
   return m;
 }
 
+// Individual possessions used (no turnovers tracked): FGA + 0.44*FTA.
+function scoutPossTotal(tot) { return (tot.fga || 0) + 0.44 * (tot.fta || 0); }
+function scoutTeamPoss(team, year) {
+  let p = 0;
+  for (const r of GAME_LOG) { if (r[20] === year && r[1] === team && r[6] === 1) p += (r[13] || 0) + 0.44 * (r[15] || 0); }
+  return p;
+}
+// Bundle a th* aggregate into the stat shape the table renders. Averages and
+// rates are null (blank) when the player logged no games in this scope.
+function scoutStats(agg, teamPoss) {
+  const g = agg.g, possTotal = scoutPossTotal(agg.totals);
+  return {
+    g, totals: agg.totals, fg: agg.fg, tp: agg.tp, ft: agg.ft, ts: agg.ts,
+    avg: g ? agg.avg : { ppg: null, rpg: null, apg: null, spg: null, bpg: null, gmsc: null },
+    poss: g ? possTotal / g : null,
+    possPct: (g && teamPoss > 0) ? (possTotal / teamPoss) * 100 : null,
+  };
+}
+
 function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion = 0 }) {
   const seasons = useMemo(
     () => [...new Set(GAME_LOG.map(g => g[20]))].filter(Boolean).sort((a, b) => b - a),
@@ -15741,65 +15760,95 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     return sortStandings(true).find(r => r.team === team) || null;
   }, [season, team]);
 
-  // Build the roster: every non-guest player who logged a game for this
-  // team in this season, aggregated with the shared th* aggregator.
+  // The current (2026) active roster, per team, from the rosters table.
+  const [roster2026, setRoster2026] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.from("rosters").select("player_name, team").eq("season", 2026).eq("active", true).order("player_name", { ascending: true });
+      if (!alive) return;
+      const m = {};
+      for (const row of (data || [])) { if (!row.player_name || !row.team) continue; (m[row.team] = m[row.team] || []).push(row.player_name); }
+      setRoster2026(m);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const viewedTeamPoss = useMemo(() => scoutTeamPoss(team, season), [team, season, GAME_LOG.length]);
+  const teamPoss2026 = useMemo(() => scoutTeamPoss(team, 2026), [team, GAME_LOG.length]);
+
+  // Build the roster in two groups. Top group is the team's 2026 roster,
+  // always shown and ordered by their 2026 stats so a player holds the exact
+  // same row position no matter which season you view. Bottom group is anyone
+  // who played for this team in the viewed season but is not on the 2026
+  // roster; they render in gray. Stats shown are for this team + viewed season
+  // (blank when the player logged no games that season).
   const roster = useMemo(() => {
-    const rowsByPlayer = {};
+    const viewRows = {};
     for (const r of GAME_LOG) {
       if (r[20] !== season || r[1] !== team || r[6] !== 1) continue;
       if (thIsGuest(r[0])) continue;
       const k = thNorm(r[0]);
-      (rowsByPlayer[k] = rowsByPlayer[k] || { name: r[0], rows: [] }).rows.push(r);
+      (viewRows[k] = viewRows[k] || { name: r[0], rows: [] }).rows.push(r);
     }
-    return Object.values(rowsByPlayer).map(({ name, rows }) => {
-      const agg = thAggregate(rows);
-      const d = dataIdx[thNorm(name) + "|" + team + "|" + season];
-      return {
-        key: thNorm(name),
-        name: thCanon(name),
-        display: formatName(thCanon(name)),
-        g: agg.g,
-        avg: agg.avg,
-        totals: agg.totals,
-        fg: agg.fg, tp: agg.tp, ft: agg.ft, ts: agg.ts,
-        aiScore: d ? d.aiScore : null,
-        aiRank: d ? d.aiRank : null,
-        award: d ? d.award : "",
-      };
-    });
-  }, [season, team, dataIdx]);
+    const rows = [];
+    const seen = new Set();
+    const currentNames = (roster2026 && roster2026[team]) || [];
+    for (const rawName of currentNames) {
+      const k = thNorm(rawName);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const vr = viewRows[k];
+      const view = scoutStats(thAggregate(vr ? vr.rows : []), viewedTeamPoss);
+      const dv = dataIdx[k + "|" + team + "|" + season];
+      view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
+      const anchorRows = (thGlIndex()[k] || []).filter(x => x[20] === 2026 && x[1] === team && x[6] === 1);
+      const sort = scoutStats(thAggregate(anchorRows), teamPoss2026);
+      const d26 = dataIdx[k + "|" + team + "|2026"];
+      sort.aiScore = d26 ? d26.aiScore : null;
+      rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, view, sort });
+    }
+    for (const k of Object.keys(viewRows)) {
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const vr = viewRows[k];
+      const view = scoutStats(thAggregate(vr.rows), viewedTeamPoss);
+      const dv = dataIdx[k + "|" + team + "|" + season];
+      view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
+      rows.push({ key: k, name: thCanon(vr.name), display: formatName(thCanon(vr.name)), isCurrent: false, view, sort: view });
+    }
+    return rows;
+  }, [season, team, dataIdx, roster2026, viewedTeamPoss, teamPoss2026]);
 
+  const pct1 = v => v == null ? "—" : (v * 100).toFixed(1);
   const COLS = [
-    { key: "display", label: "Player", align: "left", str: true },
-    { key: "g", label: "G", get: r => r.g, fmt: v => v },
-    { key: "ppg", label: "PPG", get: r => r.avg.ppg, fmt: v => v.toFixed(1) },
-    { key: "rpg", label: "RPG", get: r => r.avg.rpg, fmt: v => v.toFixed(1) },
-    { key: "apg", label: "APG", get: r => r.avg.apg, fmt: v => v.toFixed(1) },
-    { key: "spg", label: "SPG", get: r => r.avg.spg, fmt: v => v.toFixed(1) },
-    { key: "bpg", label: "BPG", get: r => r.avg.bpg, fmt: v => v.toFixed(1) },
-    { key: "fg", label: "FG%", get: r => r.fg, fmt: v => v == null ? "—" : (v * 100).toFixed(1) },
-    { key: "tp", label: "3P%", shoot: "tp", get: r => r.tp, att: r => r.totals.tpa, made: r => r.totals.tpm },
-    { key: "ft", label: "FT%", shoot: "ft", get: r => r.ft, att: r => r.totals.fta, made: r => r.totals.ftm },
-    { key: "ts", label: "TS%", get: r => r.ts, fmt: v => v == null ? "—" : (v * 100).toFixed(1) },
-    { key: "aiScore", label: "AI Score", get: r => r.aiScore, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "display", label: "Player", player: true, str: true },
+    { key: "g", label: "G", get: s => s.g, fmt: v => v == null ? "—" : v },
+    { key: "poss", label: "POSS", get: s => s.poss, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "ppg", label: "PPG", get: s => s.avg.ppg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "rpg", label: "RPG", get: s => s.avg.rpg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "apg", label: "APG", get: s => s.avg.apg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "spg", label: "SPG", get: s => s.avg.spg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "bpg", label: "BPG", get: s => s.avg.bpg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "fg", label: "FG%", get: s => s.fg, fmt: pct1 },
+    { key: "tp", label: "3P%", shoot: "tp", get: s => s.tp, att: s => s.totals.tpa, made: s => s.totals.tpm },
+    { key: "ft", label: "FT%", shoot: "ft", get: s => s.ft, att: s => s.totals.fta, made: s => s.totals.ftm },
+    { key: "ts", label: "TS%", get: s => s.ts, fmt: pct1 },
+    { key: "possPct", label: "TM POSS%", get: s => s.possPct, fmt: v => v == null ? "—" : v.toFixed(1) + "%" },
+    { key: "aiScore", label: "AI Score", get: s => s.aiScore, fmt: v => v == null ? "—" : v.toFixed(1) },
   ];
 
   const sorted = useMemo(() => {
-    const col = COLS.find(c => c.key === sortKey) || COLS[2];
-    const val = (r) => {
-      if (col.str) return null;
-      const v = col.get(r);
-      return v == null ? -Infinity : v;
-    };
-    const arr = [...roster];
-    arr.sort((a, b) => {
-      if (col.str) {
-        return sortDir === "desc" ? b.display.localeCompare(a.display) : a.display.localeCompare(b.display);
-      }
-      const d = val(a) - val(b);
+    const col = COLS.find(c => c.key === sortKey) || COLS[3];
+    const cmp = (a, b) => {
+      if (col.str) return sortDir === "desc" ? b.display.localeCompare(a.display) : a.display.localeCompare(b.display);
+      const av = col.get(a.sort), bv = col.get(b.sort);
+      const d = (av == null ? -Infinity : av) - (bv == null ? -Infinity : bv);
       return sortDir === "desc" ? -d : d;
-    });
-    return arr;
+    };
+    const top = roster.filter(r => r.isCurrent).sort(cmp);
+    const bottom = roster.filter(r => !r.isCurrent).sort(cmp);
+    return [...top, ...bottom];
   }, [roster, sortKey, sortDir]);
 
   const toggleSort = (key, str) => {
@@ -15835,7 +15884,6 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
   }, [history]);
 
   const selRow = selected ? roster.find(r => r.key === selected) : null;
-  const HCELL = "px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide select-none cursor-pointer";
   const arrow = (key) => sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : "";
 
   return (
@@ -15895,7 +15943,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
               {COLS.map(c => (
                 <th key={c.key} onClick={() => toggleSort(c.key, c.str)}
-                  className={`${HCELL} ${c.align === "left" ? "text-left" : "text-right"} ${sortKey === c.key ? "text-gray-900" : "hover:text-gray-700"}`}>
+                  style={c.shoot ? { width: "1%" } : undefined}
+                  className={`px-2 py-2 text-[11px] font-bold uppercase tracking-wide select-none cursor-pointer ${c.player ? "text-left px-2.5" : "text-center"} ${c.shoot ? "whitespace-nowrap" : ""} ${sortKey === c.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
                   {c.label}{arrow(c.key)}
                 </th>
               ))}
@@ -15906,33 +15955,33 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
               <tr key={r.key} onClick={() => setSelected(r.key === selected ? null : r.key)}
                 className={`border-b border-gray-50 cursor-pointer transition-colors ${r.key === selected ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
                 {COLS.map(c => {
-                  if (c.align === "left") {
+                  if (c.player) {
                     return (
-                      <td key={c.key} className="px-2.5 py-2 text-left">
+                      <td key={c.key} className="px-2.5 py-1.5 text-left">
                         <div className="flex items-center gap-2">
-                          <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: TEAM_COLORS[team] || "#9ca3af" }} />
-                          <span className="font-bold text-gray-900 whitespace-nowrap">{r.display}</span>
-                          {r.award === "MVP" && <span className="text-[9px] font-black text-amber-700 bg-amber-100 rounded px-1">MVP</span>}
-                          {r.award === "All-PCAL" && <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 rounded px-1">All-PCAL</span>}
+                          <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: r.isCurrent ? (TEAM_COLORS[team] || "#9ca3af") : "#d1d5db" }} />
+                          <span className={`font-bold whitespace-nowrap ${r.isCurrent ? "text-gray-900" : "text-gray-400"}`}>{r.display}</span>
+                          {r.view.award === "MVP" && <span className="text-[9px] font-black text-amber-700 bg-amber-100 rounded px-1">MVP</span>}
+                          {r.view.award === "All-PCAL" && <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 rounded px-1">All-PCAL</span>}
                         </div>
                       </td>
                     );
                   }
                   if (c.shoot) {
-                    const rate = c.get(r), att = c.att(r), made = c.made(r);
+                    const rate = c.get(r.view), att = c.att(r.view), made = c.made(r.view);
                     return (
-                      <td key={c.key} className={`px-2.5 py-2 text-right tabular-nums ${scoutShootClass(rate, att, c.shoot)}`}>
-                        {att === 0 ? "—" : (rate * 100).toFixed(1)}
-                        <span className="text-[9px] text-gray-400 font-normal ml-1">{made}/{att}</span>
+                      <td key={c.key} style={{ width: "1%" }} className={`px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap ${scoutShootClass(rate, att, c.shoot)}`}>
+                        <div className="font-bold">{att === 0 || rate == null ? "—" : (rate * 100).toFixed(1)}</div>
+                        {att > 0 && <div className="text-[11px] font-medium text-gray-400 leading-tight">{made}/{att}</div>}
                       </td>
                     );
                   }
-                  const v = c.get(r);
+                  const v = c.get(r.view);
                   const isAi = c.key === "aiScore";
                   return (
-                    <td key={c.key} className="px-2.5 py-2 text-right tabular-nums text-gray-700">
+                    <td key={c.key} className={`px-2 py-1.5 text-center tabular-nums ${r.isCurrent ? "text-gray-700" : "text-gray-400"}`}>
                       {c.fmt(v)}
-                      {isAi && r.aiRank ? <span className="text-[9px] text-gray-400 font-normal ml-1">#{r.aiRank}</span> : null}
+                      {isAi && r.view.aiRank ? <span className="text-[10px] text-gray-400 font-normal ml-0.5">#{r.view.aiRank}</span> : null}
                     </td>
                   );
                 })}
@@ -15944,7 +15993,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           </tbody>
         </table>
       </div>
-      <div className="text-[11px] text-gray-400 mt-2">Tap a player to see season-over-season history.</div>
+      <div className="text-[11px] text-gray-400 mt-2">Current 2026 roster pinned on top; gray rows played this team in {season} but are not on the 2026 roster. Tap a player for season-over-season history.</div>
 
       {/* Player deep-dive */}
       {selRow && history && (
@@ -15970,36 +16019,36 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                 <tr className="text-gray-400 border-b border-gray-100 text-[11px] uppercase tracking-wide">
                   <th className="px-2 py-1.5 text-left font-bold">Year</th>
                   <th className="px-2 py-1.5 text-left font-bold">Team</th>
-                  <th className="px-2 py-1.5 text-right font-bold">G</th>
-                  <th className="px-2 py-1.5 text-right font-bold">PPG</th>
-                  <th className="px-2 py-1.5 text-right font-bold">RPG</th>
-                  <th className="px-2 py-1.5 text-right font-bold">APG</th>
-                  <th className="px-2 py-1.5 text-right font-bold">SPG</th>
-                  <th className="px-2 py-1.5 text-right font-bold">BPG</th>
-                  <th className="px-2 py-1.5 text-right font-bold">FG%</th>
-                  <th className="px-2 py-1.5 text-right font-bold">3P%</th>
-                  <th className="px-2 py-1.5 text-right font-bold">FT%</th>
-                  <th className="px-2 py-1.5 text-right font-bold">TS%</th>
-                  <th className="px-2 py-1.5 text-right font-bold">AI</th>
+                  <th className="px-2 py-1.5 text-center font-bold">G</th>
+                  <th className="px-2 py-1.5 text-center font-bold">PPG</th>
+                  <th className="px-2 py-1.5 text-center font-bold">RPG</th>
+                  <th className="px-2 py-1.5 text-center font-bold">APG</th>
+                  <th className="px-2 py-1.5 text-center font-bold">SPG</th>
+                  <th className="px-2 py-1.5 text-center font-bold">BPG</th>
+                  <th className="px-2 py-1.5 text-center font-bold">FG%</th>
+                  <th className="px-2 py-1.5 text-center font-bold">3P%</th>
+                  <th className="px-2 py-1.5 text-center font-bold">FT%</th>
+                  <th className="px-2 py-1.5 text-center font-bold">TS%</th>
+                  <th className="px-2 py-1.5 text-center font-bold">AI</th>
                 </tr>
               </thead>
               <tbody>
                 {history.map(h => {
                   const hi = (k, v) => v != null && highs[k] != null && v === highs[k] && v > 0;
-                  const avgCell = (k) => <td className={`px-2 py-1.5 text-right tabular-nums ${hi(k, h.avg[k]) ? "font-black text-gray-900" : "text-gray-700"}`}>{h.avg[k].toFixed(1)}</td>;
+                  const avgCell = (k) => <td className={`px-2 py-1.5 text-center tabular-nums ${hi(k, h.avg[k]) ? "font-black text-gray-900" : "text-gray-700"}`}>{h.avg[k].toFixed(1)}</td>;
                   const pctCell = (k, kind) => {
                     const v = h[k], att = kind === "tp" ? h.totals.tpa : kind === "ft" ? h.totals.fta : null;
                     const cls = kind ? scoutShootClass(v, att ?? SCOUT_ATT_GATE, kind) : (hi(k, v) ? "font-black text-gray-900" : "text-gray-700");
-                    return <td className={`px-2 py-1.5 text-right tabular-nums ${cls}`}>{v == null ? "—" : (v * 100).toFixed(1)}</td>;
+                    return <td className={`px-2 py-1.5 text-center tabular-nums ${cls}`}>{v == null ? "—" : (v * 100).toFixed(1)}</td>;
                   };
                   return (
                     <tr key={h.year} className={`border-b border-gray-50 ${h.year === season ? "bg-indigo-50" : ""}`}>
                       <td className="px-2 py-1.5 text-left font-bold text-gray-900 tabular-nums">{h.year}</td>
                       <td className="px-2 py-1.5 text-left text-gray-500">{h.teams.join("/")}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">{h.g}</td>
+                      <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{h.g}</td>
                       {avgCell("ppg")}{avgCell("rpg")}{avgCell("apg")}{avgCell("spg")}{avgCell("bpg")}
                       {pctCell("fg")}{pctCell("tp", "tp")}{pctCell("ft", "ft")}{pctCell("ts")}
-                      <td className={`px-2 py-1.5 text-right tabular-nums ${hi("aiScore", h.aiScore) ? "font-black text-gray-900" : "text-gray-700"}`}>{h.aiScore == null ? "—" : h.aiScore.toFixed(1)}</td>
+                      <td className={`px-2 py-1.5 text-center tabular-nums ${hi("aiScore", h.aiScore) ? "font-black text-gray-900" : "text-gray-700"}`}>{h.aiScore == null ? "—" : h.aiScore.toFixed(1)}</td>
                     </tr>
                   );
                 })}
