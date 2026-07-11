@@ -15682,8 +15682,8 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCar
 const SCOUT_BANDS = { tp: { hi: 30, lo: 20 }, ft: { hi: 65, lo: 40 } };
 const SCOUT_ATT_GATE = 5;
 
-function scoutShootClass(rate, att, kind) {
-  if (att < SCOUT_ATT_GATE || rate == null) return "text-gray-300";
+function scoutShootClass(rate, att, kind, gate = SCOUT_ATT_GATE) {
+  if (att < gate || rate == null) return "text-gray-300";
   const v = rate * 100, b = SCOUT_BANDS[kind];
   if (v > b.hi) return "bg-emerald-100 text-emerald-800 font-bold";
   if (v < b.lo) return "bg-red-100 text-red-700 font-bold";
@@ -15744,6 +15744,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
   const [selTeams, setSelTeams] = useState(() => [seasonTeams[0] || "SAC"]);
   const [sortKey, setSortKey] = useState("ppg");
   const [sortDir, setSortDir] = useState("desc");
+  const [minAtt, setMinAtt] = useState(SCOUT_ATT_GATE);
   const [selected, setSelected] = useState(null);
 
   // Keep the selected teams valid when the season changes.
@@ -15853,10 +15854,10 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     { key: "apg", label: "APG", get: s => s.avg.apg, fmt: v => v == null ? "—" : v.toFixed(1) },
     { key: "spg", label: "SPG", get: s => s.avg.spg, fmt: v => v == null ? "—" : v.toFixed(1) },
     { key: "bpg", label: "BPG", get: s => s.avg.bpg, fmt: v => v == null ? "—" : v.toFixed(1) },
-    { key: "fg", label: "FG%", get: s => s.fg, fmt: pct1 },
-    { key: "tp", label: "3P%", shoot: "tp", get: s => s.tp, att: s => s.totals.tpa, made: s => s.totals.tpm },
-    { key: "ft", label: "FT%", shoot: "ft", get: s => s.ft, att: s => s.totals.fta, made: s => s.totals.ftm },
-    { key: "ts", label: "TS%", get: s => s.ts, fmt: pct1 },
+    { key: "fg", label: "FG%", pct: true, get: s => s.fg, att: s => s.totals.fga, fmt: pct1 },
+    { key: "tp", label: "3P%", pct: true, shoot: "tp", get: s => s.tp, att: s => s.totals.tpa, made: s => s.totals.tpm },
+    { key: "ft", label: "FT%", pct: true, shoot: "ft", get: s => s.ft, att: s => s.totals.fta, made: s => s.totals.ftm },
+    { key: "ts", label: "TS%", pct: true, get: s => s.ts, att: s => s.totals.fga, fmt: pct1 },
     { key: "possPct", label: "TM POSS%", get: s => s.possPct, fmt: v => v == null ? "—" : v.toFixed(1) + "%" },
     { key: "aiScore", label: "AI Score", get: s => s.aiScore, fmt: v => v == null ? "—" : v.toFixed(1) },
   ];
@@ -15938,6 +15939,15 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           })}
         </div>
         <span className="text-[11px] text-gray-400">Pick one or more teams</span>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Min att for %</span>
+          {[0, 5, 10, 15, 20].map(n => (
+            <button key={n} onClick={() => setMinAtt(n)}
+              className={`px-2 py-1 rounded-lg text-[11px] font-bold tabular-nums transition-all ${minAtt === n ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Team band */}
@@ -15961,7 +15971,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
         <span className="font-bold uppercase tracking-wide text-gray-400">3P% / FT% shading:</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-200" />Strong</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-200" />Weak</span>
-        <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-200" /><span className="text-gray-400">Under {SCOUT_ATT_GATE} att</span></span>
+        <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-200" /><span className="text-gray-400">Under {minAtt} att (all % dimmed)</span></span>
         <span className="text-gray-400">3P: &gt;{SCOUT_BANDS.tp.hi} strong, &lt;{SCOUT_BANDS.tp.lo} weak · FT: &gt;{SCOUT_BANDS.ft.hi} strong, &lt;{SCOUT_BANDS.ft.lo} weak</span>
       </div>
 
@@ -15992,7 +16002,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                           <span className="w-7 text-right text-xs font-bold text-gray-400 tabular-nums flex-shrink-0">{r.jersey != null ? "#" + r.jersey : ""}</span>
                           <ThAvatar name={r.name} size={28} photoUrl={photoFor(r.name)} />
                           <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: chip }} />
-                          <span className={`font-bold whitespace-nowrap ${r.isCurrent ? "text-gray-900" : "text-gray-400"}`}>{r.display}</span>
+                          <span className={`font-bold whitespace-nowrap ${r.view.g > 0 ? "text-gray-900" : "text-gray-400"}`}>{r.display}</span>
                           {r.view.diffTeam && <span className="text-[9px] font-black rounded px-1" style={{ background: chip + "22", color: chip }}>{r.view.team}</span>}
                           {r.view.award === "MVP" && <span className="text-[9px] font-black text-amber-700 bg-amber-100 rounded px-1">MVP</span>}
                           {r.view.award === "All-PCAL" && <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 rounded px-1">All-PCAL</span>}
@@ -16003,7 +16013,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                   if (c.shoot) {
                     const rate = c.get(r.view), att = c.att(r.view), made = c.made(r.view);
                     return (
-                      <td key={c.key} style={{ width: "1%" }} className={`px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap ${scoutShootClass(rate, att, c.shoot)}`}>
+                      <td key={c.key} style={{ width: "1%" }} className={`px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap ${scoutShootClass(rate, att, c.shoot, minAtt)}`}>
                         <div className="font-bold">{att === 0 || rate == null ? "—" : (rate * 100).toFixed(1)}</div>
                         {att > 0 && <div className="text-[11px] font-medium text-gray-400 leading-tight">{made}/{att}</div>}
                       </td>
@@ -16011,8 +16021,9 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                   }
                   const v = c.get(r.view);
                   const isAi = c.key === "aiScore";
+                  const muted = c.pct && c.att && c.att(r.view) < minAtt;
                   return (
-                    <td key={c.key} className={`px-2 py-1.5 text-center tabular-nums ${r.isCurrent ? "text-gray-700" : "text-gray-400"}`}>
+                    <td key={c.key} className={`px-2 py-1.5 text-center tabular-nums ${muted ? "text-gray-300" : (r.view.g > 0 ? "text-gray-700" : "text-gray-400")}`}>
                       {c.fmt(v)}
                       {isAi && r.view.aiRank ? <span className="text-[10px] text-gray-400 font-normal ml-0.5">#{r.view.aiRank}</span> : null}
                     </td>
@@ -16026,7 +16037,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           </tbody>
         </table>
       </div>
-      <div className="text-[11px] text-gray-400 mt-2">Current 2026 roster pinned on top; gray rows played a selected team in {season} but are not on a 2026 roster. The color chip by each name is the team they played that season. Tap a player for season-over-season history.</div>
+      <div className="text-[11px] text-gray-400 mt-2">Current 2026 roster pinned on top. Grayed names did not play in {season}; anyone with games shows in full color. The color chip by each name is the team they played that season. Tap a player for season-over-season history.</div>
 
       {/* Player deep-dive */}
       {selRow && history && (
@@ -16071,8 +16082,9 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                   const hi = (k, v) => v != null && highs[k] != null && v === highs[k] && v > 0;
                   const avgCell = (k) => <td className={`px-2 py-1.5 text-center tabular-nums ${hi(k, h.avg[k]) ? "font-black text-gray-900" : "text-gray-700"}`}>{h.avg[k].toFixed(1)}</td>;
                   const pctCell = (k, kind) => {
-                    const v = h[k], att = kind === "tp" ? h.totals.tpa : kind === "ft" ? h.totals.fta : null;
-                    const cls = kind ? scoutShootClass(v, att ?? SCOUT_ATT_GATE, kind) : (hi(k, v) ? "font-black text-gray-900" : "text-gray-700");
+                    const v = h[k];
+                    const att = k === "tp" ? h.totals.tpa : k === "ft" ? h.totals.fta : h.totals.fga;
+                    const cls = kind ? scoutShootClass(v, att, kind, minAtt) : (att < minAtt ? "text-gray-300" : (hi(k, v) ? "font-black text-gray-900" : "text-gray-700"));
                     return <td className={`px-2 py-1.5 text-center tabular-nums ${cls}`}>{v == null ? "—" : (v * 100).toFixed(1)}</td>;
                   };
                   return (
