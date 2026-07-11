@@ -15715,11 +15715,6 @@ function scoutPhotoIndex() {
 
 // Individual possessions used (no turnovers tracked): FGA + 0.44*FTA.
 function scoutPossTotal(tot) { return (tot.fga || 0) + 0.44 * (tot.fta || 0); }
-function scoutTeamPoss(team, year) {
-  let p = 0;
-  for (const r of GAME_LOG) { if (r[20] === year && r[1] === team && r[6] === 1) p += (r[13] || 0) + 0.44 * (r[15] || 0); }
-  return p;
-}
 // Bundle a th* aggregate into the stat shape the table renders. Averages and
 // rates are null (blank) when the player logged no games in this scope.
 function scoutStats(agg, teamPoss) {
@@ -15816,12 +15811,25 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     const selSet = new Set(effTeams);
     const yrSet = new Set(selSeasons);
     const idx = thGlIndex();
-    const possCache = {};
-    const teamPoss = (tm) => (possCache[tm] ??= selSeasons.reduce((s, y) => s + scoutTeamPoss(tm, y), 0));
+    const teamCache = {};
+    const teamAgg = (tm) => (teamCache[tm] ??= (() => {
+      let pts = 0, fga = 0, fta = 0;
+      for (const r of GAME_LOG) { if (r[1] === tm && r[6] === 1 && yrSet.has(r[20])) { pts += r[7] || 0; fga += r[13] || 0; fta += r[15] || 0; } }
+      return { pts, fga, fta };
+    })());
     const primaryTeam = (rr) => {
       const c = {};
       for (const x of rr) c[x[1]] = (c[x[1]] || 0) + 1;
       return Object.keys(c).sort((a, b) => c[b] - c[a])[0] || null;
+    };
+    // Share of team points and teammates' TS% (team totals minus this player)
+    // for the player's primary team over the selected seasons.
+    const attachShares = (view, primary) => {
+      if (!view.g || !primary) { view.teamPtsPct = null; view.mateTs = null; return; }
+      const ta = teamAgg(primary), t = view.totals;
+      view.teamPtsPct = ta.pts > 0 ? (t.pts / ta.pts) * 100 : null;
+      const mDen = 2 * ((ta.fga - t.fga) + 0.44 * (ta.fta - t.fta));
+      view.mateTs = mDen > 0 ? (ta.pts - t.pts) / mDen : null;
     };
     const rows = [];
     const pinnedKeys = new Set();
@@ -15832,15 +15840,13 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
         pinnedKeys.add(k);
         const yr = (idx[k] || []).filter(x => yrSet.has(x[20]) && x[6] === 1);
         const primary = yr.length ? primaryTeam(yr) : tm;
-        const view = scoutStats(thAggregate(yr), teamPoss(primary));
+        const ta = teamAgg(primary);
+        const view = scoutStats(thAggregate(yr), ta.fga + 0.44 * ta.fta);
         const dv = singleSeason ? dataIdx[k + "|" + primary + "|" + singleSeason] : null;
         view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
         view.team = primary; view.diffTeam = yr.length > 0 && primary !== tm;
-        const a26 = (idx[k] || []).filter(x => x[20] === 2026 && x[1] === tm && x[6] === 1);
-        const sort = scoutStats(thAggregate(a26), scoutTeamPoss(tm, 2026));
-        const d26 = dataIdx[k + "|" + tm + "|2026"];
-        sort.aiScore = d26 ? d26.aiScore : null;
-        rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, team2026: tm, jersey: jerseyByKey[k] ?? null, view, sort });
+        attachShares(view, primary);
+        rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, team2026: tm, jersey: jerseyByKey[k] ?? null, view });
       }
     }
     const grayMap = {};
@@ -15853,11 +15859,13 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     for (const k of Object.keys(grayMap)) {
       const { name, rows: rr } = grayMap[k];
       const primary = primaryTeam(rr);
-      const view = scoutStats(thAggregate(rr), teamPoss(primary));
+      const ta = teamAgg(primary);
+      const view = scoutStats(thAggregate(rr), ta.fga + 0.44 * ta.fta);
       const dv = singleSeason ? dataIdx[k + "|" + primary + "|" + singleSeason] : null;
       view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
       view.team = primary; view.diffTeam = false;
-      rows.push({ key: k, name: thCanon(name), display: formatName(thCanon(name)), isCurrent: false, team2026: null, jersey: null, view, sort: view });
+      attachShares(view, primary);
+      rows.push({ key: k, name: thCanon(name), display: formatName(thCanon(name)), isCurrent: false, team2026: null, jersey: null, view });
     }
     return rows;
   }, [selSeasons, effTeams.join(","), dataIdx, roster2026, jerseyByKey, singleSeason]);
@@ -15872,11 +15880,14 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     { key: "apg", label: "APG", get: s => s.avg.apg, fmt: v => v == null ? "—" : v.toFixed(1) },
     { key: "spg", label: "SPG", get: s => s.avg.spg, fmt: v => v == null ? "—" : v.toFixed(1) },
     { key: "bpg", label: "BPG", get: s => s.avg.bpg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "gmsc", label: "GmSc", get: s => s.avg.gmsc, fmt: v => v == null ? "—" : v.toFixed(1) },
     { key: "fg", label: "FG%", pct: true, get: s => s.fg, att: s => s.totals.fga, fmt: pct1 },
     { key: "tp", label: "3P%", pct: true, shoot: "tp", get: s => s.tp, att: s => s.totals.tpa, made: s => s.totals.tpm },
     { key: "ft", label: "FT%", pct: true, shoot: "ft", get: s => s.ft, att: s => s.totals.fta, made: s => s.totals.ftm },
     { key: "ts", label: "TS%", pct: true, get: s => s.ts, att: s => s.totals.fga, fmt: pct1 },
+    { key: "mateTs", label: "MATE TS%", get: s => s.mateTs, fmt: pct1 },
     { key: "possPct", label: "TM POSS%", get: s => s.possPct, fmt: v => v == null ? "—" : v.toFixed(1) + "%" },
+    { key: "teamPtsPct", label: "TM PTS%", get: s => s.teamPtsPct, fmt: v => v == null ? "—" : v.toFixed(1) + "%" },
     { key: "aiScore", label: "AI Score", get: s => s.aiScore, fmt: v => v == null ? "—" : v.toFixed(1) },
   ];
 
