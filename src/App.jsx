@@ -15740,85 +15740,108 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
   const [season, setSeason] = useState(() =>
     seasons.includes(defaultSeason) ? defaultSeason : (seasons[0] || defaultSeason)
   );
-  const teams = useMemo(() => scoutTeamsForSeason(season), [season, GAME_LOG.length]);
-  const [team, setTeam] = useState(() => teams[0] || "SAC");
+  const seasonTeams = useMemo(() => scoutTeamsForSeason(season), [season, GAME_LOG.length]);
+  const [selTeams, setSelTeams] = useState(() => [seasonTeams[0] || "SAC"]);
   const [sortKey, setSortKey] = useState("ppg");
   const [sortDir, setSortDir] = useState("desc");
   const [selected, setSelected] = useState(null);
 
-  // Keep the selected team valid when the season changes.
+  // Keep the selected teams valid when the season changes.
   useEffect(() => {
-    if (teams.length && !teams.includes(team)) { setTeam(teams[0]); setSelected(null); }
-  }, [teams]);
+    if (!seasonTeams.length) return;
+    setSelTeams(prev => {
+      const kept = prev.filter(t => seasonTeams.includes(t));
+      return kept.length ? kept : [seasonTeams[0]];
+    });
+    setSelected(null);
+  }, [seasonTeams]);
 
   const dataIdx = useMemo(() => scoutDataIndex(), [season, DATA.length]);
   const photoIdx = useMemo(() => scoutPhotoIndex(), [photoVersion, GAME_LOG.length]);
   const photoFor = (name) => photoIdx[thNorm(name)] || null;
 
-  const record = useMemo(() => {
-    if (season !== 2026) return null;
-    return sortStandings(true).find(r => r.team === team) || null;
-  }, [season, team]);
+  // 2026 standings, keyed by team, for the records shown in the team band.
+  const standings2026 = useMemo(() => {
+    const m = {};
+    for (const r of sortStandings(true)) m[r.team] = r;
+    return m;
+  }, [GAME_LOG.length]);
 
-  // The current (2026) active roster, per team, from the rosters table.
+  // The current (2026) active roster and jersey numbers, per team.
   const [roster2026, setRoster2026] = useState(null);
+  const [jerseyByKey, setJerseyByKey] = useState({});
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data } = await supabase.from("rosters").select("player_name, team").eq("season", 2026).eq("active", true).order("player_name", { ascending: true });
+      const { data } = await supabase.from("rosters").select("player_name, team, jersey_number").eq("season", 2026).eq("active", true).order("player_name", { ascending: true });
       if (!alive) return;
-      const m = {};
-      for (const row of (data || [])) { if (!row.player_name || !row.team) continue; (m[row.team] = m[row.team] || []).push(row.player_name); }
-      setRoster2026(m);
+      const m = {}, j = {};
+      for (const row of (data || [])) {
+        if (!row.player_name || !row.team) continue;
+        (m[row.team] = m[row.team] || []).push(row.player_name);
+        if (row.jersey_number != null && row.jersey_number !== "") j[thNorm(row.player_name)] = row.jersey_number;
+      }
+      setRoster2026(m); setJerseyByKey(j);
     })();
     return () => { alive = false; };
   }, []);
 
-  const viewedTeamPoss = useMemo(() => scoutTeamPoss(team, season), [team, season, GAME_LOG.length]);
-  const teamPoss2026 = useMemo(() => scoutTeamPoss(team, 2026), [team, GAME_LOG.length]);
-
-  // Build the roster in two groups. Top group is the team's 2026 roster,
-  // always shown and ordered by their 2026 stats so a player holds the exact
-  // same row position no matter which season you view. Bottom group is anyone
-  // who played for this team in the viewed season but is not on the 2026
-  // roster; they render in gray. Stats shown are for this team + viewed season
-  // (blank when the player logged no games that season).
+  // Build the roster across every selected team. Top group is the union of the
+  // selected teams' 2026 rosters, ordered by their 2026 stats so a player holds
+  // the same row position no matter which season you view. In a past season a
+  // pinned player shows the line for whatever team he actually played that year,
+  // and the color chip by his name reflects that team, so someone who was on a
+  // different team then stands out. Bottom group is anyone who played for a
+  // selected team in the viewed season but is not on a selected 2026 roster;
+  // they render in gray.
   const roster = useMemo(() => {
-    const viewRows = {};
-    for (const r of GAME_LOG) {
-      if (r[20] !== season || r[1] !== team || r[6] !== 1) continue;
-      if (thIsGuest(r[0])) continue;
-      const k = thNorm(r[0]);
-      (viewRows[k] = viewRows[k] || { name: r[0], rows: [] }).rows.push(r);
-    }
+    const selSet = new Set(selTeams);
+    const idx = thGlIndex();
+    const possCache = {};
+    const teamPoss = (tm, yr) => (possCache[tm + "|" + yr] ??= scoutTeamPoss(tm, yr));
+    const primaryTeam = (rr) => {
+      const c = {};
+      for (const x of rr) c[x[1]] = (c[x[1]] || 0) + 1;
+      return Object.keys(c).sort((a, b) => c[b] - c[a])[0] || null;
+    };
     const rows = [];
-    const seen = new Set();
-    const currentNames = (roster2026 && roster2026[team]) || [];
-    for (const rawName of currentNames) {
-      const k = thNorm(rawName);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      const vr = viewRows[k];
-      const view = scoutStats(thAggregate(vr ? vr.rows : []), viewedTeamPoss);
-      const dv = dataIdx[k + "|" + team + "|" + season];
-      view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
-      const anchorRows = (thGlIndex()[k] || []).filter(x => x[20] === 2026 && x[1] === team && x[6] === 1);
-      const sort = scoutStats(thAggregate(anchorRows), teamPoss2026);
-      const d26 = dataIdx[k + "|" + team + "|2026"];
-      sort.aiScore = d26 ? d26.aiScore : null;
-      rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, view, sort });
+    const pinnedKeys = new Set();
+    for (const tm of selTeams) {
+      for (const rawName of ((roster2026 && roster2026[tm]) || [])) {
+        const k = thNorm(rawName);
+        if (pinnedKeys.has(k)) continue;
+        pinnedKeys.add(k);
+        const yr = (idx[k] || []).filter(x => x[20] === season && x[6] === 1);
+        const primary = yr.length ? primaryTeam(yr) : tm;
+        const view = scoutStats(thAggregate(yr), teamPoss(primary, season));
+        const dv = dataIdx[k + "|" + primary + "|" + season];
+        view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
+        view.team = primary; view.diffTeam = yr.length > 0 && primary !== tm;
+        const a26 = (idx[k] || []).filter(x => x[20] === 2026 && x[1] === tm && x[6] === 1);
+        const sort = scoutStats(thAggregate(a26), teamPoss(tm, 2026));
+        const d26 = dataIdx[k + "|" + tm + "|2026"];
+        sort.aiScore = d26 ? d26.aiScore : null;
+        rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, team2026: tm, jersey: jerseyByKey[k] ?? null, view, sort });
+      }
     }
-    for (const k of Object.keys(viewRows)) {
-      if (seen.has(k)) continue;
-      seen.add(k);
-      const vr = viewRows[k];
-      const view = scoutStats(thAggregate(vr.rows), viewedTeamPoss);
-      const dv = dataIdx[k + "|" + team + "|" + season];
+    const grayMap = {};
+    for (const r of GAME_LOG) {
+      if (r[20] !== season || r[6] !== 1 || !selSet.has(r[1])) continue;
+      const k = thNorm(r[0]);
+      if (pinnedKeys.has(k) || thIsGuest(r[0])) continue;
+      (grayMap[k] = grayMap[k] || { name: r[0], rows: [] }).rows.push(r);
+    }
+    for (const k of Object.keys(grayMap)) {
+      const { name, rows: rr } = grayMap[k];
+      const primary = primaryTeam(rr);
+      const view = scoutStats(thAggregate(rr), teamPoss(primary, season));
+      const dv = dataIdx[k + "|" + primary + "|" + season];
       view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
-      rows.push({ key: k, name: thCanon(vr.name), display: formatName(thCanon(vr.name)), isCurrent: false, view, sort: view });
+      view.team = primary; view.diffTeam = false;
+      rows.push({ key: k, name: thCanon(name), display: formatName(thCanon(name)), isCurrent: false, team2026: null, jersey: null, view, sort: view });
     }
     return rows;
-  }, [season, team, dataIdx, roster2026, viewedTeamPoss, teamPoss2026]);
+  }, [season, selTeams, dataIdx, roster2026, jerseyByKey]);
 
   const pct1 = v => v == null ? "—" : (v * 100).toFixed(1);
   const COLS = [
@@ -15903,28 +15926,34 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           {seasons.map(y => <option key={y} value={y}>{y} Season</option>)}
         </select>
         <div className="flex flex-wrap gap-1.5">
-          {teams.map(t => (
-            <button key={t} onClick={() => { setTeam(t); setSelected(null); }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${team === t ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-              <TeamLogo team={t} year={season} size={16} />{t}
-            </button>
-          ))}
+          {seasonTeams.map(t => {
+            const on = selTeams.includes(t);
+            return (
+              <button key={t}
+                onClick={() => { setSelTeams(prev => on ? (prev.length > 1 ? prev.filter(x => x !== t) : prev) : [...prev, t]); setSelected(null); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${on ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                <TeamLogo team={t} year={season} size={16} />{t}
+              </button>
+            );
+          })}
         </div>
+        <span className="text-[11px] text-gray-400">Pick one or more teams</span>
       </div>
 
       {/* Team band */}
-      <div className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-gray-50 p-4 mb-4">
-        <TeamLogo team={team} year={season} size={48} />
-        <div className="flex-1 min-w-0">
-          <div className="text-lg font-black text-gray-900 leading-tight">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</div>
-          <div className="text-xs text-gray-500 font-medium">{season} Season · {roster.length} players{record ? ` · ${record.w}-${record.l}` : ""}</div>
-        </div>
-        {record && (
-          <div className="text-right text-xs text-gray-500 tabular-nums">
-            <div><span className="font-bold text-gray-800">{record.pf}</span> PF · <span className="font-bold text-gray-800">{record.pa}</span> PA</div>
-            <div>Diff <span className={`font-bold ${record.diff >= 0 ? "text-emerald-700" : "text-red-600"}`}>{record.diff >= 0 ? "+" : ""}{record.diff}</span></div>
-          </div>
-        )}
+      <div className="flex flex-wrap gap-3 mb-4">
+        {selTeams.map(tm => {
+          const rec = season === 2026 ? standings2026[tm] : null;
+          return (
+            <div key={tm} className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
+              <TeamLogo team={tm} year={season} size={40} />
+              <div>
+                <div className="text-sm font-black text-gray-900 leading-tight">{TEAM_FULL_NAMES[tm] || TEAM_NAMES[tm] || tm}</div>
+                <div className="text-[11px] text-gray-500 font-medium tabular-nums">{season}{rec ? ` · ${rec.w}-${rec.l} · ${rec.diff >= 0 ? "+" : ""}${rec.diff}` : ""}</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Legend */}
@@ -15956,11 +15985,15 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                 className={`border-b border-gray-50 cursor-pointer transition-colors ${r.key === selected ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
                 {COLS.map(c => {
                   if (c.player) {
+                    const chip = TEAM_COLORS[r.view.team] || "#9ca3af";
                     return (
                       <td key={c.key} className="px-2.5 py-1.5 text-left">
                         <div className="flex items-center gap-2">
-                          <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: r.isCurrent ? (TEAM_COLORS[team] || "#9ca3af") : "#d1d5db" }} />
+                          <span className="w-7 text-right text-xs font-bold text-gray-400 tabular-nums flex-shrink-0">{r.jersey != null ? "#" + r.jersey : ""}</span>
+                          <ThAvatar name={r.name} size={28} photoUrl={photoFor(r.name)} />
+                          <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: chip }} />
                           <span className={`font-bold whitespace-nowrap ${r.isCurrent ? "text-gray-900" : "text-gray-400"}`}>{r.display}</span>
+                          {r.view.diffTeam && <span className="text-[9px] font-black rounded px-1" style={{ background: chip + "22", color: chip }}>{r.view.team}</span>}
                           {r.view.award === "MVP" && <span className="text-[9px] font-black text-amber-700 bg-amber-100 rounded px-1">MVP</span>}
                           {r.view.award === "All-PCAL" && <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 rounded px-1">All-PCAL</span>}
                         </div>
@@ -15988,12 +16021,12 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
               </tr>
             ))}
             {sorted.length === 0 && (
-              <tr><td colSpan={COLS.length} className="px-4 py-8 text-center text-sm text-gray-400">No games logged for this team in {season}.</td></tr>
+              <tr><td colSpan={COLS.length} className="px-4 py-8 text-center text-sm text-gray-400">No games logged for the selected team(s) in {season}.</td></tr>
             )}
           </tbody>
         </table>
       </div>
-      <div className="text-[11px] text-gray-400 mt-2">Current 2026 roster pinned on top; gray rows played this team in {season} but are not on the 2026 roster. Tap a player for season-over-season history.</div>
+      <div className="text-[11px] text-gray-400 mt-2">Current 2026 roster pinned on top; gray rows played a selected team in {season} but are not on a 2026 roster. The color chip by each name is the team they played that season. Tap a player for season-over-season history.</div>
 
       {/* Player deep-dive */}
       {selRow && history && (
@@ -16003,8 +16036,9 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             <div className="min-w-0 flex-1">
               <div className="text-xl font-black text-gray-900 leading-tight">{selRow.display}</div>
               <div className="flex items-center gap-1.5 mt-1">
-                <TeamLogo team={team} year={season} size={18} />
-                <span className="text-sm font-bold text-gray-600">{TEAM_FULL_NAMES[team] || team}</span>
+                <TeamLogo team={selRow.view.team} year={season} size={18} />
+                <span className="text-sm font-bold text-gray-600">{TEAM_FULL_NAMES[selRow.view.team] || selRow.view.team}</span>
+                {selRow.jersey != null && <span className="text-xs font-bold text-gray-400">#{selRow.jersey}</span>}
                 <span className="text-xs text-gray-400">· {history.length} season{history.length === 1 ? "" : "s"} tracked</span>
               </div>
             </div>
