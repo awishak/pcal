@@ -528,16 +528,61 @@ export async function sendRegistrationConfirmation(form, pin) {
 //
 // To force a refresh after approving a new game, call bumpGameLogCache()
 // or pass { force: true } to loadGameLog().
+//
+// The cache is validated against the server on every load, so out-of-band
+// writes (a raw SQL stat correction, say) reach every client on their next
+// page load rather than waiting out the TTL. See fetchGameLogStamp below.
 
-// Bump this key to force every client to drop its cached game_log and
-// refetch (the cache is client-side localStorage with a 1h TTL and has no
-// server-side invalidation, so out-of-band writes such as a raw SQL recovery
-// won't otherwise reach already-loaded browsers). Bumped v2 -> v3 after the
-// week-1 doubleheader row recovery; v3 -> v4 to flush the June 14 games that
-// were stale on devices still inside the 12h cache window.
-const GAME_LOG_CACHE_KEY = "pcal_game_log_v4";
+// Bumped v2 -> v3 after the week-1 doubleheader row recovery; v3 -> v4 to
+// flush the June 14 games that were stale on devices still inside the 12h
+// cache window; v4 -> v5 when the cache gained a server-validated stamp
+// (the stored shape changed, so old caches must be dropped).
+const GAME_LOG_CACHE_KEY = "pcal_game_log_v5";
 const GAME_LOG_VERSION_KEY = "pcal_game_log_version";
-const GAME_LOG_TTL_MS = 60 * 60 * 1000; // 1 hour (in-season games update weekly)
+// Backstop only. The stamp check below is the real invalidation; the TTL now
+// just bounds staleness for clients whose stamp probe fails (offline, etc).
+const GAME_LOG_TTL_MS = 60 * 60 * 1000;
+
+// A cheap fingerprint of the server-side game_log: the most recent updated_at
+// plus the exact row count. One request, one row, ~200 bytes.
+//
+// The watermark catches inserts and updates (every admin write path sets
+// updated_at). The count catches deletes, which a watermark alone cannot see
+// because a deleted row takes its updated_at with it. Together they are enough
+// to know whether our cached copy is still good.
+//
+// Returns null if the probe fails, which tells the caller to fall back to the
+// TTL rather than blow away a usable cache on a flaky network.
+async function fetchGameLogStamp() {
+  try {
+    const { data, count, error } = await supabase
+      .from("game_log")
+      .select("updated_at", { count: "exact" })
+      // nullsFirst matters: Postgres sorts NULLs first on DESC by default, so a
+      // single row with a null updated_at would pin the watermark to "" and
+      // force a full refetch on every load.
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(1);
+    if (error || typeof count !== "number") return null;
+    return { watermark: (data && data[0] && data[0].updated_at) || "", count };
+  } catch {
+    return null;
+  }
+}
+
+// Derive the same stamp from a freshly fetched set of rows, so a full fetch
+// does not need a second round trip to learn its own fingerprint. Ordering is
+// by parsed time, but the raw string is what gets stored, so it compares byte
+// for byte against what fetchGameLogStamp returns for the same row.
+function stampFromRows(rows) {
+  let watermark = "";
+  let best = -Infinity;
+  for (const r of rows) {
+    const t = Date.parse(r.updated_at || "");
+    if (Number.isFinite(t) && t > best) { best = t; watermark = r.updated_at; }
+  }
+  return { watermark, count: rows.length };
+}
 
 // Map a game_log row object (from Supabase) into the 21-element positional
 // array format the App.jsx code expects. Missing fields default to 0 / "".
@@ -606,13 +651,25 @@ export async function loadGameLog(options = {}) {
   if (!force) {
     try {
       const cached = window.localStorage.getItem(GAME_LOG_CACHE_KEY);
-      const versionAt = window.localStorage.getItem(GAME_LOG_VERSION_KEY);
-      if (cached && versionAt) {
-        const age = Date.now() - parseInt(versionAt, 10);
-        if (age >= 0 && age < GAME_LOG_TTL_MS) {
-          const arr = JSON.parse(cached);
-          if (Array.isArray(arr) && arr.length > 0) {
-            return arr;
+      const meta = JSON.parse(window.localStorage.getItem(GAME_LOG_VERSION_KEY) || "null");
+      if (cached && meta && meta.fetchedAt) {
+        const arr = JSON.parse(cached);
+        if (Array.isArray(arr) && arr.length > 0) {
+          // Ask the server whether anything moved since we cached. This is the
+          // real invalidation: a stat correction applied by raw SQL bumps
+          // updated_at, so the stamp stops matching and we refetch here.
+          const stamp = await fetchGameLogStamp();
+          if (stamp) {
+            if (stamp.watermark === meta.watermark && stamp.count === meta.count) {
+              return arr;
+            }
+            // Stamp moved: fall through and refetch.
+          } else {
+            // Probe failed (offline, RLS hiccup). Serve the cache if it is
+            // still inside the TTL rather than force a 9k-row fetch we may
+            // not be able to complete.
+            const age = Date.now() - meta.fetchedAt;
+            if (age >= 0 && age < GAME_LOG_TTL_MS) return arr;
           }
         }
       }
@@ -624,10 +681,14 @@ export async function loadGameLog(options = {}) {
 
   const rows = await fetchAllGameLogRows();
   const arr = rows.map(gameLogRowToArray);
+  const stamp = stampFromRows(rows);
 
   try {
     window.localStorage.setItem(GAME_LOG_CACHE_KEY, JSON.stringify(arr));
-    window.localStorage.setItem(GAME_LOG_VERSION_KEY, String(Date.now()));
+    window.localStorage.setItem(
+      GAME_LOG_VERSION_KEY,
+      JSON.stringify({ fetchedAt: Date.now(), watermark: stamp.watermark, count: stamp.count })
+    );
   } catch (e) {
     // localStorage may be full or disabled; not fatal.
     console.warn("game_log cache write failed:", e);
