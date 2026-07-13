@@ -3536,28 +3536,95 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
       else if (n.startsWith("OT")) markers.push({ t: mins(e), label: n });
     }
 
-    let h = 0, a = 0, leadChanges = 0, prev = 0, homeBest = 0, awayBest = 0;
+    let h = 0, a = 0, leadChanges = 0, homeBest = 0, awayBest = 0;
+    let lastLead = 0;   // last non-zero margin, so a tie does not erase who led
+    let prevM = 0;      // raw previous margin, including zero
+    const swings = [];  // every lead change and every new tie
+    let homeBestAt = null, awayBestAt = null;
+
     const pts = [{ t: 0, h: 0, a: 0, who: null, p: 0 }];
     for (const e of live) {
       const p = FLOW_PTS[e.stat_type];
       if (!p || !e.team) continue;
       if (e.team === homeTeam) h += p; else if (e.team === awayTeam) a += p; else continue;
+      const t = mins(e);
       const m = h - a;
-      if (m * prev < 0) leadChanges++;
-      if (m !== 0) prev = m;
-      homeBest = Math.max(homeBest, m);
-      awayBest = Math.max(awayBest, -m);
-      pts.push({ t: mins(e), h, a, who: e.player_name, p, team: e.team });
+
+      // A lead change is a sign flip against the last team to hold a lead, so
+      // going ahead out of a tie counts. A tie is the margin newly hitting zero.
+      const isLeadChange = m * lastLead < 0;
+      const isTie = m === 0 && prevM !== 0;
+      if (isLeadChange) leadChanges++;
+      if (isLeadChange || isTie) {
+        // The dot belongs to whoever scored: they either took the lead or tied
+        // it. At a tie both lines sit at the same height, so it marks the cross.
+        swings.push({ t, v: e.team === homeTeam ? h : a, team: e.team, tie: isTie });
+      }
+
+      // >= keeps the LAST time a team held its biggest lead, not the first. A
+      // team often reaches the same margin early and again late; the late one is
+      // the moment that matters and has room for a label, where the early one
+      // tends to land crammed against the y-axis.
+      if (m > 0 && m >= homeBest) { homeBest = m; homeBestAt = { t, v: h }; }
+      if (m < 0 && -m >= awayBest) { awayBest = -m; awayBestAt = { t, v: a }; }
+
+      if (m !== 0) lastLead = m;
+      prevM = m;
+      pts.push({ t, h, a, who: e.player_name, p, team: e.team });
     }
     if (pts.length < 6) return null; // not enough scoring to plot
 
-    const end = Math.max(mins(live[live.length - 1]), pts[pts.length - 1].t);
-    return { pts, end, markers, leadChanges, homeBest, awayBest, finalH: h, finalA: a };
+    // The chart ends at the last basket. Anything logged afterwards is
+    // bookkeeping, and a scorer who forgets to tap "End game" until the next
+    // morning leaves a game_end event hours later: game 109 spans 29 hours,
+    // with every real play inside the first 60 minutes.
+    const endReal = pts[pts.length - 1].t;
+
+    // Period markers logged after play stopped are artifacts, not boundaries.
+    // Seven of the twenty 2026 games never got a halftime tap during play and
+    // only got one on the way out the door, right before game_end; those games
+    // genuinely have no period boundary to draw, so drop it rather than put a
+    // "HALF" divider on top of the final score.
+    //
+    // Deduping by label covers a double-tapped button, which would otherwise
+    // stack two dividers and two labels on the same pixel.
+    const seenLabel = new Set();
+    const live_markers = markers
+      .filter(m => m.t < endReal)
+      .filter(m => !seenLabel.has(m.label) && seenLabel.add(m.label));
+
+    // Compress dead time. Any gap longer than GAP_CAP minutes is drawn as
+    // GAP_CAP, so a genuine four-minute scoring drought still looks like four
+    // minutes, while an hours-long stall cannot eat the whole axis.
+    const GAP_CAP = 5;
+    const keys = [...new Set([0, ...pts.map(p => p.t), ...live_markers.map(m => m.t)])].sort((p, q) => p - q);
+    const comp = new Map([[keys[0], 0]]);
+    let acc = 0, squeezed = false;
+    for (let i = 1; i < keys.length; i++) {
+      const gap = keys[i] - keys[i - 1];
+      if (gap > GAP_CAP) squeezed = true;
+      acc += Math.min(gap, GAP_CAP);
+      comp.set(keys[i], acc);
+    }
+    // ct is the drawn position; t stays the real elapsed time, which is what the
+    // tooltip reports. Compressing the axis must not make the app lie about when
+    // something happened.
+    const ct = t => comp.get(t) ?? acc;
+    pts.forEach(p => { p.ct = ct(p.t); });
+    live_markers.forEach(m => { m.ct = ct(m.t); });
+    swings.forEach(s => { s.ct = ct(s.t); });
+    if (homeBestAt) homeBestAt.ct = ct(homeBestAt.t);
+    if (awayBestAt) awayBestAt.ct = ct(awayBestAt.t);
+
+    return {
+      pts, end: Math.max(acc, 1), markers: live_markers, swings, squeezed,
+      leadChanges, homeBest, awayBest, homeBestAt, awayBestAt, finalH: h, finalA: a,
+    };
   }, [events, homeTeam, awayTeam]);
 
   if (!flow) return null;
 
-  const { pts, end, markers, leadChanges, homeBest, awayBest, finalH, finalA } = flow;
+  const { pts, end, markers, swings, squeezed, leadChanges, homeBest, awayBest, homeBestAt, awayBestAt, finalH, finalA } = flow;
   const W = 320, H = 150, L = 24, R = 22, T = 10, B = 18;
   const iw = W - L - R, ih = H - T - B;
   const top = Math.max(finalH, finalA);
@@ -3569,25 +3636,26 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
   const stepPath = (key) => {
     let d = `M ${x(0)} ${y(0)}`;
     for (let i = 1; i < pts.length; i++) {
-      d += ` L ${x(pts[i].t)} ${y(pts[i - 1][key])} L ${x(pts[i].t)} ${y(pts[i][key])}`;
+      d += ` L ${x(pts[i].ct)} ${y(pts[i - 1][key])} L ${x(pts[i].ct)} ${y(pts[i][key])}`;
     }
-    return d + ` L ${x(end)} ${y(pts[pts.length - 1][key])}`;
+    return d;
   };
 
   const hc = CHART_TEAM_COLORS[homeTeam] || "#111827";
   const ac = CHART_TEAM_COLORS[awayTeam] || "#6b7280";
 
+  // Inverse of the drawn axis, so scrubbing works in compressed space too.
   const scrub = (clientX, target) => {
     const r = target.getBoundingClientRect();
-    const t = ((clientX - r.left) / r.width * W - L) / iw * end;
+    const at = ((clientX - r.left) / r.width * W - L) / iw * end;
     let best = pts[0];
-    for (const p of pts) if (p.t <= t) best = p;
+    for (const p of pts) if (p.ct <= at) best = p;
     setHover(best);
   };
 
   return (
     <div className="mb-4 bg-white rounded-2xl border border-gray-100 p-4">
-      <div className="text-[10px] text-gray-400 uppercase tracking-widest mb-3">Game Flow</div>
+      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Game Flow</div>
 
       <div className="flex items-center gap-4 mb-2">
         <span className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600">
@@ -3617,13 +3685,32 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
 
           {markers.map((m, i) => (
             <g key={i}>
-              <line x1={x(m.t)} x2={x(m.t)} y1={T} y2={H - B} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="3 3" />
-              <text x={x(m.t) + 3} y={T + 7} fontSize="7" fill="#9ca3af" letterSpacing="0.05em">{m.label}</text>
+              <line x1={x(m.ct)} x2={x(m.ct)} y1={T} y2={H - B} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="3 3" />
+              <text x={x(m.ct) + 3} y={T + 7} fontSize="7" fill="#9ca3af" letterSpacing="0.05em">{m.label}</text>
             </g>
           ))}
 
           <path d={stepPath("a")} fill="none" stroke={ac} strokeWidth="2" strokeLinejoin="round" />
           <path d={stepPath("h")} fill="none" stroke={hc} strokeWidth="2" strokeLinejoin="round" />
+
+          {/* Every lead change and every tie, colored by whoever made it happen.
+              A 2px surface ring keeps the dot legible where the lines cross. */}
+          {swings.map((s, i) => (
+            <circle key={i} cx={x(s.ct)} cy={y(s.v)} r="3"
+              fill={CHART_TEAM_COLORS[s.team] || "#111827"} stroke="#fff" strokeWidth="1.5" />
+          ))}
+
+          {/* Biggest lead for each team, labeled where it actually happened.
+              Clamped so a lead built at the very start or end stays on canvas. */}
+          {[
+            { at: awayBestAt, lead: awayBest, team: awayTeam, color: ac },
+            { at: homeBestAt, lead: homeBest, team: homeTeam, color: hc },
+          ].filter(d => d.at && d.lead > 0).map((d, i) => (
+            <text key={i} x={Math.min(Math.max(x(d.at.ct), L + 16), W - R - 16)} y={y(d.at.v) - 6}
+              textAnchor="middle" fontSize="9" fontWeight="700" fill={d.color}>
+              {d.team} +{d.lead}
+            </text>
+          ))}
 
           {/* Final scores labeled at the line ends, so identity never rests on color alone */}
           <text x={x(end) + 3} y={y(finalA) + 3} fontSize="10" fontWeight="700" fill={ac}>{finalA}</text>
@@ -3631,9 +3718,9 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
 
           {hover && (
             <>
-              <line x1={x(hover.t)} x2={x(hover.t)} y1={T} y2={H - B} stroke="#d1d5db" strokeWidth="1" />
-              <circle cx={x(hover.t)} cy={y(hover.a)} r="3.5" fill="#fff" stroke={ac} strokeWidth="2" />
-              <circle cx={x(hover.t)} cy={y(hover.h)} r="3.5" fill="#fff" stroke={hc} strokeWidth="2" />
+              <line x1={x(hover.ct)} x2={x(hover.ct)} y1={T} y2={H - B} stroke="#d1d5db" strokeWidth="1" />
+              <circle cx={x(hover.ct)} cy={y(hover.a)} r="3.5" fill="#fff" stroke={ac} strokeWidth="2" />
+              <circle cx={x(hover.ct)} cy={y(hover.h)} r="3.5" fill="#fff" stroke={hc} strokeWidth="2" />
             </>
           )}
         </svg>
@@ -3662,7 +3749,9 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
       </div>
 
       <div className="text-[10px] text-gray-400 mt-2.5 leading-relaxed">
-        Running score after every made basket. Time is elapsed clock from the opening play.
+        Running score after every made basket. Dots mark a lead change or a tie, colored by the
+        team that made it. Time is elapsed clock from the opening play
+        {squeezed ? ", with long stoppages shortened" : ""}.
       </div>
     </div>
   );
