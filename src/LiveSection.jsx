@@ -84,6 +84,17 @@ const TEAM_COLORS = {
   MCS: "#9333ea",
 };
 
+// Team colors for chart marks (thin lines on a white card), which have a
+// stricter job than a filled chip: a mark must clear 3:1 contrast against the
+// surface or it is invisible. Every team color clears it except the two
+// yellows, PLE (1.49:1) and SJK (1.87:1), so those get a darker step here.
+// Chips and badges keep the brand color; only plotted marks use this map.
+const CHART_TEAM_COLORS = {
+  ...TEAM_COLORS,
+  PLE: "#a16207",
+  SJK: "#a16207",
+};
+
 // The six teams participating in the 2026 season. Used for the team
 // filter pill row on the Games page.
 const TEAMS_2026 = ["SAC", "PDF", "MOD", "SJO", "HAY", "PLE"];
@@ -1739,6 +1750,10 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
   // as the "as scored" original, shown to admins via a toggle. game_log has
   // no game_id, so we read by the year+week+date+matchup proxy.
   const isApproved = live?.status === "approved" || game?.status === "approved";
+  // The flow chart is a retrospective, so it only appears once the game stops
+  // moving. "ended" covers games awaiting approval; "approved" covers the rest.
+  const isFinal = isApproved
+    || live?.status === "ended" || game?.status === "ended";
   const [officialBox, setOfficialBox] = useState(null);
   const [officialTeamScore, setOfficialTeamScore] = useState(null);
   const [boxSource, setBoxSource] = useState("official"); // "official" | "scored"
@@ -1967,6 +1982,7 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
         </div>
       )}
       {mode === "box" && <BoxScoreView game={game} box={displayBox} rosters={rosters}
+        events={events} isFinal={isFinal}
         showSourceToggle={isAdmin && hasOfficial} boxSource={boxSource} onSourceChange={setBoxSource} />}
       {mode === "log" && <PlayByPlay events={events} me={me} myRole={myRole} game={game} />}
       </div>
@@ -3475,7 +3491,173 @@ function LastThreePanel({ events, onUndo }) {
 // ============================================================
 // Box score view (tabular)
 // ============================================================
-function BoxScoreView({ game, box, rosters, showSourceToggle = false, boxSource = "official", onSourceChange = () => {} }) {
+// ============================================================
+// Game flow: both teams' running scores across a finished game
+// ============================================================
+// Built from the live_events the scorer already taps in, so it costs no new
+// data collection and works retroactively on every game scored in Live.
+//
+// The x axis is elapsed wall-clock time, not game clock: live_events stores an
+// event_ts and a period label, and we do not track a clock. So a flat stretch
+// is real time with no scoring, but it also absorbs timeouts and stoppages.
+//
+// Renders nothing when there are no events (any game predating Live) or when
+// there is too little scoring to be worth a chart.
+const FLOW_PTS = { made_2: 2, made_3: 3, made_ft: 1 };
+
+function GameFlowChart({ events, homeTeam, awayTeam }) {
+  const [hover, setHover] = useState(null);
+
+  const flow = useMemo(() => {
+    const live = (events || []).filter(e => !e.deleted);
+    if (!live.length) return null;
+
+    const t0 = new Date(live[0].event_ts).getTime();
+    const mins = e => (new Date(e.event_ts).getTime() - t0) / 60000;
+
+    // Period dividers. A period_change event carries the new period label in
+    // player_name, which is how the scorer's OT button records it.
+    const markers = [];
+    for (const e of live) {
+      if (e.stat_type !== "period_change") continue;
+      const n = e.player_name || "";
+      if (n === "H2" || n === "Halftime") markers.push({ t: mins(e), label: "HALF" });
+      else if (n.startsWith("OT")) markers.push({ t: mins(e), label: n });
+    }
+
+    let h = 0, a = 0, leadChanges = 0, prev = 0, homeBest = 0, awayBest = 0;
+    const pts = [{ t: 0, h: 0, a: 0, who: null, p: 0 }];
+    for (const e of live) {
+      const p = FLOW_PTS[e.stat_type];
+      if (!p || !e.team) continue;
+      if (e.team === homeTeam) h += p; else if (e.team === awayTeam) a += p; else continue;
+      const m = h - a;
+      if (m * prev < 0) leadChanges++;
+      if (m !== 0) prev = m;
+      homeBest = Math.max(homeBest, m);
+      awayBest = Math.max(awayBest, -m);
+      pts.push({ t: mins(e), h, a, who: e.player_name, p, team: e.team });
+    }
+    if (pts.length < 6) return null; // not enough scoring to plot
+
+    const end = Math.max(mins(live[live.length - 1]), pts[pts.length - 1].t);
+    return { pts, end, markers, leadChanges, homeBest, awayBest, finalH: h, finalA: a };
+  }, [events, homeTeam, awayTeam]);
+
+  if (!flow) return null;
+
+  const { pts, end, markers, leadChanges, homeBest, awayBest, finalH, finalA } = flow;
+  const W = 320, H = 150, L = 24, R = 22, T = 10, B = 18;
+  const iw = W - L - R, ih = H - T - B;
+  const top = Math.max(finalH, finalA);
+  const x = t => L + (end > 0 ? (t / end) * iw : 0);
+  const y = v => T + ih - (top > 0 ? (v / top) * ih : 0);
+
+  // Step path: the score holds flat until the next basket, then jumps. A smooth
+  // curve would imply points accrue continuously between baskets.
+  const stepPath = (key) => {
+    let d = `M ${x(0)} ${y(0)}`;
+    for (let i = 1; i < pts.length; i++) {
+      d += ` L ${x(pts[i].t)} ${y(pts[i - 1][key])} L ${x(pts[i].t)} ${y(pts[i][key])}`;
+    }
+    return d + ` L ${x(end)} ${y(pts[pts.length - 1][key])}`;
+  };
+
+  const hc = CHART_TEAM_COLORS[homeTeam] || "#111827";
+  const ac = CHART_TEAM_COLORS[awayTeam] || "#6b7280";
+
+  const scrub = (clientX, target) => {
+    const r = target.getBoundingClientRect();
+    const t = ((clientX - r.left) / r.width * W - L) / iw * end;
+    let best = pts[0];
+    for (const p of pts) if (p.t <= t) best = p;
+    setHover(best);
+  };
+
+  return (
+    <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-4">
+      <div className="text-[10px] text-gray-400 uppercase tracking-widest mb-3">Game Flow</div>
+
+      <div className="flex items-center gap-4 mb-2">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: ac }} />{awayTeam}
+        </span>
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: hc }} />{homeTeam}
+        </span>
+      </div>
+
+      <div className="relative">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block" style={{ touchAction: "pan-y" }}
+          role="img"
+          aria-label={`Running score. ${awayTeam} ${finalA}, ${homeTeam} ${finalH}. ${leadChanges} lead changes.`}
+          onMouseMove={e => scrub(e.clientX, e.currentTarget)}
+          onMouseLeave={() => setHover(null)}
+          onTouchStart={e => scrub(e.touches[0].clientX, e.currentTarget)}
+          onTouchMove={e => scrub(e.touches[0].clientX, e.currentTarget)}
+          onTouchEnd={() => setHover(null)}>
+
+          {[0, Math.round(top / 2), top].map((v, i) => (
+            <g key={i}>
+              <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="#f3f4f6" strokeWidth="1" />
+              <text x={L - 5} y={y(v) + 3} textAnchor="end" fontSize="8" fill="#9ca3af">{v}</text>
+            </g>
+          ))}
+
+          {markers.map((m, i) => (
+            <g key={i}>
+              <line x1={x(m.t)} x2={x(m.t)} y1={T} y2={H - B} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="3 3" />
+              <text x={x(m.t) + 3} y={T + 7} fontSize="7" fill="#9ca3af" letterSpacing="0.05em">{m.label}</text>
+            </g>
+          ))}
+
+          <path d={stepPath("a")} fill="none" stroke={ac} strokeWidth="2" strokeLinejoin="round" />
+          <path d={stepPath("h")} fill="none" stroke={hc} strokeWidth="2" strokeLinejoin="round" />
+
+          {/* Final scores labeled at the line ends, so identity never rests on color alone */}
+          <text x={x(end) + 3} y={y(finalA) + 3} fontSize="10" fontWeight="700" fill={ac}>{finalA}</text>
+          <text x={x(end) + 3} y={y(finalH) + 3} fontSize="10" fontWeight="700" fill={hc}>{finalH}</text>
+
+          {hover && (
+            <>
+              <line x1={x(hover.t)} x2={x(hover.t)} y1={T} y2={H - B} stroke="#d1d5db" strokeWidth="1" />
+              <circle cx={x(hover.t)} cy={y(hover.a)} r="3.5" fill="#fff" stroke={ac} strokeWidth="2" />
+              <circle cx={x(hover.t)} cy={y(hover.h)} r="3.5" fill="#fff" stroke={hc} strokeWidth="2" />
+            </>
+          )}
+        </svg>
+
+        {hover && (
+          <div className="absolute top-0 left-0 right-0 flex justify-center pointer-events-none">
+            <div className="bg-gray-900 text-white rounded-lg px-2.5 py-1 text-[10px] font-semibold tabular-nums whitespace-nowrap">
+              {Math.round(hover.t)}' &middot; {awayTeam} {hover.a} &ndash; {hover.h} {homeTeam}
+              {hover.who ? <span className="text-gray-400 font-normal"> &middot; {formatName(hover.who)} +{hover.p}</span> : null}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mt-3">
+        {[
+          { k: `${awayTeam} biggest lead`, v: awayBest },
+          { k: `${homeTeam} biggest lead`, v: homeBest },
+          { k: "Lead changes", v: leadChanges },
+        ].map((s, i) => (
+          <div key={i} className="bg-gray-100 rounded-lg px-2.5 py-2">
+            <div className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold leading-tight">{s.k}</div>
+            <div className="text-base font-black text-gray-900 tabular-nums mt-0.5">{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="text-[10px] text-gray-400 mt-2.5 leading-relaxed">
+        Running score after every made basket. Time is elapsed clock from the opening play.
+      </div>
+    </div>
+  );
+}
+
+function BoxScoreView({ game, box, rosters, events = [], isFinal = false, showSourceToggle = false, boxSource = "official", onSourceChange = () => {} }) {
   const ZERO = { pts:0,reb:0,ast:0,stl:0,blk:0,fgm:0,fga:0,tpm:0,tpa:0,ftm:0,fta:0,foul:0 };
   const pct = (m, a) => a > 0 ? Math.round(100 * m / a) + "%" : "—";
   const sumRows = (rows) => {
@@ -3618,6 +3800,8 @@ function BoxScoreView({ game, box, rosters, showSourceToggle = false, boxSource 
           );
         })}
       </div>
+
+      {isFinal && <GameFlowChart events={events} homeTeam={game.home_team} awayTeam={game.away_team} />}
     </div>
   );
 }
