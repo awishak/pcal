@@ -1754,6 +1754,18 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
   // moving. "ended" covers games awaiting approval; "approved" covers the rest.
   const isFinal = isApproved
     || live?.status === "ended" || game?.status === "ended";
+
+  // A finished game opens on the box score, not the scoring view: nobody is
+  // scoring it anymore. Runs once per game, after it loads and we know whether
+  // it is final, so it never fights a tab the user picked themselves. Keyed on
+  // gameId rather than a boolean, so navigating to a second game still gets its
+  // own default instead of inheriting the first one's tab.
+  const defaultedTabFor = useRef(null);
+  useEffect(() => {
+    if (loading || !game || defaultedTabFor.current === gameId) return;
+    defaultedTabFor.current = gameId;
+    setMode(isFinal ? "box" : "score");
+  }, [loading, game, isFinal, gameId]);
   const [officialBox, setOfficialBox] = useState(null);
   const [officialTeamScore, setOfficialTeamScore] = useState(null);
   const [boxSource, setBoxSource] = useState("official"); // "official" | "scored"
@@ -1982,9 +1994,8 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
         </div>
       )}
       {mode === "box" && <BoxScoreView game={game} box={displayBox} rosters={rosters}
-        events={events} isFinal={isFinal}
         showSourceToggle={isAdmin && hasOfficial} boxSource={boxSource} onSourceChange={setBoxSource} />}
-      {mode === "log" && <PlayByPlay events={events} me={me} myRole={myRole} game={game} />}
+      {mode === "log" && <PlayByPlay events={events} me={me} myRole={myRole} game={game} isFinal={isFinal} />}
       </div>
     </PhotosContext.Provider>
   );
@@ -3575,7 +3586,7 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
   };
 
   return (
-    <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-4">
+    <div className="mb-4 bg-white rounded-2xl border border-gray-100 p-4">
       <div className="text-[10px] text-gray-400 uppercase tracking-widest mb-3">Game Flow</div>
 
       <div className="flex items-center gap-4 mb-2">
@@ -3657,7 +3668,7 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
   );
 }
 
-function BoxScoreView({ game, box, rosters, events = [], isFinal = false, showSourceToggle = false, boxSource = "official", onSourceChange = () => {} }) {
+function BoxScoreView({ game, box, rosters, showSourceToggle = false, boxSource = "official", onSourceChange = () => {} }) {
   const ZERO = { pts:0,reb:0,ast:0,stl:0,blk:0,fgm:0,fga:0,tpm:0,tpa:0,ftm:0,fta:0,foul:0 };
   const pct = (m, a) => a > 0 ? Math.round(100 * m / a) + "%" : "—";
   const sumRows = (rows) => {
@@ -3800,8 +3811,6 @@ function BoxScoreView({ game, box, rosters, events = [], isFinal = false, showSo
           );
         })}
       </div>
-
-      {isFinal && <GameFlowChart events={events} homeTeam={game.home_team} awayTeam={game.away_team} />}
     </div>
   );
 }
@@ -3850,7 +3859,7 @@ function formatEventText(e) {
   return `${base}${teamTag ? " " + teamTag : ""}`.trim();
 }
 
-function PlayByPlay({ events, me, myRole, game }) {
+function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
   const canEdit = myRole === "home_scorer" || myRole === "away_scorer";
   const visible = events.filter(e => !e.deleted).slice().reverse();
 
@@ -3882,6 +3891,7 @@ function PlayByPlay({ events, me, myRole, game }) {
 
   return (
     <div className="space-y-1">
+      {isFinal && <GameFlowChart events={events} homeTeam={game.home_team} awayTeam={game.away_team} />}
       {visible.length === 0 && (
         <div className="text-center py-6 text-xs text-gray-400">No events yet.</div>
       )}
