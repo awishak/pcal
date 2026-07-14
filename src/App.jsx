@@ -7787,11 +7787,12 @@ function HallOfFameView({ goToPlayer }) {
   const hofData = useMemo(() => {
     const stats = {};
     DATA.forEach(r => {
-      if (!stats[r.player]) stats[r.player] = { mvp: 0, first: 0, second: 0, seasons: 0, gp: 0, pts: 0, champs: 0, finals: 0, champPts: 0, finalsPts: 0, teams: new Set(), years: [], seasonList: [] };
+      if (!stats[r.player]) stats[r.player] = { mvp: 0, first: 0, second: 0, seasons: 0, gp: 0, pts: 0, champs: 0, finals: 0, champPts: 0, finalsPts: 0, teams: new Set(), years: [], seasonList: [], ais: [] };
       const s = stats[r.player];
       s.seasons++;
       s.gp += r.g;
       s.pts += r.pts;
+      s.ais.push(r.aiScore || 0);
       s.teams.add(r.team);
       s.years.push(r.year);
       if (r.award === "MVP") s.mvp++;
@@ -7827,9 +7828,14 @@ function HallOfFameView({ goToPlayer }) {
       const yrs = s.years.sort((a, b) => a - b);
       // Teams in the order the player first suited up for them.
       const teamOrder = [...new Set(s.seasonList.slice().reverse().map(x => x.team))];
-      const hofScore = s.mvp * 10 + s.first * 7 + s.second * 4 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 1 + s.seasons * 3;
+      // Peak bonus: average AI Score of the 5 best seasons. Only players with at
+      // least 5 seasons earn it, so it rewards sustained peak play, not one year.
+      const peak5 = s.seasons >= 5
+        ? s.ais.slice().sort((a, b) => b - a).slice(0, 5).reduce((a, b) => a + b, 0) / 5
+        : 0;
+      const hofScore = s.mvp * 10 + s.first * 7 + s.second * 4 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 1 + s.seasons * 3 + peak5;
       const tier = hofScore >= 275 ? "Inner Circle" : hofScore >= 200 ? "First Ballot" : hofScore >= 140 ? "Strong Case" : hofScore >= 90 ? "On the Bubble" : null;
-      return { name, ...s, teams: [...s.teams], teamOrder, yearRange: yrs[0] + "–" + yrs[yrs.length - 1], hofScore, tier };
+      return { name, ...s, teams: [...s.teams], teamOrder, peak5, yearRange: yrs[0] + "–" + yrs[yrs.length - 1], hofScore, tier };
     }).filter(p => p.hofScore >= 60).sort((a, b) => b.hofScore - a.hofScore);
   }, []);
 
@@ -7841,6 +7847,7 @@ function HallOfFameView({ goToPlayer }) {
     { label: "Finals loss (weighted)", pts: "×1.2", desc: "Same tiers as championship, but 40% of value" },
     { label: "Games Played", pts: "1", desc: "Per game played" },
     { label: "Season Played", pts: "3", desc: "Per season on a roster" },
+    { label: "Peak (5 best seasons)", pts: "+AI", desc: "Average AI Score of a player's 5 best seasons. Only added for players with 5+ seasons." },
   ];
 
   const tierColor = (tier) => {
@@ -7864,7 +7871,7 @@ function HallOfFameView({ goToPlayer }) {
       {showFormula && (
         <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 mb-4">
           <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-2">HOF Score Formula</p>
-          <p className="text-[11px] text-gray-500 leading-relaxed mb-3">Each player's Hall of Fame score rewards sustained excellence and meaningful contribution. Championships are weighted by how much a player actually contributed to the title — the best player on a championship team earns 6 points (3×2), while a minimal contributor earns just 0.5 (0.25×2). Games played and seasons carry the most cumulative weight, reflecting the league's emphasis on showing up.</p>
+          <p className="text-[11px] text-gray-500 leading-relaxed mb-3">Each player's Hall of Fame score rewards sustained excellence and meaningful contribution. Championships are weighted by how much a player actually contributed to the title. The best player on a championship team earns 6 points (3×2), while a minimal contributor earns just 0.5 (0.25×2). Games played and seasons carry the most cumulative weight, reflecting the league's emphasis on showing up. Players with 5 or more seasons also add a peak bonus: the average AI Score of their 5 best seasons, which rewards how good they were at their best, not just how long they played.</p>
           <div className="space-y-1.5">
             {FORMULA.map((f, i) => (
               <div key={i} className="flex items-center justify-between">
@@ -7940,13 +7947,14 @@ function HallOfFameView({ goToPlayer }) {
                 <div className="rounded-xl bg-gray-50 p-2.5 mb-2">
                   <p className="text-[9px] text-gray-400 font-medium mb-1">Score Breakdown</p>
                   <div className="flex flex-wrap gap-x-3 text-[10px]">
-                    {p.mvp > 0 && <span><span className="text-gray-800">{p.mvp}×8={p.mvp*8}</span> <span className="text-gray-400">MVP</span></span>}
-                    {p.first > 0 && <span><span className="text-gray-800">{p.first}×4={p.first*4}</span> <span className="text-gray-400">1st</span></span>}
-                    {p.second > 0 && <span><span className="text-gray-800">{p.second}×2={p.second*2}</span> <span className="text-gray-400">2nd</span></span>}
+                    {p.mvp > 0 && <span><span className="text-gray-800">{p.mvp}×10={p.mvp*10}</span> <span className="text-gray-400">MVP</span></span>}
+                    {p.first > 0 && <span><span className="text-gray-800">{p.first}×7={p.first*7}</span> <span className="text-gray-400">1st</span></span>}
+                    {p.second > 0 && <span><span className="text-gray-800">{p.second}×4={p.second*4}</span> <span className="text-gray-400">2nd</span></span>}
                     {p.champPts > 0 && <span><span className="text-gray-800">{p.champPts.toFixed(1)}×3={Math.round(p.champPts*3)}</span> <span className="text-gray-400">Champ</span></span>}
                     {p.finalsPts > 0 && <span><span className="text-gray-800">{p.finalsPts.toFixed(1)}×3={Math.round(p.finalsPts*3)}</span> <span className="text-gray-400">Finals</span></span>}
                     <span><span className="text-gray-800">{p.gp}×1={p.gp}</span> <span className="text-gray-400">GP</span></span>
                     <span><span className="text-gray-800">{p.seasons}×3={p.seasons*3}</span> <span className="text-gray-400">Szn</span></span>
+                    {p.peak5 > 0 && <span><span className="text-gray-800">+{p.peak5.toFixed(1)}</span> <span className="text-gray-400">Peak AI</span></span>}
                   </div>
                 </div>
 
