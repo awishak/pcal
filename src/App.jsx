@@ -26,6 +26,15 @@ const TEAMS_2026 = ["SAC", "PDF", "MOD", "SJO", "HAY", "PLE"];
 let YEARS = [];
 let LEADERS_BY_YEAR = {};
 
+// The most recent season present in the game log. YEARS is rebuilt after the log
+// loads, so read this at render time, not at module load.
+const currentYear = () => YEARS[YEARS.length - 1];
+
+// Row highlight for leaderboard entries from the current season. Borders on these
+// lists already mean championship / playoff / triple-double, so tint the row instead.
+const CURRENT_ROW_BG = "bg-blue-50/50";
+const CURRENT_YEAR_TEXT = "text-blue-600";
+
 // Game-by-game data: [player, team, opp, week, date, type(R/P/C), gm, pts, reb, stl, ast, blk, fgm, fga, ftm, fta, tpm, tpa, foul, gmSc]
 // Game log data is loaded from Supabase at app start (see AppLoader below)
 // and stored in this module-scope variable. Columns are positional to match
@@ -3766,6 +3775,7 @@ function AppInner() {
               {leaderboard.map((r, i) => {
                 const c = TEAM_COLORS[r.team] || "#888";
                 const isTop3 = i < 3;
+                const isCurrent = r.year === currentYear();
                 const stats = [];
                 if (!["ppg","pts"].includes(leaderCat)) stats.push({ l: "PPG", v: r.ppg.toFixed(1) });
                 if (!["rpg","reb"].includes(leaderCat)) stats.push({ l: "RPG", v: r.rpg.toFixed(1) });
@@ -3774,7 +3784,7 @@ function AppInner() {
                 if (!["bpg","blk"].includes(leaderCat) && r.bpg > 0) stats.push({ l: "BPG", v: r.bpg.toFixed(1) });
                 if (!["ts"].includes(leaderCat)) stats.push({ l: "TS%", v: (r.ts * 100).toFixed(0) + "%" });
                 return (
-                  <div key={i} className="rounded-xl bg-white overflow-hidden border border-gray-100">
+                  <div key={i} className={`rounded-xl overflow-hidden ${isCurrent ? `${CURRENT_ROW_BG} border border-blue-200` : "bg-white border border-gray-100"}`}>
                     <div className="flex items-center gap-2.5 px-3 py-2 cursor-pointer active:bg-gray-50" onClick={() => goToPlayer(r.player)}>
                       <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-black ${isTop3 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
                         {i + 1}
@@ -3783,7 +3793,7 @@ function AppInner() {
                         <div className="flex items-center gap-1.5">
                           <TeamLogo team={r.team} year={r.year} size={20} />
                           <span className="text-sm font-bold text-gray-900 truncate">{formatName(r.player)}</span>
-                          <span className="text-sm font-bold text-gray-400 flex-shrink-0">{r.year}</span>
+                          <span className={`text-sm font-bold flex-shrink-0 ${isCurrent ? CURRENT_YEAR_TEXT : "text-gray-400"}`}>{r.year}</span>
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500">
                           <span className="text-gray-400">{TEAM_NAMES[r.team]} • {r.g}G</span>
@@ -6823,6 +6833,7 @@ function BestSeasonsView({ data, teamSeasons, years, goToPlayer }) {
       <div className="space-y-1.5">
         {seasons.map((s, i) => {
           const isTop3 = i < 3;
+          const isCurrent = s.year === currentYear();
           const stats = [];
           stats.push({ l: "PPG", v: s.ppg.toFixed(1) });
           if (s.rpg > 0) stats.push({ l: "RPG", v: s.rpg.toFixed(1) });
@@ -6830,7 +6841,7 @@ function BestSeasonsView({ data, teamSeasons, years, goToPlayer }) {
           if (s.spg > 0) stats.push({ l: "SPG", v: s.spg.toFixed(1) });
           if (s.ts > 0) stats.push({ l: "TS%", v: (s.ts * 100).toFixed(0) + "%" });
           return (
-            <div key={i} className="rounded-xl bg-white overflow-hidden border border-gray-100">
+            <div key={i} className={`rounded-xl overflow-hidden ${isCurrent ? `${CURRENT_ROW_BG} border border-blue-200` : "bg-white border border-gray-100"}`}>
               <div className="flex items-center gap-2.5 px-3 py-2 cursor-pointer active:bg-gray-50" onClick={() => setExpanded(expanded === i ? null : i)}>
                 <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-black ${isTop3 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
                   {i + 1}
@@ -6839,7 +6850,7 @@ function BestSeasonsView({ data, teamSeasons, years, goToPlayer }) {
                   <div className="flex items-center gap-1.5">
                     <TeamLogo team={s.team} year={s.year} size={20} />
                     <span className="text-sm font-bold text-gray-900 truncate cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(s.player); }}>{formatName(s.player)}</span>
-                    <span className="text-sm font-bold text-gray-400 flex-shrink-0">{s.year}</span>
+                    <span className={`text-sm font-bold flex-shrink-0 ${isCurrent ? CURRENT_YEAR_TEXT : "text-gray-400"}`}>{s.year}</span>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500">
                     <span className="text-gray-400">{TEAM_NAMES[s.team]} • {s.g}G</span>
@@ -6977,15 +6988,16 @@ function BestGamesView({ goToPlayer }) {
           const isOpen = expanded === i;
           const statParts = [g.pts > 0 ? `${g.pts}p` : null, g.reb > 0 ? `${g.reb}r` : null, g.ast > 0 ? `${g.ast}a` : null, g.stl > 0 ? `${g.stl}s` : null, g.blk > 0 ? `${g.blk}b` : null].filter(Boolean).join("/");
           const borderClass = g.isRealTD ? "border-2 border-red-400" : g.type === "C" ? "border-2 border-yellow-400" : g.type === "P" ? "border-2 border-gray-300" : "border border-gray-100";
+          const isCurrent = g.year === currentYear();
           return (
-          <div key={i} className={`rounded-xl bg-white px-3 py-2.5 ${borderClass} cursor-pointer active:opacity-70`}
+          <div key={i} className={`rounded-xl px-3 py-2.5 ${isCurrent ? CURRENT_ROW_BG : "bg-white"} ${borderClass} cursor-pointer active:opacity-70`}
             onClick={() => setExpanded(isOpen ? null : i)}>
             <div className="flex items-center gap-2">
               <span className={`${isTop3 ? "text-lg font-black text-amber-600" : "text-sm font-bold text-gray-400"} w-7 text-right flex-shrink-0`}>{g.rank}</span>
               <TeamLogo team={g.team} year={g.year} size={22} />
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(g.player); }}>{formatName(g.player)}</span>
-                <span className="text-[10px] text-gray-400 ml-1.5">{g.team} vs {g.opp} · {g.date} {g.year}</span>
+                <span className="text-[10px] text-gray-400 ml-1.5">{g.team} vs {g.opp} · {g.date} <span className={isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{g.year}</span></span>
                 {g.type === "C" && <span className="font-black uppercase text-yellow-800 bg-yellow-100 border border-yellow-300 rounded ml-1.5 inline-block align-middle" style={{ fontSize: 6, padding: "1px 4px" }}>CHAMPIONSHIP</span>}
                 {g.type === "P" && <span className="font-black uppercase text-gray-500 bg-gray-100 border border-gray-300 rounded ml-1.5 inline-block align-middle" style={{ fontSize: 6, padding: "1px 4px" }}>PLAYOFF</span>}
                 {g.isRealTD && <span className="font-black uppercase text-white bg-red-600 rounded ml-1 inline-block align-middle" style={{ fontSize: 6, padding: "1px 4px" }}>TRIPLE-DOUBLE</span>}
@@ -7673,8 +7685,9 @@ function HotStreaksView({ goToPlayer }) {
         {sorted.map((s, i) => {
           const c = TEAM_COLORS[s.team] || "#888";
           const idx = gameStatIdx[sortBy];
+          const isCurrent = s.year === currentYear();
           return (
-            <div key={i} className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 cursor-pointer active:bg-gray-50" onClick={() => goToPlayer(s.name)}>
+            <div key={i} className={`rounded-xl px-3 py-2.5 cursor-pointer active:bg-gray-50 ${isCurrent ? `${CURRENT_ROW_BG} border border-blue-200` : "bg-white border border-gray-100"}`} onClick={() => goToPlayer(s.name)}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black ${i < 3 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>{i+1}</div>
@@ -7693,7 +7706,7 @@ function HotStreaksView({ goToPlayer }) {
               </div>
               {/* Year and age prominent */}
               <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-2xl font-black text-gray-200">{s.year}</span>
+                <span className={`text-2xl font-black ${isCurrent ? "text-blue-300" : "text-gray-200"}`}>{s.year}</span>
                 {s.age > 0 && <span className="text-lg font-black text-gray-300">Age {s.age}</span>}
                 <span className="text-[10px] text-gray-400 ml-auto text-right">
                   {sortBy === "tpPct" ? "" : (s[sortBy] / 5).toFixed(1) + " " + statLabel[sortBy] + "/game"}
@@ -7810,16 +7823,16 @@ function HallOfFameView({ goToPlayer }) {
     return Object.entries(stats).map(([name, s]) => {
       s.seasonList.sort((a, b) => b.year - a.year);
       const yrs = s.years.sort((a, b) => a - b);
-      const hofScore = s.mvp * 8 + s.first * 4 + s.second * 2 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 1 + s.seasons * 3;
+      const hofScore = s.mvp * 10 + s.first * 7 + s.second * 4 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 1 + s.seasons * 3;
       const tier = hofScore >= 275 ? "Inner Circle" : hofScore >= 200 ? "First Ballot" : hofScore >= 140 ? "Strong Case" : hofScore >= 90 ? "On the Bubble" : null;
       return { name, ...s, teams: [...s.teams], yearRange: yrs[0] + "–" + yrs[yrs.length - 1], hofScore, tier };
     }).filter(p => p.hofScore >= 60).sort((a, b) => b.hofScore - a.hofScore);
   }, []);
 
   const FORMULA = [
-    { label: "MVP", pts: "8", desc: "League MVP award" },
-    { label: "All-PCAL (1st Team)", pts: "4", desc: "First Team selection" },
-    { label: "Second Team", pts: "2", desc: "Second Team selection" },
+    { label: "MVP", pts: "10", desc: "League MVP award" },
+    { label: "All-PCAL (1st Team)", pts: "7", desc: "First Team selection" },
+    { label: "Second Team", pts: "4", desc: "Second Team selection" },
     { label: "Championship (weighted)", pts: "×3", desc: "#1 on team = 3pts, #2 = 2pts, #3 = 1.5pts, role player = 0.75pts, minimal = 0.25pts" },
     { label: "Finals loss (weighted)", pts: "×1.2", desc: "Same tiers as championship, but 40% of value" },
     { label: "Games Played", pts: "1", desc: "Per game played" },
@@ -8034,8 +8047,9 @@ function BestAtAgeView({ goToPlayer }) {
           const b = a.best;
           const isOpen = expanded === i;
           const isElite = true;
+          const isCurrent = b.year === currentYear();
           return (
-          <div key={a.age} className="rounded-xl bg-white px-3 py-2.5 border border-gray-100 cursor-pointer active:opacity-70"
+          <div key={a.age} className={`rounded-xl px-3 py-2.5 cursor-pointer active:opacity-70 ${isCurrent ? `${CURRENT_ROW_BG} border border-blue-200` : "bg-white border border-gray-100"}`}
             onClick={() => setExpanded(isOpen ? null : i)}>
             <div className="flex items-center gap-2">
               <div className="flex-shrink-0 w-12 text-center">
@@ -8046,7 +8060,7 @@ function BestAtAgeView({ goToPlayer }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(b.player); }}>{formatName(b.player)}</span>
-                  <span className="text-[10px] text-gray-400">{b.team} {b.year}</span>
+                  <span className="text-[10px] text-gray-400">{b.team} <span className={isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{b.year}</span></span>
                   {b.award && <span className="font-black uppercase text-white rounded inline-block" style={{ fontSize: 6, padding: "1px 4px", backgroundColor: b.award === "MVP" ? "#f59e0b" : "#3b82f6" }}>{b.award}</span>}
                 </div>
                 <div className="flex flex-wrap gap-x-3 mt-0.5 text-[10px]">
@@ -8083,7 +8097,7 @@ function BestAtAgeView({ goToPlayer }) {
                     <TeamLogo team={r.team} year={r.year} size={22} />
                     <div className="flex-1 min-w-0">
                       <span className="text-[11px] font-bold text-gray-900">{formatName(r.player)}</span>
-                      <span className="text-[9px] text-gray-400 ml-1">{r.team} {r.year}</span>
+                      <span className="text-[9px] text-gray-400 ml-1">{r.team} <span className={r.year === currentYear() ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{r.year}</span></span>
                       {r.award && <span className="font-black uppercase text-white rounded ml-1 inline-block align-middle" style={{ fontSize: 5, padding: "0px 3px", backgroundColor: r.award === "MVP" ? "#f59e0b" : "#3b82f6" }}>{r.award}</span>}
                     </div>
                     <div className="text-right text-[10px] flex-shrink-0">
@@ -8181,8 +8195,9 @@ function CrossEraView({ goToPlayer }) {
           const p = c.modern;
           const isOpen = expanded === i;
           const best = c.matches[0];
+          const isCurrent = p.year === currentYear();
           return (
-          <div key={i} className="rounded-xl bg-white px-3 py-2.5 border border-gray-100 cursor-pointer active:opacity-70"
+          <div key={i} className={`rounded-xl px-3 py-2.5 cursor-pointer active:opacity-70 ${isCurrent ? `${CURRENT_ROW_BG} border border-blue-200` : "bg-white border border-gray-100"}`}
             onClick={() => setExpanded(isOpen ? null : i)}>
             <div className="flex items-center gap-2">
               <span className={`${i < 3 ? "text-lg font-black text-amber-600" : "text-sm font-bold text-gray-400"} w-7 text-right flex-shrink-0`}>{c.rank}</span>
@@ -8190,7 +8205,7 @@ function CrossEraView({ goToPlayer }) {
                 <div className="flex items-center gap-1.5">
                   <TeamLogo team={p.team} year={p.year} size={22} />
                   <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(p.player); }}>{formatName(p.player)}</span>
-                  <span className="text-[10px] text-gray-400">{p.team} {p.year}</span>
+                  <span className="text-[10px] text-gray-400">{p.team} <span className={isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{p.year}</span></span>
                   {p.award && <span className="font-black uppercase text-white rounded inline-block" style={{ fontSize: 6, padding: "1px 4px", backgroundColor: p.award === "MVP" ? "#f59e0b" : "#3b82f6" }}>{p.award}</span>}
                 </div>
                 <div className="flex items-center gap-1 mt-0.5 text-[10px]">
@@ -8608,8 +8623,9 @@ function TeamGamesView() {
           const margin = g.pts - g.oppPts;
           const won = margin > 0;
           const mainVal = sortBy === "pts" ? g.pts : sortBy === "margin" ? (margin > 0 ? "+" : "") + margin : sortBy === "fgpct" ? fgPct + "%" : g.tpm;
+          const isCurrent = g.year === currentYear();
           return (
-            <div key={i} className={`rounded-xl border bg-white px-3 py-2 ${g.type === "C" ? "border-2 border-yellow-400" : g.type === "P" ? "border-2 border-gray-300" : "border-gray-100"}`}>
+            <div key={i} className={`rounded-xl border px-3 py-2 ${isCurrent ? CURRENT_ROW_BG : "bg-white"} ${g.type === "C" ? "border-2 border-yellow-400" : g.type === "P" ? "border-2 border-gray-300" : isCurrent ? "border-blue-200" : "border-gray-100"}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black ${i < 3 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>{i+1}</div>
@@ -8623,7 +8639,7 @@ function TeamGamesView() {
                       <span className="text-[10px] text-gray-400">{TEAM_NAMES[g.opp]} {g.oppPts}</span>
                     </div>
                     <div className="text-[10px] text-gray-400 flex items-center gap-1.5">
-                      <span>{fmtD(g.date, g.year)}</span>
+                      <span className={isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{fmtD(g.date, g.year)}</span>
                       <span className={`font-bold px-1 py-0.5 rounded ${won ? "bg-gray-200 text-gray-900" : "bg-gray-100 text-gray-400"}`}>{won ? "W" : "L"}</span>
                       <span>{g.fgm}-{g.fga} FG ({fgPct}%)</span>
                       {g.tpm > 0 && <span>{g.tpm} 3PM</span>}
@@ -9869,9 +9885,10 @@ function GameLeadersView({ goToPlayer }) {
           const gameType = g[5]; // R, P, or C
           const borderStyle = gameType === "C" ? "border-2 border-yellow-400" : gameType === "P" ? "border-2 border-gray-300" : "border border-gray-100";
           const wl = getWL(g);
+          const isCurrent = g[20] === currentYear();
 
           return (
-            <div key={i} className={`rounded-xl bg-white overflow-hidden ${borderStyle}`}>
+            <div key={i} className={`rounded-xl overflow-hidden ${isCurrent ? CURRENT_ROW_BG : "bg-white"} ${borderStyle}`}>
               <div className="flex items-center gap-2.5 px-3 py-2 cursor-pointer active:bg-gray-50" onClick={() => goToPlayer(g[0])}>
                 {/* Rank */}
                 <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-black ${isTop3 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
@@ -9883,7 +9900,7 @@ function GameLeadersView({ goToPlayer }) {
                   <div className="flex items-center gap-1.5">
                     <TeamLogo team={g[1]} year={g[20]} size={20} />
                     <span className="text-sm font-bold text-gray-900 truncate">{formatName(g[0])}</span>
-                    <span className="text-sm font-bold text-gray-400 flex-shrink-0">{g[20]}</span>
+                    <span className={`text-sm font-bold flex-shrink-0 ${isCurrent ? CURRENT_YEAR_TEXT : "text-gray-400"}`}>{g[20]}</span>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500">
                     <span className="text-gray-400">{TEAM_NAMES[g[1]]} vs {TEAM_NAMES[g[2]]} • {fmtDate(g[4], g[20])}</span>
@@ -16949,6 +16966,9 @@ function PeakPerformanceView({ data, teamSeasons, years, goToPlayer }) {
           const yrLabel = p.years.map(y => "'" + String(y).slice(2)).join("–");
           const isTop3 = i < 3;
           const isTop10 = i < 10;
+          // Rank tiers already own the row colors here, so a current-season window
+          // is marked on the year label alone.
+          const isCurrent = p.years.includes(currentYear());
 
           return (
             <div key={i} className={`rounded-lg border transition-all cursor-pointer ${isTop3 ? "border-amber-200 bg-amber-50/30" : isTop10 ? "border-blue-100 bg-blue-50/20" : "border-gray-100 bg-white"} ${isExpanded ? "shadow-md" : "hover:shadow-sm"}`}
@@ -16967,7 +16987,7 @@ function PeakPerformanceView({ data, teamSeasons, years, goToPlayer }) {
 
                   {p.peakNum > 1 && <span className="text-[10px] text-gray-400 font-medium">Peak #{p.peakNum}</span>}
 
-                  <span className="text-xs text-gray-400 font-mono">{yrLabel}</span>
+                  <span className={`text-xs font-mono ${isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : "text-gray-400"}`}>{yrLabel}</span>
 
                   <div className="flex gap-1">
                     {p.teams.map(t => teamChip(t))}
