@@ -7781,6 +7781,8 @@ function HotStreaksView({ goToPlayer }) {
 function HallOfFameView({ goToPlayer }) {
   const [expanded, setExpanded] = useState(null);
   const [showFormula, setShowFormula] = useState(false);
+  const photoIdx = useMemo(() => scoutPhotoIndex(), []);
+  const photoFor = (name) => photoIdx[thNorm(name)] || null;
 
   const hofData = useMemo(() => {
     const stats = {};
@@ -7823,9 +7825,11 @@ function HallOfFameView({ goToPlayer }) {
     return Object.entries(stats).map(([name, s]) => {
       s.seasonList.sort((a, b) => b.year - a.year);
       const yrs = s.years.sort((a, b) => a - b);
+      // Teams in the order the player first suited up for them.
+      const teamOrder = [...new Set(s.seasonList.slice().reverse().map(x => x.team))];
       const hofScore = s.mvp * 10 + s.first * 7 + s.second * 4 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 1 + s.seasons * 3;
       const tier = hofScore >= 275 ? "Inner Circle" : hofScore >= 200 ? "First Ballot" : hofScore >= 140 ? "Strong Case" : hofScore >= 90 ? "On the Bubble" : null;
-      return { name, ...s, teams: [...s.teams], yearRange: yrs[0] + "–" + yrs[yrs.length - 1], hofScore, tier };
+      return { name, ...s, teams: [...s.teams], teamOrder, yearRange: yrs[0] + "–" + yrs[yrs.length - 1], hofScore, tier };
     }).filter(p => p.hofScore >= 60).sort((a, b) => b.hofScore - a.hofScore);
   }, []);
 
@@ -7887,19 +7891,28 @@ function HallOfFameView({ goToPlayer }) {
             onClick={() => setExpanded(isOpen ? null : i)}>
             <div className="flex items-center gap-2">
               <span className={`${i < 3 ? "text-lg font-black text-amber-600" : "text-sm font-bold text-gray-400"} w-7 text-right flex-shrink-0`}>{i + 1}</span>
-              <TeamLogo team={p.teams[0]} year={p.year} size={22} />
+              <ThAvatar name={p.name} size={38} photoUrl={photoFor(p.name)} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(p.name); }}>{formatName(p.name)}</span>
                   {p.tier && <span className="font-black uppercase rounded" style={{ fontSize: 7, padding: "1px 4px", backgroundColor: tc.bg, color: tc.text, border: `1px solid ${tc.border}` }}>{p.tier}</span>}
                 </div>
-                <div className="flex flex-wrap gap-x-3 mt-0.5 text-[10px]">
-                  {p.mvp > 0 && <span><span className="text-gray-800">{p.mvp}</span> <span className="text-gray-400">MVP</span></span>}
-                  {p.first > 0 && <span><span className="text-gray-800">{p.first}</span> <span className="text-gray-400">1st</span></span>}
-                  {p.second > 0 && <span><span className="text-gray-800">{p.second}</span> <span className="text-gray-400">2nd</span></span>}
-                  <span><span className="text-gray-800">{p.champs}</span> <span className="text-gray-400">Titles</span></span>
-                  <span><span className="text-gray-800">{p.gp}</span> <span className="text-gray-400">GP</span></span>
-                  <span><span className="text-gray-800">{p.seasons}</span> <span className="text-gray-400">szn</span></span>
+                <div className="flex flex-wrap items-center gap-x-1.5 mt-0.5">
+                  {p.teamOrder.map((t, ti) => (
+                    <span key={t} className="flex items-center gap-1">
+                      {ti > 0 && <span className="text-gray-300 text-[10px]">·</span>}
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: TEAM_COLORS[t] || "#888" }} />
+                      <span className="text-[11px] font-bold text-gray-500">{t}</span>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-x-3 mt-1 text-xs">
+                  {p.mvp > 0 && <span><span className="font-bold text-gray-800">{p.mvp}</span> <span className="text-gray-400">MVP</span></span>}
+                  {p.first > 0 && <span><span className="font-bold text-gray-800">{p.first}</span> <span className="text-gray-400">1st</span></span>}
+                  {p.second > 0 && <span><span className="font-bold text-gray-800">{p.second}</span> <span className="text-gray-400">2nd</span></span>}
+                  <span><span className="font-bold text-gray-800">{p.champs}</span> <span className="text-gray-400">Titles</span></span>
+                  <span><span className="font-bold text-gray-800">{p.gp}</span> <span className="text-gray-400">GP</span></span>
+                  <span><span className="font-bold text-gray-800">{p.seasons}</span> <span className="text-gray-400">szn</span></span>
                 </div>
               </div>
               <div className="text-right flex-shrink-0">
