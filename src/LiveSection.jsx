@@ -1306,7 +1306,13 @@ function MiniGameCard({ game, liveState, scores, onTap, highlightScoring = false
             with "self-score" label below it.
           - Team filter highlights this as scoring-only duty: yellow pill.
           - Otherwise: muted gray text. */}
-      {game.scoring_team && (() => {
+      {/* Once a game is over, who was assigned to score it is no longer useful,
+          so it drops off the card. The one exception is a filtered view: a
+          scoring-only game is in the list precisely because that team scored
+          it, and without the pill there is nothing explaining why it is there.
+          (highlightScoring is only true when the filtered team is NOT playing,
+          so it can never collide with the self-score branch below.) */}
+      {game.scoring_team && (!isEnded || highlightScoring) && (() => {
         const isSelfScore = game.scoring_team === game.home_team || game.scoring_team === game.away_team;
         if (isSelfScore) {
           return (

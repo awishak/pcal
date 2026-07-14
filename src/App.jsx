@@ -4752,7 +4752,7 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
         {/* Scoring team label inside the card. Orange pill + "self-score"
             label when the scoring team is one of the playing teams,
             otherwise muted gray. */}
-        {scoringTeam && (() => {
+        {scoringTeam && !isEnded && (() => {
           const isSelfScore = scoringTeam === home || scoringTeam === away;
           if (isSelfScore) {
             return (
@@ -4777,7 +4777,7 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
       </button>
       {/* Coordinator name below the card (extra detail only available on
           the home-page card; the Games page drops this to stay compact). */}
-      {scoringTeam && coordShort && (
+      {scoringTeam && coordShort && !isEnded && (
         <div className="px-0.5 text-[9px] leading-tight text-gray-500">
           <span className="text-gray-400">Coord:</span>{" "}
           <span className="text-gray-700">{coordShort}</span>
