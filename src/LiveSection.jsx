@@ -750,16 +750,24 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Bucket games into three groups:
+  // Bucket games into the five sections the page renders, in reading order:
   //   currentWeekGames: the full slate of the active week, shown in the
   //                     live-scoreboard card at top. The active week is the
   //                     one containing the earliest game within 96 hours.
   //                     We pull the WHOLE week (not just the in-window games)
   //                     because a game day spans 3-7pm and can straddle the
   //                     96h boundary; showing only the in-window subset would
-  //                     drop the rest of the same day's games.
-  //   upcoming: future 2026 games in later weeks, outside the current card.
-  //   past: 2026 games in earlier weeks (approved or ended).
+  //                     drop the rest of the same day's games. Absent on a
+  //                     normal weekday, which is when the sections below carry
+  //                     the page.
+  //   lastWeek:         the single most recent week that has been played.
+  //   nextWeek:         the single next week to be played.
+  //   earlier:          every played week before lastWeek, newest first.
+  //   later:            every remaining week after nextWeek, soonest first.
+  //
+  // Leading with the week just played and the week coming up puts the two
+  // weeks anyone actually cares about at the top; the full archive still
+  // follows, just below the fold.
   //
   // If a team filter is active, we include games where that team is
   // playing OR scoring. Scoring-only games still appear but with a light
@@ -770,7 +778,7 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
   // other weeks that were inside the window (e.g. next Sunday's early games
   // while this Sunday's finals are still in-window) fell into no list and
   // vanished from the page.
-  const { currentWeekGames, upcoming, past } = useMemo(() => {
+  const { currentWeekGames, lastWeek, nextWeek, earlier, later } = useMemo(() => {
     const cw = [];
     const up = [];
     const pa = [];
@@ -810,7 +818,21 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
     }
     cw.sort((a, b) => ts(a) - ts(b));               // current week chronological
     pa.sort((a, b) => ts(b) - ts(a));               // past newest first
-    return { currentWeekGames: cw, upcoming: up, past: pa };
+    up.sort((a, b) => ts(a) - ts(b));               // upcoming soonest first
+
+    // Peel off the nearest week on each side. Keyed on season+week rather than
+    // a week number alone, so a future season cannot collide with this one.
+    const weekKey = (g) => `${g.season}|${g.week}`;
+    const lastKey = pa.length ? weekKey(pa[0]) : null;   // pa[0] is the most recent
+    const nextKey = up.length ? weekKey(up[0]) : null;   // up[0] is the soonest
+
+    return {
+      currentWeekGames: cw,
+      lastWeek: lastKey ? pa.filter(g => weekKey(g) === lastKey) : [],
+      earlier: lastKey ? pa.filter(g => weekKey(g) !== lastKey) : [],
+      nextWeek: nextKey ? up.filter(g => weekKey(g) === nextKey) : [],
+      later: nextKey ? up.filter(g => weekKey(g) !== nextKey) : [],
+    };
   }, [allGames, teamFilter]);
 
   const fmtDate = (d) => {
@@ -868,13 +890,14 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
         </div>
       )}
 
-      {!loading && allGames.length > 0 && currentWeekGames.length === 0 && upcoming.length === 0 && past.length === 0 && (
+      {!loading && allGames.length > 0 && currentWeekGames.length === 0
+        && lastWeek.length === 0 && nextWeek.length === 0 && earlier.length === 0 && later.length === 0 && (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center">
           <div className="text-sm text-gray-500">No games for this team.</div>
         </div>
       )}
 
-      {/* ===== CURRENT WINDOW ===== */}
+      {/* ===== LIVE WEEK (only inside the 96h window) ===== */}
       {!loading && currentWeekGames.length > 0 && (
         <div className="mb-5">
           <LiveWeekCard
@@ -889,19 +912,35 @@ function LiveHome({ me, onLogin, onLogout, onOpenGame, onReview, onEditSchedule,
         </div>
       )}
 
-      {/* ===== UPCOMING ===== */}
-      {!loading && upcoming.length > 0 && (
+      {/* ===== LAST GAMES ===== */}
+      {!loading && lastWeek.length > 0 && (
         <div className="mb-5">
-          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Upcoming 2026</div>
-          <UpcomingByWeek games={upcoming} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
+          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Last Games</div>
+          <PastByWeek games={lastWeek} liveStates={liveStates} liveScores={liveScores} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
         </div>
       )}
 
-      {/* ===== PAST ===== */}
-      {!loading && past.length > 0 && (
+      {/* ===== NEXT UP ===== */}
+      {!loading && nextWeek.length > 0 && (
         <div className="mb-5">
-          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Past 2026</div>
-          <PastByWeek games={past} liveStates={liveStates} liveScores={liveScores} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
+          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Next Up</div>
+          <UpcomingByWeek games={nextWeek} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
+        </div>
+      )}
+
+      {/* ===== PREVIOUS WEEKS ===== */}
+      {!loading && earlier.length > 0 && (
+        <div className="mb-5">
+          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Previous Weeks</div>
+          <PastByWeek games={earlier} liveStates={liveStates} liveScores={liveScores} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
+        </div>
+      )}
+
+      {/* ===== REST OF SEASON ===== */}
+      {!loading && later.length > 0 && (
+        <div className="mb-5">
+          <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Rest of Season</div>
+          <UpcomingByWeek games={later} onOpenGame={onOpenGame} fmtDate={fmtDate} activeTeamFilter={teamFilter} />
         </div>
       )}
 
