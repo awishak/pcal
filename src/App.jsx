@@ -7833,7 +7833,7 @@ function HallOfFameView({ goToPlayer }) {
       const peak5 = s.seasons >= 5
         ? s.ais.slice().sort((a, b) => b - a).slice(0, 5).reduce((a, b) => a + b, 0) / 5
         : 0;
-      const hofScore = s.mvp * 10 + s.first * 7 + s.second * 4 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 1 + s.seasons * 3 + peak5;
+      const hofScore = s.mvp * 10 + s.first * 7 + s.second * 4 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 0.5 + s.seasons * 3 + peak5;
       const tier = hofScore >= 275 ? "Inner Circle" : hofScore >= 200 ? "First Ballot" : hofScore >= 140 ? "Strong Case" : hofScore >= 90 ? "On the Bubble" : null;
       return { name, ...s, teams: [...s.teams], teamOrder, peak5, yearRange: yrs[0] + "–" + yrs[yrs.length - 1], hofScore, tier };
     }).filter(p => p.hofScore >= 60).sort((a, b) => b.hofScore - a.hofScore);
@@ -7845,7 +7845,7 @@ function HallOfFameView({ goToPlayer }) {
     { label: "Second Team", pts: "4", desc: "Second Team selection" },
     { label: "Championship (weighted)", pts: "×3", desc: "#1 on team = 3pts, #2 = 2pts, #3 = 1.5pts, role player = 0.75pts, minimal = 0.25pts" },
     { label: "Finals loss (weighted)", pts: "×1.2", desc: "Same tiers as championship, but 40% of value" },
-    { label: "Games Played", pts: "1", desc: "Per game played" },
+    { label: "Games Played", pts: "0.5", desc: "Per game played" },
     { label: "Season Played", pts: "3", desc: "Per season on a roster" },
     { label: "Peak (5 best seasons)", pts: "+AI", desc: "Average AI Score of a player's 5 best seasons. Only added for players with 5+ seasons." },
   ];
@@ -7952,7 +7952,7 @@ function HallOfFameView({ goToPlayer }) {
                     {p.second > 0 && <span><span className="text-gray-800">{p.second}×4={p.second*4}</span> <span className="text-gray-400">2nd</span></span>}
                     {p.champPts > 0 && <span><span className="text-gray-800">{p.champPts.toFixed(1)}×3={Math.round(p.champPts*3)}</span> <span className="text-gray-400">Champ</span></span>}
                     {p.finalsPts > 0 && <span><span className="text-gray-800">{p.finalsPts.toFixed(1)}×3={Math.round(p.finalsPts*3)}</span> <span className="text-gray-400">Finals</span></span>}
-                    <span><span className="text-gray-800">{p.gp}×1={p.gp}</span> <span className="text-gray-400">GP</span></span>
+                    <span><span className="text-gray-800">{p.gp}×0.5={p.gp*0.5}</span> <span className="text-gray-400">GP</span></span>
                     <span><span className="text-gray-800">{p.seasons}×3={p.seasons*3}</span> <span className="text-gray-400">Szn</span></span>
                     {p.peak5 > 0 && <span><span className="text-gray-800">+{p.peak5.toFixed(1)}</span> <span className="text-gray-400">Peak AI</span></span>}
                   </div>
@@ -15792,12 +15792,19 @@ function scoutPhotoIndex() {
   return m;
 }
 
-// Shared player-photo lookup for the leaderboards. Built once from the static
-// PLAYER_PHOTOS map; returns null when a player has no photo (ThAvatar then
-// draws initials). Keyed case/whitespace-insensitive via thNorm.
+// Shared player-photo lookup for the leaderboards. PLAYER_PHOTOS starts with
+// only the baked-in entries and is filled from Supabase at app start, so the
+// index is rebuilt whenever the photo count changes (bulk load, admin upload or
+// delete). Returns null when a player has no photo (ThAvatar draws initials).
+// Keyed case/whitespace-insensitive via thNorm.
 let _avatarIndex = null;
+let _avatarIndexSize = -1;
 function avatarUrl(name) {
-  if (!_avatarIndex) _avatarIndex = scoutPhotoIndex();
+  const size = Object.keys(PLAYER_PHOTOS).length;
+  if (!_avatarIndex || size !== _avatarIndexSize) {
+    _avatarIndex = scoutPhotoIndex();
+    _avatarIndexSize = size;
+  }
   return _avatarIndex[thNorm(name)] || null;
 }
 
