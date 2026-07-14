@@ -3791,7 +3791,7 @@ function AppInner() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <TeamLogo team={r.team} year={r.year} size={20} />
+                          <ThAvatar name={r.player} size={28} photoUrl={avatarUrl(r.player)} />
                           <span className="text-sm font-bold text-gray-900 truncate">{formatName(r.player)}</span>
                           <span className={`text-sm font-bold flex-shrink-0 ${isCurrent ? CURRENT_YEAR_TEXT : "text-gray-400"}`}>{r.year}</span>
                         </div>
@@ -6793,7 +6793,7 @@ function Season2025View({ data, goToPlayer }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <TeamLogo team={r.team} year={r.year} size={20} />
+                  <ThAvatar name={r.player} size={28} photoUrl={avatarUrl(r.player)} />
                   <span className="text-sm font-bold text-gray-900 truncate">{formatName(r.player)}</span>
                   <span className="text-[10px] text-gray-400 flex-shrink-0">{TEAM_NAMES[r.team]}</span>
                 </div>
@@ -6848,7 +6848,7 @@ function BestSeasonsView({ data, teamSeasons, years, goToPlayer }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <TeamLogo team={s.team} year={s.year} size={20} />
+                    <ThAvatar name={s.player} size={28} photoUrl={avatarUrl(s.player)} />
                     <span className="text-sm font-bold text-gray-900 truncate cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(s.player); }}>{formatName(s.player)}</span>
                     <span className={`text-sm font-bold flex-shrink-0 ${isCurrent ? CURRENT_YEAR_TEXT : "text-gray-400"}`}>{s.year}</span>
                   </div>
@@ -6994,7 +6994,7 @@ function BestGamesView({ goToPlayer }) {
             onClick={() => setExpanded(isOpen ? null : i)}>
             <div className="flex items-center gap-2">
               <span className={`${isTop3 ? "text-lg font-black text-amber-600" : "text-sm font-bold text-gray-400"} w-7 text-right flex-shrink-0`}>{g.rank}</span>
-              <TeamLogo team={g.team} year={g.year} size={22} />
+              <ThAvatar name={g.player} size={28} photoUrl={avatarUrl(g.player)} />
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(g.player); }}>{formatName(g.player)}</span>
                 <span className="text-[10px] text-gray-400 ml-1.5">{g.team} vs {g.opp} · {g.date} <span className={isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{g.year}</span></span>
@@ -8069,7 +8069,7 @@ function BestAtAgeView({ goToPlayer }) {
                 <div className={`text-xl font-black ${isElite ? "text-gray-900" : "text-gray-300"}`}>{a.age}</div>
                 <div className="text-[8px] text-gray-300">yrs old</div>
               </div>
-              <TeamLogo team={b.team} year={b.year} size={22} />
+              <ThAvatar name={b.player} size={28} photoUrl={avatarUrl(b.player)} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(b.player); }}>{formatName(b.player)}</span>
@@ -8107,7 +8107,7 @@ function BestAtAgeView({ goToPlayer }) {
                 {a.top5.map((r, ri) => (
                   <div key={ri} className="flex items-center gap-2 py-1 cursor-pointer active:opacity-70" onClick={e => { e.stopPropagation(); goToPlayer(r.player); }}>
                     <span className={`w-5 text-right text-[10px] ${ri === 0 ? "font-black text-amber-600" : "text-gray-400"}`}>{ri + 1}</span>
-                    <TeamLogo team={r.team} year={r.year} size={22} />
+                    <ThAvatar name={r.player} size={24} photoUrl={avatarUrl(r.player)} />
                     <div className="flex-1 min-w-0">
                       <span className="text-[11px] font-bold text-gray-900">{formatName(r.player)}</span>
                       <span className="text-[9px] text-gray-400 ml-1">{r.team} <span className={r.year === currentYear() ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{r.year}</span></span>
@@ -8216,14 +8216,14 @@ function CrossEraView({ goToPlayer }) {
               <span className={`${i < 3 ? "text-lg font-black text-amber-600" : "text-sm font-bold text-gray-400"} w-7 text-right flex-shrink-0`}>{c.rank}</span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <TeamLogo team={p.team} year={p.year} size={22} />
+                  <ThAvatar name={p.player} size={28} photoUrl={avatarUrl(p.player)} />
                   <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(p.player); }}>{formatName(p.player)}</span>
                   <span className="text-[10px] text-gray-400">{p.team} <span className={isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{p.year}</span></span>
                   {p.award && <span className="font-black uppercase text-white rounded inline-block" style={{ fontSize: 6, padding: "1px 4px", backgroundColor: p.award === "MVP" ? "#f59e0b" : "#3b82f6" }}>{p.award}</span>}
                 </div>
                 <div className="flex items-center gap-1 mt-0.5 text-[10px]">
                   <span className="text-gray-400">≈</span>
-                  <TeamLogo team={best.team} year={best.year} size={16} />
+                  <ThAvatar name={best.player} size={18} photoUrl={avatarUrl(best.player)} />
                   <span className="text-gray-600 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(best.player); }}>{formatName(best.player)}</span>
                   <span className="text-gray-300">{best.team} {best.year}</span>
                 </div>
@@ -8243,7 +8243,7 @@ function CrossEraView({ goToPlayer }) {
                   <div key={ci} className={`${ci > 0 ? "mt-3 pt-2 border-t border-gray-50" : ""}`}>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5">
-                        <TeamLogo team={comp.team} year={comp.year} size={22} />
+                        <ThAvatar name={comp.player} size={24} photoUrl={avatarUrl(comp.player)} />
                         <span className="text-sm font-bold text-gray-700 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(comp.player); }}>{formatName(comp.player)}</span>
                         <span className="text-[10px] text-gray-400">{comp.team} {comp.year}</span>
                         {comp.award && <span className="font-black uppercase text-white rounded inline-block" style={{ fontSize: 6, padding: "1px 4px", backgroundColor: comp.award === "MVP" ? "#f59e0b" : "#3b82f6" }}>{comp.award}</span>}
@@ -8476,7 +8476,7 @@ function FamiliesView({ goToPlayer }) {
               <div className="mt-2 pt-2 border-t border-gray-50">
                 {f.members.map((m, mi) => (
                   <div key={mi} className="flex items-center gap-2 py-1 cursor-pointer active:opacity-70" onClick={e => { e.stopPropagation(); goToPlayer(m.name); }}>
-                    <TeamLogo team={m.teams[0]} size={22} />
+                    <ThAvatar name={m.name} size={24} photoUrl={avatarUrl(m.name)} />
                     <div className="flex-1">
                       <span className="text-sm font-bold text-gray-900">{formatName(m.name)}</span>
                       <span className="text-[10px] text-gray-400 ml-1.5">{m.teams.join(" → ")} · {m.yearRange}</span>
@@ -9911,7 +9911,7 @@ function GameLeadersView({ goToPlayer }) {
                 {/* Player info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <TeamLogo team={g[1]} year={g[20]} size={20} />
+                    <ThAvatar name={g[0]} size={28} photoUrl={avatarUrl(g[0])} />
                     <span className="text-sm font-bold text-gray-900 truncate">{formatName(g[0])}</span>
                     <span className={`text-sm font-bold flex-shrink-0 ${isCurrent ? CURRENT_YEAR_TEXT : "text-gray-400"}`}>{g[20]}</span>
                   </div>
@@ -15784,6 +15784,15 @@ function scoutPhotoIndex() {
   return m;
 }
 
+// Shared player-photo lookup for the leaderboards. Built once from the static
+// PLAYER_PHOTOS map; returns null when a player has no photo (ThAvatar then
+// draws initials). Keyed case/whitespace-insensitive via thNorm.
+let _avatarIndex = null;
+function avatarUrl(name) {
+  if (!_avatarIndex) _avatarIndex = scoutPhotoIndex();
+  return _avatarIndex[thNorm(name)] || null;
+}
+
 // Individual possessions used (no turnovers tracked): FGA + 0.44*FTA.
 function scoutPossTotal(tot) { return (tot.fga || 0) + 0.44 * (tot.fta || 0); }
 // Bundle a th* aggregate into the stat shape the table renders. Averages and
@@ -17502,12 +17511,9 @@ function CareerLeadersTab({ leaders, goToPlayer }) {
 
       <div className="space-y-1.5">
         {sorted.map((p, i) => {
-          const primaryTeam = p.teamsByGames?.[0]?.[0] || p.teams?.[0] || "";
-          const clr = TEAM_COLORS[primaryTeam] || "#888";
           const ri = ranks[i];
           const isTop3 = ri.rank <= 3;
           const isActive = !!p.team2025;
-
           const tbg = p.teamsByGames || [];
           const teamStr = tbg.length <= 2
             ? tbg.map(([t]) => TEAM_NAMES[t] || t).join(", ")
@@ -17523,9 +17529,9 @@ function CareerLeadersTab({ leaders, goToPlayer }) {
                 <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-black ${isTop3 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
                   {ri.tied ? "T" + ri.rank : ri.rank}
                 </div>
+                <ThAvatar name={p.player} size={28} photoUrl={avatarUrl(p.player)} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: clr }} />
                     <span className="text-sm font-bold text-gray-900 truncate">{formatName(p.player)}</span>
                     <span className="text-sm font-bold text-gray-400 flex-shrink-0">{p.seasonsActive}</span>
                     {isActive && <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: TEAM_BG_COLORS[p.team2025] || (TEAM_COLORS[p.team2025] + "20"), color: TEAM_TEXT_COLORS[p.team2025] || TEAM_COLORS[p.team2025] }}>ACTIVE</span>}
