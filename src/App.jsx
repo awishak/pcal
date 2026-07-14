@@ -7834,7 +7834,7 @@ function HallOfFameView({ goToPlayer }) {
         ? s.ais.slice().sort((a, b) => b - a).slice(0, 5).reduce((a, b) => a + b, 0) / 5
         : 0;
       const hofScore = s.mvp * 10 + s.first * 7 + s.second * 4 + s.champPts * 3 + s.finalsPts * 3 + s.gp * 0.5 + s.seasons * 5 + peak5;
-      const tier = hofScore >= 275 ? "Inner Circle" : hofScore >= 200 ? "First Ballot" : hofScore >= 140 ? "Strong Case" : hofScore >= 90 ? "On the Bubble" : null;
+      const tier = hofScore >= 275 ? "Inner Circle" : hofScore >= 200 ? "First Ballot" : hofScore >= 150 ? "Strong Case" : hofScore >= 100 ? "On the Bubble" : null;
       return { name, ...s, teams: [...s.teams], teamOrder, peak5, yearRange: yrs[0] + "–" + yrs[yrs.length - 1], hofScore, tier };
     }).filter(p => p.hofScore >= 60).sort((a, b) => b.hofScore - a.hofScore);
   }, []);
