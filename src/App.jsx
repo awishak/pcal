@@ -4413,43 +4413,77 @@ function LiveHomeCard({ openLiveGame }) {
   const [liveScores, setLiveScores] = useState({}); // game_id -> { [team]: points }
   const [loaded, setLoaded] = useState(false);
 
-  // Fetch schedule + live_games for the active "current" week.
-  // A game counts as in-window if it's within 96 hours past or any time in the future,
-  // and is not yet approved.
+  // Fetch schedule + live_games for the week worth showing on the home page.
+  //
+  // Approved games used to be excluded outright, so the moment a game day was
+  // approved the card went blank, and it stayed blank until the next game day
+  // came within 7 days. With PCAL's fortnightly gaps that left the front page
+  // empty for over a week at a time, right when people most want to see how
+  // the games went.
+  //
+  // Now three rules pick the week, in order:
+  //   1. A week with a game live right now always wins.
+  //   2. Otherwise take whichever is nearer in time: the most recent game day
+  //      within the last 7 days (shown with final scores), or the next game day
+  //      within the next 7 days (shown as a preview).
+  //   3. Nothing in either window: hide the card.
+  //
+  // The proximity tie-break matters because weeks 1-2 and 5-6 sit 7 days apart:
+  // on the Friday after a game day, the results are stale but the next game is
+  // 2 days out, and the preview is what you want.
+  //
+  // Both windows are 7 days, which exactly tiles the fortnightly gaps between
+  // the other game days: 7 back plus 7 forward leaves no day in the middle of
+  // the season where the card has nothing to show.
+  const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
+  const UPCOMING_MS = 7 * 24 * 60 * 60 * 1000;
+
   const load = useCallback(async () => {
     try {
       const nowMs = Date.now();
-      const windowStart = new Date(nowMs - 96 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const windowStart = new Date(nowMs - RECENT_MS).toISOString().slice(0, 10);
       const { data: sched, error: schedErr } = await supabase
         .from("schedule")
         .select("*")
         .gte("game_date", windowStart)
-        .neq("status", "approved")
         .order("game_date", { ascending: true })
         .order("game_time", { ascending: true });
       if (schedErr) throw schedErr;
-      if (!sched || sched.length === 0) {
-        setGames([]);
-        setLiveStates({});
-        setLiveScores({});
-        setLoaded(true);
-        return;
+
+      const blank = () => { setGames([]); setLiveStates({}); setLiveScores({}); setLoaded(true); };
+      if (!sched || sched.length === 0) { blank(); return; }
+
+      const tsOf = (g) => new Date(`${g.game_date}T${g.game_time || "00:00:00"}`).getTime();
+
+      // Group the window into weeks. sched is already in chronological order,
+      // so each week's first game is its game day.
+      const weeks = new Map();
+      for (const g of sched) {
+        const key = `${g.season}|${g.week}`;
+        if (!weeks.has(key)) weeks.set(key, { games: [], dayTs: tsOf(g) });
+        weeks.get(key).games.push(g);
       }
-      // Pick the "current week": the earliest (season, week) present in window.
-      // If the earliest game is more than 7 days away, hide the card entirely
-      // (no point in showing a schedule preview far in advance). Users can
-      // always see the full schedule on the Games tab.
-      const first = sched[0];
-      const firstGameTs = new Date(`${first.game_date}T${first.game_time || "00:00:00"}`).getTime();
-      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
-      if (firstGameTs - nowMs > SEVEN_DAYS) {
-        setGames([]);
-        setLiveStates({});
-        setLiveScores({});
-        setLoaded(true);
-        return;
+      const all = [...weeks.values()];
+
+      const liveWeek = all.find(w => w.games.some(g => g.status === "live" || g.status === "halftime"));
+      const recent = all
+        .filter(w => w.dayTs <= nowMs && nowMs - w.dayTs <= RECENT_MS)
+        .sort((a, b) => b.dayTs - a.dayTs)[0];
+      const upcoming = all
+        .filter(w => w.dayTs > nowMs && w.dayTs - nowMs <= UPCOMING_MS)
+        .sort((a, b) => a.dayTs - b.dayTs)[0];
+
+      let chosen = liveWeek;
+      if (!chosen) {
+        if (recent && upcoming) {
+          chosen = (nowMs - recent.dayTs) <= (upcoming.dayTs - nowMs) ? recent : upcoming;
+        } else {
+          chosen = recent || upcoming;
+        }
       }
-      const weekGames = sched.filter(g => g.season === first.season && g.week === first.week);
+      if (!chosen) { blank(); return; }
+
+      const weekGames = chosen.games;
       setGames(weekGames);
 
       // Fetch any live_games rows for these games
@@ -4523,11 +4557,18 @@ function LiveHomeCard({ openLiveGame }) {
   const weekMeta = games[0];
   const weekLabel = weekMeta.week === 0 ? "Preseason" : `Week ${weekMeta.week}`;
 
+  // The card now shows either a preview of the next game day or the results of
+  // the last one, so say which. Nothing live and the day already started means
+  // these are results.
+  const showingResults = !liveGame
+    && new Date(`${weekMeta.game_date}T${weekMeta.game_time || "00:00:00"}`).getTime() < Date.now();
+  const eyebrow = showingResults ? "Last Games" : "Games";
+
   return (
     <div className="rounded-2xl bg-white border border-gray-200 p-4">
       {/* Prominent week header: eyebrow + big date + location */}
       <div className="mb-4">
-        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Games &middot; {weekLabel}</p>
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">{eyebrow} &middot; {weekLabel}</p>
         <h3 className="text-lg font-black text-gray-900 mt-0.5 leading-tight">{fmtDate(weekMeta.game_date)}</h3>
         {weekMeta.location && (
           <p className="text-sm text-gray-600 font-semibold mt-0.5">
