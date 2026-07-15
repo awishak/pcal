@@ -1971,8 +1971,22 @@ function resolvePlayerSlug(slug) {
   return null;
 }
 
+// A single historical game is addressed by season, week, the two teams (sorted
+// so the URL is stable regardless of which side is stored first), and game type.
+// The non-regular types get a readable suffix so a semifinal and its regular
+// season meeting the same week never collide.
+const GAME_TYPE_SLUG = { P: "semi", C: "champ", X: "consolation" };
+const GAME_SLUG_TYPE = { semi: "P", champ: "C", consolation: "X" };
+function gamePath(sg) {
+  const [a, b] = [sg.t1, sg.t2].map((t) => String(t).toLowerCase()).sort();
+  const base = `/game/${sg.year}/${sg.week}/${a}-${b}`;
+  const ts = GAME_TYPE_SLUG[sg.type];
+  return ts ? `${base}/${ts}` : base;
+}
+
 // Build the address-bar path from the current navigation state.
-function stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId }) {
+function stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId, selectedGame }) {
+  if (section === "stats" && tab === "gamestats" && selectedGame) return gamePath(selectedGame);
   if (section === "stats" && tab === "search" && selectedPlayer) return "/player/" + playerSlug(selectedPlayer);
   if (section === "teams" && franchiseTeam) return "/teams/" + String(franchiseTeam).toLowerCase();
   if (section === "live" && liveInitialGameId) return "/games/" + liveInitialGameId;
@@ -1989,6 +2003,15 @@ function pathToState(pathname) {
   if (a === "player" && b) {
     const p = resolvePlayerSlug(b);
     return p ? { section: "stats", tab: "search", selectedPlayer: p, search: formatName(p) } : { section: "stats", tab: "stats_home" };
+  }
+  if (a === "game" && parts[1] && parts[2] && parts[3]) {
+    const year = Number(parts[1]);
+    const week = Number(parts[2]);
+    const tp = parts[3].split("-");
+    if (year && week && tp.length === 2) {
+      const type = GAME_SLUG_TYPE[String(parts[4] || "").toLowerCase()] || "R";
+      return { section: "stats", tab: "gamestats", selectedGame: { year, week, t1: tp[0].toUpperCase(), t2: tp[1].toUpperCase(), type } };
+    }
   }
   if (a === "teams") return b ? { section: "teams", tab: "teams", franchiseTeam: b.toUpperCase() } : { section: "teams", tab: "teams" };
   if (a === "games") return b ? { section: "live", tab: "live", liveInitialGameId: b } : { section: "live", tab: "live" };
@@ -2015,6 +2038,11 @@ function AppInner() {
   const [searchRandomSeed, setSearchRandomSeed] = useState(0);
   const [showFontControl, setShowFontControl] = useState(false);
   const [liveInitialGameId, setLiveInitialGameId] = useState(initialRoute.liveInitialGameId || null);
+  // Box Scores (gamestats tab): the single game whose box score is open, which
+  // is what gives each game its own URL. Cleared when leaving the tab so it
+  // never resurfaces on an unrelated view.
+  const [selectedGame, setSelectedGame] = useState(initialRoute.selectedGame || null);
+  useEffect(() => { if (!(section === "stats" && tab === "gamestats") && selectedGame) setSelectedGame(null); }, [section, tab]);
 
   // Two-way URL sync. When navigation state changes, reflect it in the address
   // bar (pushState so back/forward works). When the user hits back/forward,
@@ -2022,11 +2050,11 @@ function AppInner() {
   // pushing a duplicate entry.
   const routeGuard = useRef(false);
   useEffect(() => {
-    const path = stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId });
+    const path = stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId, selectedGame });
     if (path === window.location.pathname) return;
     if (routeGuard.current) { routeGuard.current = false; window.history.replaceState(null, "", path); }
     else window.history.pushState(null, "", path);
-  }, [section, tab, selectedPlayer, franchiseTeam, liveInitialGameId]);
+  }, [section, tab, selectedPlayer, franchiseTeam, liveInitialGameId, selectedGame]);
   useEffect(() => {
     const onPop = () => {
       const s = pathToState(window.location.pathname);
@@ -2036,6 +2064,7 @@ function AppInner() {
       setSelectedPlayer(s.selectedPlayer || null);
       setFranchiseTeam(s.franchiseTeam || null);
       setLiveInitialGameId(s.liveInitialGameId || null);
+      setSelectedGame(s.selectedGame || null);
       setSearch(s.search || "");
     };
     window.addEventListener("popstate", onPop);
@@ -4056,7 +4085,7 @@ function AppInner() {
           <NbaCompsView data={DATA} teamSeasons={TEAM_SEASONS} goToPlayer={goToPlayer} />
         )}
         {tab === "gamestats" && (
-          <GameStatsView />
+          <GameStatsView sel={selectedGame} onSel={setSelectedGame} />
         )}
         {tab === "gameleaders" && (
           <GameLeadersView goToPlayer={goToPlayer} />
@@ -10036,10 +10065,20 @@ function BoxScoreTable({ teamCode, teamLabel, score, players, year }) {
   );
 }
 
-function GameStatsView() {
-  const [selYear, setSelYear] = useState(2025);
-  const [selWeek, setSelWeek] = useState(1);
-  const [selGame, setSelGame] = useState(null);
+function GameStatsView({ sel = null, onSel = () => {} }) {
+  const [selYear, setSelYear] = useState(sel?.year || 2025);
+  const [selWeek, setSelWeek] = useState(sel?.week || 1);
+  const [copied, setCopied] = useState(false);
+
+  // The open game is driven by the URL (the `sel` prop), so a shared link lands
+  // on the right box score and back/forward works. When `sel` points at another
+  // year/week (e.g. from a pasted link), follow it here.
+  useEffect(() => {
+    if (sel && (sel.year !== selYear || sel.week !== selWeek)) { setSelYear(sel.year); setSelWeek(sel.week); }
+  }, [sel]);
+  useEffect(() => { setCopied(false); }, [sel]);
+
+  const sortPair = (a, b) => [String(a).toUpperCase(), String(b).toUpperCase()].sort().join("-");
 
   const availableYears = useMemo(() => [...new Set(GAME_LOG.map(g => g[20]))].filter(Boolean).sort((a, b) => b - a), []);
   const availableWeeks = useMemo(() => {
@@ -10085,6 +10124,20 @@ function GameStatsView() {
   const weekLabel = (w) => playoffWeeks.has(w) ? "Playoffs" : `Week ${w}`;
   const typeLabel = (t) => t === "R" ? "" : t === "P" ? "Semi" : t === "C" ? "Champ" : "";
 
+  // Which listed game the URL points at, matched by sorted teams + type so it
+  // is stable no matter which side is stored first in the log.
+  const selGame = sel
+    ? games.findIndex(gm => sel.year === selYear && sel.week === selWeek && (sel.type || "R") === gm.type && sortPair(sel.t1, sel.t2) === sortPair(gm.t1, gm.t2))
+    : -1;
+  const selectGame = (gm) => onSel(gm ? { year: selYear, week: selWeek, t1: gm.t1, t2: gm.t2, type: gm.type } : null);
+
+  const copyLink = () => {
+    const gm = games[selGame];
+    if (!gm) return;
+    const url = window.location.origin + gamePath({ year: selYear, week: selWeek, t1: gm.t1, t2: gm.t2, type: gm.type });
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(() => setCopied(true)).catch(() => {});
+  };
+
   return (
     <div>
       <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Game-by-Game Stats</p>
@@ -10092,7 +10145,7 @@ function GameStatsView() {
       {/* Year selector */}
       <div className="flex flex-wrap gap-1.5 mb-2">
         {availableYears.map(y => (
-          <button key={y} onClick={() => { setSelYear(y); setSelWeek(1); setSelGame(null); }}
+          <button key={y} onClick={() => { setSelYear(y); setSelWeek(1); onSel(null); }}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${selYear === y ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
             {y}
           </button>
@@ -10102,7 +10155,7 @@ function GameStatsView() {
       {/* Week selector */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
         {availableWeeks.map(w => (
-          <button key={w} onClick={() => { setSelWeek(w); setSelGame(null); }}
+          <button key={w} onClick={() => { setSelWeek(w); onSel(null); }}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex-shrink-0 ${selWeek === w ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
             {weekLabel(w)}
           </button>
@@ -10115,7 +10168,7 @@ function GameStatsView() {
           const isActive = selGame === gi;
           const t1Won = gm.s1 > gm.s2;
           return (
-            <button key={gi} onClick={() => setSelGame(isActive ? null : gi)}
+            <button key={gi} onClick={() => selectGame(isActive ? null : gm)}
               className={`w-full rounded-xl border px-3 py-2 flex items-center justify-between text-left transition-all ${isActive ? "border-gray-900 bg-gray-900 text-white" : "border-gray-100 bg-white"}`}>
               <div className="flex items-center gap-2">
                 <span className={`text-sm ${t1Won ? "font-bold" : ""} ${isActive ? "text-white" : "text-gray-900"}`}>{getTeamDisplay(gm.t1, selYear)}</span>
@@ -10131,19 +10184,28 @@ function GameStatsView() {
       </div>
 
       {/* Player stats: ESPN-style per-team box scores */}
-      {selGame !== null && games[selGame] && (() => {
+      {selGame >= 0 && games[selGame] && (() => {
         const gm = games[selGame];
         const t1Players = gm.players.filter(p => p[1] === gm.t1);
         const t2Players = gm.players.filter(p => p[1] === gm.t2);
         return (
           <div>
+            <div className="flex justify-end mb-2">
+              <button onClick={copyLink}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gray-100 text-gray-600 active:bg-gray-200">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m6.656-6.656a4 4 0 015.656 5.656l-1.5 1.5" />
+                </svg>
+                {copied ? "Link copied" : "Copy link to this game"}
+              </button>
+            </div>
             <BoxScoreTable teamCode={gm.t1} teamLabel={getTeamDisplay(gm.t1, selYear)} score={gm.s1} players={t1Players} year={selYear} />
             <BoxScoreTable teamCode={gm.t2} teamLabel={getTeamDisplay(gm.t2, selYear)} score={gm.s2} players={t2Players} year={selYear} />
           </div>
         );
       })()}
 
-      {selGame === null && (
+      {selGame < 0 && (
         <div className="text-center py-6 text-sm text-gray-400">Select a game above to see player stats</div>
       )}
     </div>
