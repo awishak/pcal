@@ -16307,6 +16307,79 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             </table>
           </div>
           <div className="text-[10px] text-gray-400 mt-2">Bold marks a career high. Selected seasons ({seasonLabel}) are highlighted. 3P%/FT% shaded on the same bands as the roster.</div>
+
+          {/* Game log: one row per game for the selected season(s), with made/attempted
+              per shot type. Percentage shows only when the player took 5+ of that shot. */}
+          <div className="text-[11px] text-gray-400 uppercase tracking-wide font-bold mt-5 mb-2">Game log · {seasonLabel}</div>
+          <div className="overflow-x-auto">
+            {(() => {
+              const typeLbl = (t) => t === "P" ? "Semi" : t === "C" ? "Champ" : t === "X" ? "Cons" : "";
+              const multiYear = selSeasons.length > 1;
+              const logRows = (thGlIndex()[selected] || [])
+                .filter(r => r[6] === 1 && selSeasons.includes(r[20]))
+                .sort((a, b) => (b[20] - a[20]) || (b[3] - a[3]) || String(b[4]).localeCompare(String(a[4])));
+              if (logRows.length === 0) return <div className="text-sm text-gray-400 py-3">No games in {seasonLabel}.</div>;
+              const shotCell = (made, att) => {
+                const pct = att >= 5 ? (made / att * 100).toFixed(1) : null;
+                return (
+                  <td className="px-2 py-1.5 text-center tabular-nums whitespace-nowrap">
+                    <div className="font-bold text-gray-800">{att === 0 ? "—" : `${made}/${att}`}</div>
+                    {pct != null && <div className="text-[10px] text-gray-400 leading-tight">{pct}%</div>}
+                  </td>
+                );
+              };
+              return (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="text-gray-400 border-b border-gray-100 text-[11px] uppercase tracking-wide">
+                      <th className="px-2 py-1.5 text-left font-bold">Date</th>
+                      <th className="px-2 py-1.5 text-left font-bold">Opp</th>
+                      <th className="px-2 py-1.5 text-center font-bold">2P</th>
+                      <th className="px-2 py-1.5 text-center font-bold">3P</th>
+                      <th className="px-2 py-1.5 text-center font-bold">FT</th>
+                      <th className="px-2 py-1.5 text-center font-bold">PTS</th>
+                      <th className="px-2 py-1.5 text-center font-bold">REB</th>
+                      <th className="px-2 py-1.5 text-center font-bold">AST</th>
+                      <th className="px-2 py-1.5 text-center font-bold">STL</th>
+                      <th className="px-2 py-1.5 text-center font-bold">BLK</th>
+                      <th className="px-2 py-1.5 text-center font-bold">GmSc</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logRows.map((r, i) => {
+                      const p2m = Math.max(0, r[12] - r[16]), p2a = Math.max(0, r[13] - r[17]);
+                      const tl = typeLbl(r[5]);
+                      return (
+                        <tr key={i} className="border-b border-gray-50">
+                          <td className="px-2 py-1.5 text-left tabular-nums whitespace-nowrap text-gray-700">
+                            {multiYear && <span className="text-gray-400">{r[20]} · </span>}
+                            <span className="font-bold text-gray-900">{r[4]}</span>
+                            {tl && <span className="text-[9px] font-black text-amber-700 ml-1">{tl}</span>}
+                          </td>
+                          <td className="px-2 py-1.5 text-left whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <TeamLogo team={r[2]} year={r[20]} size={16} />
+                              <span className="text-gray-600 font-medium">{r[2]}</span>
+                            </div>
+                          </td>
+                          {shotCell(p2m, p2a)}
+                          {shotCell(r[16], r[17])}
+                          {shotCell(r[14], r[15])}
+                          <td className="px-2 py-1.5 text-center tabular-nums font-black text-gray-900">{r[7]}</td>
+                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[8]}</td>
+                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[10]}</td>
+                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[9]}</td>
+                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[11]}</td>
+                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[19] == null ? "—" : r[19].toFixed(1)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
+          <div className="text-[10px] text-gray-400 mt-2">Shot columns are made/attempted; the percentage shows only when the player took 5+ of that shot type in the game. 2P is FG minus 3P.</div>
         </div>
       )}
     </div>
