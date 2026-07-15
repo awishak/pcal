@@ -16082,6 +16082,21 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     });
   }, [selected, dataIdx]);
 
+  // Per-game team totals (points and possessions) keyed by the exact game, so
+  // the game log can show a player's share of team points and possessions.
+  // Possessions use the same fga + 0.44*fta definition as the roster stats.
+  const gameTeamTotals = useMemo(() => {
+    const m = {};
+    for (const r of GAME_LOG) {
+      if (r[6] !== 1) continue;
+      const k = r[20] + "|" + r[1] + "|" + r[2] + "|" + r[3] + "|" + r[4] + "|" + r[5];
+      const e = m[k] || (m[k] = { pts: 0, poss: 0 });
+      e.pts += r[7] || 0;
+      e.poss += (r[13] || 0) + 0.44 * (r[15] || 0);
+    }
+    return m;
+  }, [GAME_LOG.length]);
+
   // Career highs per stat so we can flag them in the history table.
   const highs = useMemo(() => {
     if (!history) return {};
@@ -16262,6 +16277,95 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
               <button onClick={() => goToPlayer(thCanon(selRow.name))} className="text-[11px] font-bold text-gray-500 hover:text-gray-900">Full career →</button>
             )}
           </div>
+
+          {/* Game log first: how each game is going, counts with their percentages
+              in adjacent columns, plus team-share and true shooting. */}
+          <div className="text-[11px] text-gray-400 uppercase tracking-wide font-bold mb-2">Game log · {seasonLabel}</div>
+          <div className="overflow-x-auto">
+            {(() => {
+              const typeLbl = (t) => t === "P" ? "Semi" : t === "C" ? "Champ" : t === "X" ? "Cons" : "";
+              const multiYear = selSeasons.length > 1;
+              const logRows = (thGlIndex()[selected] || [])
+                .filter(r => r[6] === 1 && selSeasons.includes(r[20]))
+                .sort((a, b) => (b[20] - a[20]) || (b[3] - a[3]) || String(b[4]).localeCompare(String(a[4])));
+              if (logRows.length === 0) return <div className="text-sm text-gray-400 py-3">No games in {seasonLabel}.</div>;
+              const th = "px-1.5 py-1 text-center font-bold";
+              const num = "px-1.5 py-1 text-center tabular-nums";
+              return (
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="text-gray-400 border-b border-gray-100 text-[10px] uppercase tracking-wide">
+                      <th className="px-1.5 py-1 text-left font-bold">Date</th>
+                      <th className="px-1.5 py-1 text-left font-bold">Opp</th>
+                      <th className={th}>PTS</th>
+                      <th className={th}>TM PTS%</th>
+                      <th className={th}>POSS%</th>
+                      <th className={th}>TS%</th>
+                      <th className={th}>2P</th>
+                      <th className={th}>2P%</th>
+                      <th className={th}>3P</th>
+                      <th className={th}>3P%</th>
+                      <th className={th}>FT</th>
+                      <th className={th}>FT%</th>
+                      <th className={th}>REB</th>
+                      <th className={th}>AST</th>
+                      <th className={th}>STL</th>
+                      <th className={th}>BLK</th>
+                      <th className={th}>GmSc</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logRows.map((r, i) => {
+                      const fga = r[13], fta = r[15];
+                      const p2m = Math.max(0, r[12] - r[16]), p2a = Math.max(0, fga - r[17]);
+                      const p3m = r[16], p3a = r[17], ftm = r[14];
+                      const shotPct = (m2, a2) => a2 >= 5 ? (m2 / a2 * 100).toFixed(1) : "";
+                      const ma = (m2, a2) => a2 === 0 ? "—" : `${m2}/${a2}`;
+                      const tsDen = 2 * (fga + 0.44 * fta);
+                      const ts = tsDen > 0 ? (r[7] / tsDen * 100).toFixed(1) : "";
+                      const tt = gameTeamTotals[r[20] + "|" + r[1] + "|" + r[2] + "|" + r[3] + "|" + r[4] + "|" + r[5]];
+                      const tmPts = tt && tt.pts > 0 ? (r[7] / tt.pts * 100).toFixed(1) : "";
+                      const plPoss = fga + 0.44 * fta;
+                      const tmPoss = tt && tt.poss > 0 ? (plPoss / tt.poss * 100).toFixed(1) : "";
+                      const tl = typeLbl(r[5]);
+                      return (
+                        <tr key={i} className="border-b border-gray-50">
+                          <td className="px-1.5 py-1 text-left tabular-nums whitespace-nowrap text-gray-700">
+                            {multiYear && <span className="text-gray-400">{r[20]} · </span>}
+                            <span className="font-bold text-gray-900">{r[4]}</span>
+                            {tl && <span className="text-[9px] font-black text-amber-700 ml-1">{tl}</span>}
+                          </td>
+                          <td className="px-1.5 py-1 text-left whitespace-nowrap">
+                            <div className="flex items-center gap-1">
+                              <TeamLogo team={r[2]} year={r[20]} size={14} />
+                              <span className="text-gray-600 font-medium">{r[2]}</span>
+                            </div>
+                          </td>
+                          <td className={`${num} font-black text-gray-900`}>{r[7]}</td>
+                          <td className={`${num} text-gray-500`}>{tmPts}</td>
+                          <td className={`${num} text-gray-500`}>{tmPoss}</td>
+                          <td className={`${num} text-gray-700`}>{ts}</td>
+                          <td className={`${num} text-gray-800 font-medium`}>{ma(p2m, p2a)}</td>
+                          <td className={`${num} text-gray-500`}>{shotPct(p2m, p2a)}</td>
+                          <td className={`${num} text-gray-800 font-medium`}>{ma(p3m, p3a)}</td>
+                          <td className={`${num} text-gray-500`}>{shotPct(p3m, p3a)}</td>
+                          <td className={`${num} text-gray-800 font-medium`}>{ma(ftm, fta)}</td>
+                          <td className={`${num} text-gray-500`}>{shotPct(ftm, fta)}</td>
+                          <td className={`${num} text-gray-700`}>{r[8]}</td>
+                          <td className={`${num} text-gray-700`}>{r[10]}</td>
+                          <td className={`${num} text-gray-700`}>{r[9]}</td>
+                          <td className={`${num} text-gray-700`}>{r[11]}</td>
+                          <td className={`${num} text-gray-700`}>{r[19] == null ? "—" : r[19].toFixed(1)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
+          <div className="text-[10px] text-gray-400 mt-2 mb-5">Shot columns are made/attempted with the percentage in the next column, shown only at 5+ attempts. TM PTS% and POSS% are the player's share of the team that game (POSS uses FGA + 0.44·FTA). 2P is FG minus 3P.</div>
+
           <div className="text-[11px] text-gray-400 uppercase tracking-wide font-bold mb-2">Season by season</div>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -16307,79 +16411,6 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             </table>
           </div>
           <div className="text-[10px] text-gray-400 mt-2">Bold marks a career high. Selected seasons ({seasonLabel}) are highlighted. 3P%/FT% shaded on the same bands as the roster.</div>
-
-          {/* Game log: one row per game for the selected season(s), with made/attempted
-              per shot type. Percentage shows only when the player took 5+ of that shot. */}
-          <div className="text-[11px] text-gray-400 uppercase tracking-wide font-bold mt-5 mb-2">Game log · {seasonLabel}</div>
-          <div className="overflow-x-auto">
-            {(() => {
-              const typeLbl = (t) => t === "P" ? "Semi" : t === "C" ? "Champ" : t === "X" ? "Cons" : "";
-              const multiYear = selSeasons.length > 1;
-              const logRows = (thGlIndex()[selected] || [])
-                .filter(r => r[6] === 1 && selSeasons.includes(r[20]))
-                .sort((a, b) => (b[20] - a[20]) || (b[3] - a[3]) || String(b[4]).localeCompare(String(a[4])));
-              if (logRows.length === 0) return <div className="text-sm text-gray-400 py-3">No games in {seasonLabel}.</div>;
-              const shotCell = (made, att) => {
-                const pct = att >= 5 ? (made / att * 100).toFixed(1) : null;
-                return (
-                  <td className="px-2 py-1.5 text-center tabular-nums whitespace-nowrap">
-                    <div className="font-bold text-gray-800">{att === 0 ? "—" : `${made}/${att}`}</div>
-                    {pct != null && <div className="text-[10px] text-gray-400 leading-tight">{pct}%</div>}
-                  </td>
-                );
-              };
-              return (
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="text-gray-400 border-b border-gray-100 text-[11px] uppercase tracking-wide">
-                      <th className="px-2 py-1.5 text-left font-bold">Date</th>
-                      <th className="px-2 py-1.5 text-left font-bold">Opp</th>
-                      <th className="px-2 py-1.5 text-center font-bold">2P</th>
-                      <th className="px-2 py-1.5 text-center font-bold">3P</th>
-                      <th className="px-2 py-1.5 text-center font-bold">FT</th>
-                      <th className="px-2 py-1.5 text-center font-bold">PTS</th>
-                      <th className="px-2 py-1.5 text-center font-bold">REB</th>
-                      <th className="px-2 py-1.5 text-center font-bold">AST</th>
-                      <th className="px-2 py-1.5 text-center font-bold">STL</th>
-                      <th className="px-2 py-1.5 text-center font-bold">BLK</th>
-                      <th className="px-2 py-1.5 text-center font-bold">GmSc</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logRows.map((r, i) => {
-                      const p2m = Math.max(0, r[12] - r[16]), p2a = Math.max(0, r[13] - r[17]);
-                      const tl = typeLbl(r[5]);
-                      return (
-                        <tr key={i} className="border-b border-gray-50">
-                          <td className="px-2 py-1.5 text-left tabular-nums whitespace-nowrap text-gray-700">
-                            {multiYear && <span className="text-gray-400">{r[20]} · </span>}
-                            <span className="font-bold text-gray-900">{r[4]}</span>
-                            {tl && <span className="text-[9px] font-black text-amber-700 ml-1">{tl}</span>}
-                          </td>
-                          <td className="px-2 py-1.5 text-left whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <TeamLogo team={r[2]} year={r[20]} size={16} />
-                              <span className="text-gray-600 font-medium">{r[2]}</span>
-                            </div>
-                          </td>
-                          {shotCell(p2m, p2a)}
-                          {shotCell(r[16], r[17])}
-                          {shotCell(r[14], r[15])}
-                          <td className="px-2 py-1.5 text-center tabular-nums font-black text-gray-900">{r[7]}</td>
-                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[8]}</td>
-                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[10]}</td>
-                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[9]}</td>
-                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[11]}</td>
-                          <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{r[19] == null ? "—" : r[19].toFixed(1)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              );
-            })()}
-          </div>
-          <div className="text-[10px] text-gray-400 mt-2">Shot columns are made/attempted; the percentage shows only when the player took 5+ of that shot type in the game. 2P is FG minus 3P.</div>
         </div>
       )}
     </div>
