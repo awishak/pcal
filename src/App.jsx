@@ -492,6 +492,13 @@ const TEAM_FULL_NAMES = {
   PLE: "Pleasanton Eagles", PDF: "Pacific Desert Fathers", MOD: "Modesto Lions",
 };
 
+// Mascot alone, for places that already show the city and would otherwise
+// fall back to the three-letter code.
+const TEAM_MASCOTS = {
+  HAY: "Monks", SAC: "Halos", SJO: "Dragon Slayers",
+  PLE: "Eagles", PDF: "Desert Fathers", MOD: "Lions",
+};
+
 // First-name nickname to canonical mapping. Applied when looking up player history
 // so registrations using nicknames find their game-log entry.
 const FIRST_NAME_NICKNAMES = {
@@ -15755,8 +15762,9 @@ const CLINCH_MAX_SCENARIOS_2026 = 4096;
 // held where they are today, so both verdicts are conditional on those not
 // changing. That matters: fewer forfeits is step 2, above head to head and
 // above spiritual fouls, so a forfeit by a rival can pull a team that is out
-// on results back into the top 4. The UI says as much rather than claiming a
-// team is mathematically dead.
+// on results back into the top 4. The UI deliberately never renders the
+// "eliminated" verdict for that reason. It is returned here only because it
+// falls out of the same scan as "clinched".
 function clinchStatus2026(ctx) {
   const out = {};
   for (const t of TEAMS_2026) out[t] = null;
@@ -16797,8 +16805,8 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         <span className="flex-1 min-w-0">Team</span>
         <span className="w-10 text-right">W-L</span>
         <span className="w-9 text-right">Pct</span>
-        <span className="w-7 text-right">SoW</span>
         <span className="w-[74px] text-right">TB Over</span>
+        <span className="w-7 text-right">SoW</span>
         <span className="w-9 text-right">Misc</span>
       </div>
 
@@ -16807,30 +16815,28 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         const shown = list.slice(0, TB_OVER_CAP_2026);
         const extra = list.length - shown.length;
         const status = clinch[row.team];
-        const dim = status === "eliminated";
         return (
           <div key={row.team}>
-            <div className={`flex items-center gap-1.5 px-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""} ${dim ? "opacity-60" : ""}`}>
+            <div className={`flex items-center gap-1.5 px-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""}`}>
               <span className={`w-4 text-center text-sm font-black tabular-nums ${i === 0 ? "text-gray-900" : "text-gray-300"}`}>{i + 1}</span>
               <TeamLogo team={row.team} size={22} />
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-bold text-gray-900 truncate leading-tight">{TEAM_NAMES[row.team] || row.team}</div>
                 <div className="flex items-center gap-1 leading-tight">
-                  <span className="text-[10px] text-gray-400 uppercase tracking-wider">{row.team}</span>
-                  {status === "clinched" && <span className="text-[8px] font-black text-emerald-600 uppercase tracking-wider">Clinched</span>}
-                  {status === "eliminated" && <span className="text-[8px] font-black text-gray-400 uppercase tracking-wider">Out</span>}
-                  {row.trivia && <BibleIcon className="text-gray-400" />}
+                  <span className="text-[10px] text-gray-400 truncate">{TEAM_MASCOTS[row.team] || row.team}</span>
+                  {status === "clinched" && <span className="text-[8px] font-black text-emerald-600 uppercase tracking-wider shrink-0">Clinched</span>}
+                  {row.trivia && <BibleIcon className="text-gray-400 shrink-0" />}
                 </div>
               </div>
               <span className="w-10 text-right text-[13px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
               <span className="w-9 text-right text-[11px] text-gray-500 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
-              <span className="w-7 text-right text-[11px] font-semibold text-gray-700 tabular-nums">{row.sow}</span>
               <span className="w-[74px] text-right text-[10px] leading-tight">
                 {shown.length === 0 ? <span className="text-gray-300">-</span> : shown.map((x, k) => (
                   <span key={x.opp} className={kindClass(x.kind)}>{x.opp}{k < shown.length - 1 ? " " : ""}</span>
                 ))}
                 {extra > 0 && <span className="text-gray-400"> +{extra}</span>}
               </span>
+              <span className="w-7 text-right text-[11px] font-semibold text-gray-700 tabular-nums">{row.sow}</span>
               <span className="w-9 text-right text-[9px] font-bold leading-tight">
                 {row.forfeits > 0 && <span className="text-red-500 block">{row.forfeits} FF</span>}
                 {row.spiritual > 0 && <span className="text-amber-600 block">{row.spiritual} SF</span>}
@@ -16841,7 +16847,6 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             {expanded && (
               <div className="px-3 pb-3 pl-[38px] space-y-0.5">
                 {status === "clinched" && <p className="text-[10px] font-bold text-emerald-600">Cannot finish 5th or 6th on any combination of remaining results</p>}
-                {status === "eliminated" && <p className="text-[10px] font-bold text-gray-400">Cannot reach the top 4 on results alone. Forfeits by other teams would change this, since fewer forfeits is step 2.</p>}
                 {(() => {
                   const lines = [];
                   for (const opp of TEAMS_2026) {
@@ -16851,13 +16856,13 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
                     const other = holder === row.team ? opp : row.team;
                     lines.push(
                       <p key={opp} className="text-[10px] text-gray-500 leading-snug">
-                        <span className="font-semibold text-gray-700">vs {opp}</span>
+                        <span className="font-semibold text-gray-700">vs {TEAM_MASCOTS[opp] || opp}</span>
                         {"  "}{tbExplain2026(holder, other, ctx)}
                       </p>
                     );
                   }
                   if (lines.length === 0) {
-                    return <p className="text-[10px] text-gray-400 leading-snug">No team can still finish level with {row.team}</p>;
+                    return <p className="text-[10px] text-gray-400 leading-snug">No team can still finish level with {TEAM_MASCOTS[row.team] || row.team}</p>;
                   }
                   return lines;
                 })()}
@@ -16900,7 +16905,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             TB Over lists only teams that can still finish level on record. <span className="font-black text-gray-900">Bold</span> is settled and cannot change, plain is a lead with a rematch still to play, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
           </p>
           <p className="text-[10px] text-gray-500 leading-snug">
-            Clinched and Out are worked out from match results only, holding forfeits and spiritual fouls at their current counts. A team that is Out on results can still be brought back by another team forfeiting, since fewer forfeits is step 2.
+            Clinched is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
           </p>
           <p className="text-[10px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
         </div>
