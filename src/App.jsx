@@ -15762,29 +15762,78 @@ const CLINCH_MAX_SCENARIOS_2026 = 4096;
 // on results back into the top 4. The UI deliberately never renders the
 // "eliminated" verdict for that reason. It is returned here only because it
 // falls out of the same scan as "clinched".
-function clinchStatus2026(ctx) {
+// Best and worst finishing position for every team in one hypothetical. An
+// unresolved bible trivia group spans several positions, so the two differ
+// there and the team is credited with neither outcome.
+function placements2026(ctx) {
+  const order = resolveGroup2026([...TEAMS_2026], ctx, 0);
   const out = {};
-  for (const t of TEAMS_2026) out[t] = null;
+  order.forEach((row, i) => {
+    let worst = i, best = i;
+    if (row.trivia) {
+      for (let j = i + 1; j < order.length && order[j].triviaKey === row.triviaKey; j++) worst = j;
+      for (let j = i - 1; j >= 0 && order[j].triviaKey === row.triviaKey; j--) best = j;
+    }
+    out[row.team] = { best, worst };
+  });
+  return out;
+}
+
+// Per team: whether the top 4 is already secured on results, whether the only
+// remaining route in is a rival forfeiting, and whether a secured spot could
+// still be given away by forfeiting.
+//
+// A forfeit only ever costs the team that forfeits, at step 2, and a forfeited
+// game is a loss the result scan already covers. So a team's best case is
+// every rival forfeiting each game it loses, and its worst case is forfeiting
+// each of its own losses. Both are reachable, which makes these exact bounds
+// rather than estimates. The two follow-up scans only run for teams whose
+// answer could change what is displayed, so in practice a handful at most.
+function playoffOutlook2026(ctx) {
+  const out = {};
+  for (const t of TEAMS_2026) {
+    out[t] = { status: null, needsRivalForfeit: false, clinchRestsOnNoForfeit: false };
+  }
   const rem = remainingPairs2026(ctx);
   const total = 1 << rem.length;
   if (rem.length > 30 || total > CLINCH_MAX_SCENARIOS_2026) return out;
+
   const canMiss = {}, canMake = {};
   for (const t of TEAMS_2026) { canMiss[t] = false; canMake[t] = false; }
+  const every = [];
   for (let mask = 0; mask < total; mask++) {
     const results = rem.map(([a, b], i) => (mask & (1 << i)) ? [a, b] : [b, a]);
-    const order = resolveGroup2026([...TEAMS_2026], withResults2026(ctx, results), 0);
-    order.forEach((row, i) => {
-      let worst = i, best = i;
-      if (row.trivia) {
-        for (let j = i + 1; j < order.length && order[j].triviaKey === row.triviaKey; j++) worst = j;
-        for (let j = i - 1; j >= 0 && order[j].triviaKey === row.triviaKey; j--) best = j;
-      }
-      if (worst >= PLAYOFF_SPOTS_2026) canMiss[row.team] = true;
-      if (best < PLAYOFF_SPOTS_2026) canMake[row.team] = true;
-    });
+    every.push(results);
+    const p = placements2026(withResults2026(ctx, results));
+    for (const t of TEAMS_2026) {
+      if (p[t].worst >= PLAYOFF_SPOTS_2026) canMiss[t] = true;
+      if (p[t].best < PLAYOFF_SPOTS_2026) canMake[t] = true;
+    }
   }
+  for (const t of TEAMS_2026) if (!canMiss[t]) out[t].status = "clinched";
+
+  const charged = (results, pick) => {
+    const c = withResults2026(ctx, results);
+    const forfeits = { ...c.forfeits };
+    for (const [, loser] of results) if (pick(loser)) forfeits[loser]++;
+    return { ...c, forfeits };
+  };
   for (const t of TEAMS_2026) {
-    out[t] = !canMiss[t] ? "clinched" : !canMake[t] ? "eliminated" : null;
+    if (!canMake[t]) {
+      for (const results of every) {
+        if (placements2026(charged(results, (l) => l !== t))[t].best < PLAYOFF_SPOTS_2026) {
+          out[t].needsRivalForfeit = true;
+          break;
+        }
+      }
+    } else if (!canMiss[t]) {
+      for (const results of every) {
+        if (placements2026(charged(results, (l) => l === t))[t].worst >= PLAYOFF_SPOTS_2026) {
+          out[t].clinchRestsOnNoForfeit = true;
+          break;
+        }
+      }
+    }
   }
   return out;
 }
@@ -16828,7 +16877,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
   const standings = useMemo(() => standingsFromContext2026(ctx), [ctx]);
   const eligible = useMemo(() => tieEligiblePairs2026(ctx), [ctx]);
   const tbOver = useMemo(() => tiebreakOver2026(ctx, eligible), [ctx, eligible]);
-  const clinch = useMemo(() => clinchStatus2026(ctx), [ctx]);
+  const outlook = useMemo(() => playoffOutlook2026(ctx), [ctx]);
   const [expanded, setExpanded] = useState(false);
 
   // How settled the edge is drives the styling: bold for a result nothing can
@@ -16892,7 +16941,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         const list = tbOver[row.team] || [];
         const shown = list.slice(0, TB_OVER_CAP_2026);
         const extra = list.length - shown.length;
-        const status = clinch[row.team];
+        const look = outlook[row.team];
         return (
           <div key={row.team}>
             <div className={`flex items-center gap-1.5 px-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""}`}>
@@ -16900,7 +16949,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
               <TeamLogo team={row.team} size={22} />
               <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-1.5">
                 <span className="text-[13px] font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}</span>
-                {status === "clinched" && <span className="shrink-0 px-1.5 rounded bg-emerald-50 text-emerald-700 text-[11px] font-bold leading-tight">Clinched</span>}
+                {look.status === "clinched" && <span className="shrink-0 px-1.5 rounded bg-emerald-50 text-emerald-700 text-[11px] font-bold leading-tight">Clinched</span>}
                 {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
               </div>
               <span className="w-10 text-right text-[14px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
@@ -16921,7 +16970,6 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
 
             {expanded && (
               <div className="px-3 pb-3 pl-[38px] space-y-0.5">
-                {status === "clinched" && <p className="text-[11px] font-bold text-emerald-600">Cannot finish 5th or 6th on any combination of remaining results</p>}
                 {(() => {
                   const lines = tbSummaryLines2026(row.team, ctx, eligible);
                   if (lines.length === 0) {
@@ -16931,6 +16979,15 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
                     <p key={k} className="text-[11px] text-gray-600 leading-snug">{text}</p>
                   ));
                 })()}
+                {look.status === "clinched" && !look.clinchRestsOnNoForfeit && (
+                  <p className="text-[11px] font-bold text-emerald-600 leading-snug pt-0.5">In the top 4 under every combination of results and forfeits</p>
+                )}
+                {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
+                  <p className="text-[11px] font-bold text-emerald-600 leading-snug pt-0.5">In the top 4 on results, but forfeiting a game of their own could still cost them the spot</p>
+                )}
+                {look.needsRivalForfeit && (
+                  <p className="text-[11px] font-bold text-amber-600 leading-snug pt-0.5">Cannot reach the top 4 on results. Only another team forfeiting puts them back in, since fewer forfeits is step 2.</p>
+                )}
               </div>
             )}
 
