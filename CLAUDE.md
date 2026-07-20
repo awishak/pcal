@@ -104,6 +104,8 @@ Forfeits and spiritual fouls live in the `team_forfeits` and `team_spiritual_fou
 
 Clinch and elimination badges enumerate every remaining outcome, capped at 4096 scenarios (12 remaining games). Above that no badge is shown. Tie possibility for the TB Over column uses win-window overlap instead, since enumeration is 2^30 in week 1.
 
+The clinch scan varies match results only and holds forfeit and spiritual foul counts where they are. Both verdicts are conditional on that. Never call a team mathematically eliminated on the strength of it: fewer forfeits is step 2, above head to head, so forfeits by rivals can pull a team that is out on results back into the top 4.
+
 ## Schedule rules (for any scheduling work)
 
 6 teams, 6 weeks, 5 games per week at 3, 4, 5, 6, 7pm. Games are 1 hour. Each team plays 2 games per week with 1 bye. Double round robin, 30 total games. Byes rotate in team order.

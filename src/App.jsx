@@ -15750,6 +15750,13 @@ const CLINCH_MAX_SCENARIOS_2026 = 4096;
 // inside it. A team holding a top-4 spot only through an unresolved bible
 // trivia tie is not clinched, since it could lose the trivia, so trivia
 // counts against the team for both badges.
+//
+// This scan varies match results only. Forfeit and spiritual foul counts are
+// held where they are today, so both verdicts are conditional on those not
+// changing. That matters: fewer forfeits is step 2, above head to head and
+// above spiritual fouls, so a forfeit by a rival can pull a team that is out
+// on results back into the top 4. The UI says as much rather than claiming a
+// team is mathematically dead.
 function clinchStatus2026(ctx) {
   const out = {};
   for (const t of TEAMS_2026) out[t] = null;
@@ -16833,8 +16840,8 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
 
             {expanded && (
               <div className="px-3 pb-3 pl-[38px] space-y-0.5">
-                {status === "clinched" && <p className="text-[10px] font-bold text-emerald-600">Clinched a playoff spot, cannot finish 5th or 6th</p>}
-                {status === "eliminated" && <p className="text-[10px] font-bold text-gray-400">Eliminated, cannot reach the top 4</p>}
+                {status === "clinched" && <p className="text-[10px] font-bold text-emerald-600">Cannot finish 5th or 6th on any combination of remaining results</p>}
+                {status === "eliminated" && <p className="text-[10px] font-bold text-gray-400">Cannot reach the top 4 on results alone. Forfeits by other teams would change this, since fewer forfeits is step 2.</p>}
                 {(() => {
                   const lines = [];
                   for (const opp of TEAMS_2026) {
@@ -16891,6 +16898,9 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
           </p>
           <p className="text-[10px] text-gray-500 leading-snug">
             TB Over lists only teams that can still finish level on record. <span className="font-black text-gray-900">Bold</span> is settled and cannot change, plain is a lead with a rematch still to play, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
+          </p>
+          <p className="text-[10px] text-gray-500 leading-snug">
+            Clinched and Out are worked out from match results only, holding forfeits and spiritual fouls at their current counts. A team that is Out on results can still be brought back by another team forfeiting, since fewer forfeits is step 2.
           </p>
           <p className="text-[10px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
         </div>
