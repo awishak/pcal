@@ -17240,9 +17240,10 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                 {/* Last game day and next one. Stays visible when collapsed. */}
                 {(blocks.last || blocks.next) && (
                   <div className="grid grid-cols-2 gap-3 mt-3">
-                    {[[blocks.last, false, "No games played yet"], [blocks.next, true, "Season complete"]].map(([block, upcoming, empty], bi) => (
+                    {[[blocks.last, false, "Last Games", "No games played yet"], [blocks.next, true, "Next Games", "Season complete"]].map(([block, upcoming, heading, empty], bi) => (
                       <div key={bi} className="min-w-0">
-                        <div className="text-[11px] font-black text-gray-900 mb-1">{block ? longDate2026(block.date) : (upcoming ? "Next" : "Last")}</div>
+                        <div className="text-[11px] font-black text-gray-900 uppercase tracking-wide text-center">{heading}</div>
+                        <div className="text-[11px] text-gray-500 text-center mb-1">{block ? longDate2026(block.date) : ""}</div>
                         {block ? (
                           <div className="flex gap-1">
                             {block.rows.map((r, k) => {
@@ -17252,19 +17253,22 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                                 <div key={k} className="flex-1 min-w-0 rounded-lg bg-gray-50 px-1 py-1 text-center">
                                   <div className="text-[11px] font-bold text-gray-900 truncate">{r.opp}</div>
                                   {upcoming ? (
-                                    <div className="text-[11px] text-gray-500 tabular-nums truncate">{fmtTime(r.g.game_time)}</div>
+                                    <div className="text-[13px] font-black text-gray-700 tabular-nums truncate">{fmtTime(r.g.game_time)}</div>
                                   ) : (
-                                    <div className="text-[11px] tabular-nums truncate">
-                                      <span className={`font-black ${win ? "text-emerald-600" : loss ? "text-red-500" : "text-gray-500"}`}>{win ? "W" : loss ? "L" : "T"}</span>
-                                      <span className="text-gray-600"> {r.mine}-{r.theirs}</span>
-                                    </div>
+                                    <>
+                                      <div className="text-[13px] font-black tabular-nums truncate">
+                                        <span className={win ? "text-emerald-600" : loss ? "text-red-500" : "text-gray-500"}>{win ? "W" : loss ? "L" : "T"}</span>
+                                        <span className="text-gray-900"> {r.mine}-{r.theirs}</span>
+                                      </div>
+                                      {r.g.ot && <div className="text-[11px] font-bold text-gray-500 leading-tight">OT</div>}
+                                    </>
                                   )}
                                 </div>
                               );
                             })}
                           </div>
                         ) : (
-                          <div className="text-[11px] text-gray-300 leading-tight">{empty}</div>
+                          <div className="text-[11px] text-gray-300 leading-tight text-center">{empty}</div>
                         )}
                       </div>
                     ))}
