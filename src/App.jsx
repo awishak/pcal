@@ -15982,60 +15982,17 @@ function thOrdinal(n) {
   return n + suf;
 }
 
-// Category leaders per 2026 team, for the summary line on a roster card.
-//
-// Regular season only, so the leaders line agrees with the record printed
-// beside it. A player must have appeared in at least half the team's games,
-// rounded up. Guests are excluded, since the placeholder rows are not real
-// players. Each player fills at most one slot: categories are resolved in
-// order and a player already shown is skipped, so a team that has one player
-// leading three categories still puts four different faces on its card. A
-// slot with nobody left to fill it comes back null and renders empty.
-const TH_LEADER_CATS = [
-  { label: "PPG", src: "pts" },
-  { label: "RPG", src: "reb" },
-  { label: "APG", src: "ast" },
-  { label: "SPG", src: "stl" },
-];
+const MONTH_NAMES_2026 = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
 
-function th2026TeamLeaders() {
-  const teamGames = {}, players = {};
-  for (const r of GAME_LOG) {
-    if (r[20] !== 2026 || r[5] !== "R" || r[6] !== 1) continue;
-    const team = r[1], name = r[0];
-    if (!team || !name) continue;
-    // Keyed on date plus opponent so a doubleheader counts as two games.
-    (teamGames[team] = teamGames[team] || new Set()).add(r[4] + "|" + r[2]);
-    const k = team + "|" + name;
-    const p = players[k] = players[k] || { team, name, g: 0, pts: 0, reb: 0, ast: 0, stl: 0 };
-    p.g++;
-    p.pts += r[7] || 0; p.reb += r[8] || 0; p.stl += r[9] || 0; p.ast += r[10] || 0;
-  }
-  const pool = Object.values(players);
-  const out = {};
-  for (const team of TEAMS_2026) {
-    const played = teamGames[team] ? teamGames[team].size : 0;
-    const min = Math.ceil(played / 2);
-    const eligible = pool.filter(p => p.team === team && !thIsGuest(p.name) && p.g >= min && p.g > 0);
-    const used = new Set();
-    out[team] = TH_LEADER_CATS.map(cat => {
-      let best = null;
-      for (const p of eligible) {
-        if (used.has(p.name)) continue;
-        const value = p[cat.src] / p.g;
-        // Ties go to more games played, then alphabetically, so the card does
-        // not reshuffle for no reason between renders.
-        const better = !best || value > best.value
-          || (value === best.value && (p.g > best.g || (p.g === best.g && p.name < best.name)));
-        if (better) best = { name: p.name, value, g: p.g };
-      }
-      if (!best) return null;
-      used.add(best.name);
-      return { label: cat.label, name: best.name, value: best.value };
-    });
-  }
-  return out;
-}
+// Format a schedule "YYYY-MM-DD" as "July 12". Built from the string parts
+// rather than a Date, which would shift the day backwards in any time zone
+// west of UTC.
+const longDate2026 = (iso) => {
+  const p = String(iso || "").split("-");
+  const m = parseInt(p[1], 10);
+  return (p.length === 3 && m >= 1 && m <= 12) ? `${MONTH_NAMES_2026[m - 1]} ${parseInt(p[2], 10)}` : String(iso || "");
+};
 
 // Display "F. Lastname" from a "LASTNAME Firstname" string.
 function thShortName(name) {
@@ -17081,7 +17038,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
   // Roster cards follow the standings, so the order matches the table above.
   const teamsRanked = useMemo(() => standings.map(r => r.team), [standings]);
-  const leadersByTeam = useMemo(() => th2026TeamLeaders(), [GAME_LOG.length]);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
   const [dobMap, setDobMap] = useState({});
@@ -17176,6 +17132,30 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   // Convert a schedule "YYYY-MM-DD" into the game log's "M/D" (no leading zeros).
   const mdKey = (iso) => { if (!iso) return ""; const p = iso.split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : iso; };
 
+  // The team's most recent game day and its next one, each carrying every game
+  // on that day. Teams play twice a day, so both usually hold two games. A bye
+  // means the next day is not necessarily next week, which is why this keys off
+  // the schedule rather than counting weeks.
+  const gameDayBlocks = (team, sched) => {
+    const rows = [...sched].map(g => {
+      const opp = g.home_team === team ? g.away_team : g.home_team;
+      const md = mdKey(g.game_date);
+      const mine = resultByKey[`${md}|${team}|${opp}`];
+      const theirs = resultByKey[`${md}|${opp}|${team}`];
+      return { g, opp, mine, theirs, played: mine != null && theirs != null };
+    }).sort((a, b) =>
+      String(a.g.game_date).localeCompare(String(b.g.game_date))
+      || String(a.g.game_time || "").localeCompare(String(b.g.game_time || "")));
+    const played = rows.filter(r => r.played);
+    const upcoming = rows.filter(r => !r.played);
+    const lastDay = played.length ? played[played.length - 1].g.game_date : null;
+    const nextDay = upcoming.length ? upcoming[0].g.game_date : null;
+    return {
+      last: lastDay ? { date: lastDay, rows: played.filter(r => r.g.game_date === lastDay) } : null,
+      next: nextDay ? { date: nextDay, rows: upcoming.filter(r => r.g.game_date === nextDay) } : null,
+    };
+  };
+
   const jerseyOf = (r) => (jerseyDrafts[r.roster_id] !== undefined ? jerseyDrafts[r.roster_id] : (r.jersey_number || ""));
   const onJerseyChange = (id, val) => setJerseyDrafts(d => ({ ...d, [id]: val }));
 
@@ -17242,7 +17222,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           const open = expanded.has(team);
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
-          const leaders = leadersByTeam[team] || [null, null, null, null];
+          const blocks = gameDayBlocks(team, sched);
           // Chunk the roster into rows of `cols` so an opened player's stat
           // panel can render full-width directly below that player's row.
           const rows = [];
@@ -17257,26 +17237,39 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                   <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </div>
 
-                {/* Category leaders. Stays visible when the card is collapsed. */}
-                <div className="grid grid-cols-4 gap-1 mt-3">
-                  {leaders.map((ld, k) => (
-                    <div key={k} className="flex flex-col items-center text-center min-w-0">
-                      {ld ? (
-                        <>
-                          <ThAvatar name={ld.name} size={44} photoUrl={photoFor(ld.name)} />
-                          <span className="mt-1 text-[11px] font-bold text-gray-900 leading-tight truncate w-full">{thShortName(ld.name)}</span>
-                          <span className="text-[11px] text-gray-500 leading-tight tabular-nums">{th1(ld.value)} {ld.label}</span>
-                        </>
-                      ) : (
-                        <>
-                          <div className="rounded-full bg-gray-50" style={{ width: 44, height: 44 }} />
-                          <span className="mt-1 text-[11px] text-gray-300 leading-tight">-</span>
-                          <span className="text-[11px] text-gray-300 leading-tight">{TH_LEADER_CATS[k].label}</span>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                {/* Last game day and next one. Stays visible when collapsed. */}
+                {(blocks.last || blocks.next) && (
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    {[[blocks.last, false, "No games played yet"], [blocks.next, true, "Season complete"]].map(([block, upcoming, empty], bi) => (
+                      <div key={bi} className="min-w-0">
+                        <div className="text-[11px] font-black text-gray-900 mb-1">{block ? longDate2026(block.date) : (upcoming ? "Next" : "Last")}</div>
+                        {block ? (
+                          <div className="flex gap-1">
+                            {block.rows.map((r, k) => {
+                              const win = r.played && r.mine > r.theirs;
+                              const loss = r.played && r.mine < r.theirs;
+                              return (
+                                <div key={k} className="flex-1 min-w-0 rounded-lg bg-gray-50 px-1 py-1 text-center">
+                                  <div className="text-[11px] font-bold text-gray-900 truncate">{r.opp}</div>
+                                  {upcoming ? (
+                                    <div className="text-[11px] text-gray-500 tabular-nums truncate">{fmtTime(r.g.game_time)}</div>
+                                  ) : (
+                                    <div className="text-[11px] tabular-nums truncate">
+                                      <span className={`font-black ${win ? "text-emerald-600" : loss ? "text-red-500" : "text-gray-500"}`}>{win ? "W" : loss ? "L" : "T"}</span>
+                                      <span className="text-gray-600"> {r.mine}-{r.theirs}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-gray-300 leading-tight">{empty}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </button>
 
               {open && (
