@@ -16842,11 +16842,16 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden mb-7">
-      <button
-        onClick={() => setExpanded(v => !v)}
-        className="w-full px-3 py-2.5 border-b border-gray-100 text-left text-[12px] font-black text-gray-900 uppercase tracking-wide hover:bg-gray-50">
-        {expanded ? "Hide tiebreakers" : "Show tiebreakers"}
-      </button>
+      <div className="px-3 py-2.5 border-b border-gray-100">
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-bold ${expanded ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
+          {expanded ? "Hide tiebreakers" : "Show tiebreakers"}
+          <svg className={`w-3 h-3 ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
 
       {expanded && (
         <div className="px-3 py-3 bg-gray-50 border-b border-gray-100 space-y-2">
@@ -16891,22 +16896,22 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         return (
           <div key={row.team}>
             <div className={`flex items-center gap-1.5 px-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""}`}>
-              <span className={`w-4 text-center text-sm font-black tabular-nums ${i === 0 ? "text-gray-900" : "text-gray-300"}`}>{i + 1}</span>
+              <span className="w-4 text-center text-sm font-black text-gray-900 tabular-nums">{i + 1}</span>
               <TeamLogo team={row.team} size={22} />
               <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-1.5">
                 <span className="text-[13px] font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}</span>
-                {status === "clinched" && <span className="text-[11px] font-black text-emerald-600 uppercase tracking-wide leading-tight">Clinched</span>}
+                {status === "clinched" && <span className="shrink-0 px-1.5 rounded bg-emerald-50 text-emerald-700 text-[11px] font-bold leading-tight">Clinched</span>}
                 {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
               </div>
               <span className="w-10 text-right text-[14px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
-              <span className="w-9 text-right text-[12px] text-gray-500 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
+              <span className="w-9 text-right text-[12px] font-semibold text-gray-900 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
               <span className="w-[74px] text-right text-[11px] leading-tight">
                 {shown.length === 0 ? <span className="text-gray-300">-</span> : shown.map((x, k) => (
                   <span key={x.opp} className={kindClass(x.kind)}>{x.opp}{k < shown.length - 1 ? " " : ""}</span>
                 ))}
                 {extra > 0 && <span className="text-gray-400"> +{extra}</span>}
               </span>
-              <span className="w-7 text-right text-[12px] font-semibold text-gray-700 tabular-nums">{row.sow}</span>
+              <span className="w-7 text-right text-[12px] font-semibold text-gray-900 tabular-nums">{row.sow}</span>
               <span className="w-9 text-right text-[11px] font-bold leading-tight">
                 {row.forfeits > 0 && <span className="text-red-500 block">{row.forfeits} FF</span>}
                 {row.spiritual > 0 && <span className="text-amber-600 block">{row.spiritual} SF</span>}
