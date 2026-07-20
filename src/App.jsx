@@ -15994,6 +15994,18 @@ const longDate2026 = (iso) => {
   return (p.length === 3 && m >= 1 && m <= 12) ? `${MONTH_NAMES_2026[m - 1]} ${parseInt(p[2], 10)}` : String(iso || "");
 };
 
+// "16:00:00" as "4 PM". Games are on the hour, so minutes are dropped unless
+// one ever isn't, which keeps it reading as a sentence rather than a table.
+const shortTime2026 = (t) => {
+  const p = String(t || "").split(":");
+  if (p.length < 2) return String(t || "");
+  const h = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  if (Number.isNaN(h)) return String(t || "");
+  const ap = h >= 12 ? "PM" : "AM";
+  const hh = h % 12 || 12;
+  return m ? `${hh}:${p[1]} ${ap}` : `${hh} ${ap}`;
+};
+
 // Display "F. Lastname" from a "LASTNAME Firstname" string.
 function thShortName(name) {
   if (thIsGuest(name)) return "Guest Player";
@@ -16944,7 +16956,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         <button
           onClick={() => setExpanded(v => !v)}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-bold ${expanded ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
-          {expanded ? "Hide tiebreakers" : "Show tiebreakers"}
+          {expanded ? "Hide playoff info" : "Show playoff info"}
           <svg className={`w-3 h-3 ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
@@ -16969,10 +16981,10 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             TB Over lists teams whose season series is already complete and who can still finish level on record. A team with a rematch still to play is left off, since the tiebreaker between them is not settled yet. <span className="font-black text-gray-900">Bold</span> is a sweep, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
           </p>
           <p className="text-[11px] text-gray-500 leading-snug">
-            A <span className="font-black text-emerald-600">green edge</span> on a row means that team has clinched a top 4 spot. An asterisk after the name means the clinch holds on results but not if that team forfeits.
+            A <span className="font-black text-emerald-600">green edge</span> on a row means that team has clinched a top 4 spot.
           </p>
           <p className="text-[11px] text-gray-500 leading-snug">
-            The W and L strip runs oldest first. A grey dot is a game still to play.
+            A grey dot under a team name is a game they still have to play.
           </p>
           <p className="text-[11px] text-gray-500 leading-snug">
             Clinching is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
@@ -17010,17 +17022,11 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
                 <div className="flex flex-wrap items-center gap-x-1.5">
                   <span className="text-[13px] font-bold text-gray-900 leading-tight">
                     {TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}
-                    {look.status === "clinched" && look.clinchRestsOnNoForfeit ? " *" : ""}
                   </span>
                   {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
                 </div>
-                {/* Form, oldest first, then one dot per game still to play.
-                    Every mark is the same width so the strip lines up down the
-                    column; tabular-nums only evens out digits, not letters. */}
+                {/* One dot per game still to play. */}
                 <div className="flex flex-wrap items-center gap-x-0.5 leading-tight">
-                  {(form.played || []).map((f, k) => (
-                    <span key={k} className={`inline-block w-[10px] text-center text-[11px] font-black ${f === "W" ? "text-emerald-600" : f === "L" ? "text-red-500" : "text-gray-400"}`}>{f}</span>
-                  ))}
                   {Array.from({ length: form.remaining || 0 }).map((_, k) => (
                     <span key={`r${k}`} title="Game still to play" className="inline-block w-[10px] text-center text-[11px] font-black text-gray-300">·</span>
                   ))}
@@ -17042,11 +17048,6 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
               </span>
             </div>
 
-            {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
-              <div className="pr-3 pb-1.5 pl-[34px] text-[11px] text-gray-500 leading-tight">
-                *assuming no {row.team} forfeits
-              </div>
-            )}
 
             {expanded && (
               <div className="pr-3 pb-3 pl-[34px] space-y-0.5">
@@ -17222,6 +17223,28 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
     };
   };
 
+  // A team's next scorekeeping duty. Most teams have a specific slot; a team
+  // with no upcoming assignment at all is down as assisting across the game
+  // days it is present for, which is how Pacific currently sits.
+  const scorekeepingNote = (team) => {
+    const isPlayed = (g) => {
+      const md = mdKey(g.game_date);
+      return resultByKey[`${md}|${g.home_team}|${g.away_team}`] != null
+        && resultByKey[`${md}|${g.away_team}|${g.home_team}`] != null;
+    };
+    const upcoming = (schedule || []).filter(g => (!g.game_type || g.game_type === "R") && !isPlayed(g));
+    const mineToScore = upcoming
+      .filter(g => g.scoring_team === team)
+      .sort((a, b) => String(a.game_date).localeCompare(String(b.game_date)) || String(a.game_time || "").localeCompare(String(b.game_time || "")));
+    if (mineToScore.length > 0) {
+      const g = mineToScore[0];
+      return `is scorekeeping at ${shortTime2026(g.game_time)} on ${longDate2026(g.game_date)}`;
+    }
+    const days = [...new Set(upcoming.filter(g => g.home_team === team || g.away_team === team).map(g => g.game_date))].sort();
+    if (days.length === 0) return null;
+    return `is assisting with scorekeeping on ${joinList2026(days.map(longDate2026))}`;
+  };
+
   const jerseyOf = (r) => (jerseyDrafts[r.roster_id] !== undefined ? jerseyDrafts[r.roster_id] : (r.jersey_number || ""));
   const onJerseyChange = (id, val) => setJerseyDrafts(d => ({ ...d, [id]: val }));
 
@@ -17270,7 +17293,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
       <Standings2026Table regularOnly={regularOnly} penalties={penalties} />
 
       <div className="flex items-center justify-between mb-1">
-        <p className="text-xl font-black text-gray-900">Rosters and Season Stats</p>
+        <p className="text-xl font-black text-gray-900">Teams</p>
         {isAdmin && (
           <button
             onClick={() => setHideCareerLinks && setHideCareerLinks(v => !v)}
@@ -17289,6 +17312,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
           const blocks = gameDayBlocks(team, sched);
+          const scoreNote = scorekeepingNote(team);
           // Chunk the roster into rows of `cols` so an opened player's stat
           // panel can render full-width directly below that player's row.
           const rows = [];
@@ -17298,7 +17322,10 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
               <button onClick={() => toggleTeam(team)} className="w-full p-3 text-left active:bg-gray-50">
                 <div className="flex items-center gap-3">
                   <TeamLogo team={team} size={36} />
-                  <span className="flex-1 min-w-0 text-base font-bold text-gray-900">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-base font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
+                    {scoreNote && <span className="block text-[11px] text-gray-500 leading-tight">{scoreNote}</span>}
+                  </span>
                   <span className="text-lg font-black text-gray-900 tabular-nums leading-none">{rec.w}-{rec.l}</span>
                   <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </div>
