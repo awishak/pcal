@@ -17250,7 +17250,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                               const win = r.played && r.mine > r.theirs;
                               const loss = r.played && r.mine < r.theirs;
                               return (
-                                <div key={k} className="flex-1 min-w-0 rounded-lg bg-gray-50 px-1 py-1 text-center">
+                                <div key={k} className={`flex-1 min-w-0 rounded-lg px-1 py-1 text-center ${win ? "bg-emerald-50" : loss ? "bg-red-50" : "bg-gray-50"}`}>
                                   <div className="text-[11px] font-bold text-gray-900 truncate">{r.opp}</div>
                                   {upcoming ? (
                                     <div className="text-[13px] font-black text-gray-700 tabular-nums truncate">{fmtTime(r.g.game_time)}</div>
