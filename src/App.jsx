@@ -16911,25 +16911,23 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
     return () => { alive = false; };
   }, []);
 
-  // Results in date order per team, as "W" / "L" / "T", plus a count of games
-  // still to play. Regular season only, to match the record beside it. The
-  // remaining count comes from unplayed scheduled games rather than a fixed
-  // season length, so a schedule change is picked up for free.
-  const formByTeam = useMemo(() => {
+  // Opponents each team still has to play, in the order they come up. Read
+  // from unplayed scheduled games rather than assuming a fixed season length,
+  // so a schedule change is picked up for free. Regular season only, to match
+  // the record beside it. A team met twice appears twice.
+  const remainingByTeam = useMemo(() => {
     const results = compute2026Results();
     const md = (iso) => { const p = String(iso || "").split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : String(iso || ""); };
     const out = {};
-    for (const t of TEAMS_2026) out[t] = { played: [], remaining: 0 };
+    for (const t of TEAMS_2026) out[t] = [];
     for (const g of (schedRows || [])) {
       if (g.game_type && g.game_type !== "R") continue;
-      for (const team of [g.home_team, g.away_team]) {
-        if (!out[team]) continue;
-        const opp = g.home_team === team ? g.away_team : g.home_team;
-        const mine = results[`${md(g.game_date)}|${team}|${opp}`];
-        const theirs = results[`${md(g.game_date)}|${opp}|${team}`];
-        if (mine == null || theirs == null) { out[team].remaining++; continue; }
-        out[team].played.push(mine > theirs ? "W" : mine < theirs ? "L" : "T");
-      }
+      const md1 = md(g.game_date);
+      const played = results[`${md1}|${g.home_team}|${g.away_team}`] != null
+        && results[`${md1}|${g.away_team}|${g.home_team}`] != null;
+      if (played) continue;
+      if (out[g.home_team]) out[g.home_team].push(g.away_team);
+      if (out[g.away_team]) out[g.away_team].push(g.home_team);
     }
     return out;
   }, [schedRows, GAME_LOG.length]);
@@ -16984,7 +16982,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             A <span className="font-black text-emerald-600">green edge</span> on a row means that team has clinched a top 4 spot.
           </p>
           <p className="text-[11px] text-gray-500 leading-snug">
-            A grey dot under a team name is a game they still have to play.
+            Remaining shows the opponents a team still has to play, in schedule order.
           </p>
           <p className="text-[11px] text-gray-500 leading-snug">
             Clinching is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
@@ -17009,7 +17007,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         const shown = list.slice(0, TB_OVER_CAP_2026);
         const extra = list.length - shown.length;
         const look = outlook[row.team];
-        const form = formByTeam[row.team] || { played: [], remaining: 0 };
+        const remaining = remainingByTeam[row.team] || [];
         return (
           <div key={row.team}>
             {/* Green edge marks a clinched playoff spot. Unclinched rows carry
@@ -17025,12 +17023,15 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
                   </span>
                   {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
                 </div>
-                {/* One dot per game still to play. */}
-                <div className="flex flex-wrap items-center gap-x-0.5 leading-tight">
-                  {Array.from({ length: form.remaining || 0 }).map((_, k) => (
-                    <span key={`r${k}`} title="Game still to play" className="inline-block w-[10px] text-center text-[11px] font-black text-gray-300">·</span>
-                  ))}
-                </div>
+                {/* Opponents still to play, in schedule order. */}
+                {remaining.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 leading-tight mt-0.5">
+                    <span className="text-[11px] text-gray-500">Remaining:</span>
+                    {remaining.map((opp, k) => (
+                      <TeamLogo key={`${opp}${k}`} team={opp} size={15} />
+                    ))}
+                  </div>
+                )}
               </div>
               <span className="w-10 text-right text-[14px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
               <span className="w-9 text-right text-[12px] font-semibold text-gray-900 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
