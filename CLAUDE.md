@@ -40,7 +40,11 @@ Searching App.jsx by broad terms like "registration" is ineffective. Search for 
 
 ## UI conventions
 
-Mobile first, max-w-lg mx-auto, Outfit font, bg-white, pb-20. Bottom nav (stats, schedule, potw, Live), sticky top header. Cards are rounded-2xl border-gray-100. Active state bg-gray-900 text-white, inactive bg-gray-100 text-gray-600. Section labels are text-[10px] text-gray-400 uppercase tracking-widest. NAV_ITEMS uses SVG icon paths plus label. `section` state is the bottom nav, `tab` state is sub-pages. Prefer chips over dropdowns for stat category navigation. Prefer selectable tiles over text inputs for structured choices in forms.
+Mobile first, max-w-lg mx-auto, Outfit font, bg-white, pb-20. Bottom nav (stats, schedule, potw, Live), sticky top header. Cards are rounded-2xl border-gray-100. Active state bg-gray-900 text-white, inactive bg-gray-100 text-gray-600. NAV_ITEMS uses SVG icon paths plus label.
+
+**Titles and headers are always bold and black**, `font-black text-gray-900`, never gray. This applies to section labels, card titles, and table header rows. Andrew does not like gray titles. Gray is for supporting body copy only.
+
+**11px is the minimum text size anywhere.** Do not use text-[8px], text-[9px] or text-[10px]. `section` state is the bottom nav, `tab` state is sub-pages. Prefer chips over dropdowns for stat category navigation. Prefer selectable tiles over text inputs for structured choices in forms.
 
 ## Data model
 

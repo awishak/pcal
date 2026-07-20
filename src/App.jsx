@@ -492,13 +492,6 @@ const TEAM_FULL_NAMES = {
   PLE: "Pleasanton Eagles", PDF: "Pacific Desert Fathers", MOD: "Modesto Lions",
 };
 
-// Mascot alone, for places that already show the city and would otherwise
-// fall back to the three-letter code.
-const TEAM_MASCOTS = {
-  HAY: "Monks", SAC: "Halos", SJO: "Dragon Slayers",
-  PLE: "Eagles", PDF: "Desert Fathers", MOD: "Lions",
-};
-
 // First-name nickname to canonical mapping. Applied when looking up player history
 // so registrations using nicknames find their game-log entry.
 const FIRST_NAME_NICKNAMES = {
@@ -15796,21 +15789,67 @@ function clinchStatus2026(ctx) {
   return out;
 }
 
-// One line of plain English for how a pair sits, from `a`'s point of view.
-// `a` is expected to be the team that currently holds the tiebreaker.
-function tbExplain2026(a, b, ctx) {
-  const kind = pairTiebreak2026(a, b, ctx);
-  const mine = (ctx.h2h[a] && ctx.h2h[a][b]) || 0;
-  const theirs = (ctx.h2h[b] && ctx.h2h[b][a]) || 0;
-  if (kind === "forfeit") return `${a} on fewer forfeits, ${ctx.forfeits[a]} to ${ctx.forfeits[b]}`;
-  if (kind === "sweep") return `${a} swept the series ${mine}-${theirs}, settled`;
-  if (kind === "lead") return `${a} leads head to head ${mine}-${theirs}, rematch still to play`;
-  if (kind === "edge" && ctx.spiritual[a] !== ctx.spiritual[b]) {
-    return `Head to head level ${mine}-${theirs}, ${a} on fewer spiritual fouls, ${ctx.spiritual[a]} to ${ctx.spiritual[b]}`;
+const COUNT_WORDS_2026 = ["zero", "one", "two", "three", "four", "five"];
+const countWord2026 = (n) => COUNT_WORDS_2026[n] || String(n);
+
+function joinList2026(names) {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+}
+
+// The tiebreak picture for one team, grouped into a few sentences rather than
+// one line per opponent. Opponents sitting in the same position get collapsed
+// into a single line, so five near-identical rows become "leads Modesto,
+// Pacific, and San Jose in head to head, one left to play".
+function tbSummaryLines2026(me, ctx, eligible) {
+  const groups = new Map();
+  const push = (key, order, opp, left) => {
+    const k = `${key}|${left}`;
+    if (!groups.has(k)) groups.set(k, { key, order, left, names: [] });
+    groups.get(k).names.push(TEAM_NAMES[opp] || opp);
+  };
+  for (const opp of TEAMS_2026) {
+    if (opp === me) continue;
+    if (!eligible.has(pairKey2026(me, opp))) continue;
+    const left = MEETINGS_2026 - ((ctx.met[me] && ctx.met[me][opp]) || 0);
+    const mine = (ctx.h2h[me] && ctx.h2h[me][opp]) || 0;
+    const theirs = (ctx.h2h[opp] && ctx.h2h[opp][me]) || 0;
+    if (ctx.forfeits[me] !== ctx.forfeits[opp]) {
+      const up = ctx.forfeits[me] < ctx.forfeits[opp];
+      push(up ? "ffUp" : "ffDown", up ? 0 : 5, opp, left);
+    } else if (mine !== theirs) {
+      const up = mine > theirs;
+      if (left === 0) push(up ? "sweep" : "swept", up ? 1 : 6, opp, left);
+      else push(up ? "lead" : "trail", up ? 2 : 7, opp, left);
+    } else if (ctx.spiritual[me] !== ctx.spiritual[opp]) {
+      const up = ctx.spiritual[me] < ctx.spiritual[opp];
+      push(up ? "sfUp" : "sfDown", up ? 3 : 8, opp, left);
+    } else if (ctx.sow[me] !== ctx.sow[opp]) {
+      const up = ctx.sow[me] > ctx.sow[opp];
+      push(up ? "sowUp" : "sowDown", up ? 4 : 9, opp, left);
+    } else {
+      push("trivia", 10, opp, left);
+    }
   }
-  if (kind === "edge") return `Head to head level ${mine}-${theirs}, ${a} on Strength of Wins, ${ctx.sow[a]} to ${ctx.sow[b]}`;
-  if (kind === "trivia") return `Level all the way down, bible trivia settles it`;
-  return null;
+  const tail = (l) => l > 0 ? `, ${countWord2026(l)} left to play` : "";
+  const say = {
+    ffUp: (n) => `ahead of ${n} on forfeits`,
+    sweep: (n) => `swept ${n}`,
+    lead: (n, l) => `leads ${n} in head to head${tail(l)}`,
+    sfUp: (n, l) => `level with ${n} in head to head, ahead on spiritual fouls${tail(l)}`,
+    sowUp: (n, l) => `level with ${n} in head to head, ahead on Strength of Wins${tail(l)}`,
+    ffDown: (n) => `behind ${n} on forfeits`,
+    swept: (n) => `swept by ${n}`,
+    trail: (n, l) => `trails ${n} in head to head${tail(l)}`,
+    sfDown: (n, l) => `level with ${n} in head to head, behind on spiritual fouls${tail(l)}`,
+    sowDown: (n, l) => `level with ${n} in head to head, behind on Strength of Wins${tail(l)}`,
+    trivia: (n) => `level with ${n} all the way down, bible trivia settles it`,
+  };
+  return [...groups.values()]
+    .sort((a, b) => a.order - b.order)
+    .map(g => say[g.key](joinList2026([...g.names].sort()), g.left));
 }
 
 // Points scored per 2026 team-game, keyed "date|team|opp" (date is the game
@@ -16803,7 +16842,37 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden mb-7">
-      <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 border-b border-gray-100 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full px-3 py-2.5 border-b border-gray-100 text-left text-[12px] font-black text-gray-900 uppercase tracking-wide hover:bg-gray-50">
+        {expanded ? "Hide tiebreakers" : "Show tiebreakers"}
+      </button>
+
+      {expanded && (
+        <div className="px-3 py-3 bg-gray-50 border-b border-gray-100 space-y-2">
+          <p className="text-[12px] font-black text-gray-900 uppercase tracking-wide">How ties are broken</p>
+          <ol className="space-y-0.5 text-[12px] text-gray-600 leading-snug">
+            <li>1. Win percentage</li>
+            <li>2. Fewer forfeits</li>
+            <li>3. Head to head, the combined record against the other teams in the tie</li>
+            <li>4. Fewer spiritual fouls</li>
+            <li>5. Strength of Wins, the total wins of every team beaten, counted once per win</li>
+            <li className="flex items-center gap-1">6. Bible trivia <BibleIcon className="text-gray-400" /></li>
+          </ol>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            If a step separates a single team out of a tie of three or more, that team is placed and the remaining teams start the procedure over at step 1.
+          </p>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            TB Over lists teams whose season series is already complete and who can still finish level on record. A team with a rematch still to play is left off, since the tiebreaker between them is not settled yet. <span className="font-black text-gray-900">Bold</span> is a sweep, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
+          </p>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            Clinched is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
+          </p>
+          <p className="text-[11px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
+        </div>
+      )}
+
+      <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 border-b border-gray-100 text-[11px] font-black text-gray-900 uppercase tracking-wider">
         <span className="w-4 text-center">#</span>
         <span className="w-[22px]" />
         <span className="flex-1 min-w-0">Team</span>
@@ -16849,23 +16918,13 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
               <div className="px-3 pb-3 pl-[38px] space-y-0.5">
                 {status === "clinched" && <p className="text-[11px] font-bold text-emerald-600">Cannot finish 5th or 6th on any combination of remaining results</p>}
                 {(() => {
-                  const lines = [];
-                  for (const opp of TEAMS_2026) {
-                    if (opp === row.team) continue;
-                    if (!eligible.has(pairKey2026(row.team, opp))) continue;
-                    const holder = pairTiebreak2026(row.team, opp, ctx) ? row.team : opp;
-                    const other = holder === row.team ? opp : row.team;
-                    lines.push(
-                      <p key={opp} className="text-[11px] text-gray-500 leading-snug">
-                        <span className="font-semibold text-gray-700">vs {TEAM_MASCOTS[opp] || opp}</span>
-                        {"  "}{tbExplain2026(holder, other, ctx)}
-                      </p>
-                    );
-                  }
+                  const lines = tbSummaryLines2026(row.team, ctx, eligible);
                   if (lines.length === 0) {
-                    return <p className="text-[11px] text-gray-400 leading-snug">No team can still finish level with {TEAM_MASCOTS[row.team] || row.team}</p>;
+                    return <p className="text-[11px] text-gray-400 leading-snug">No team can still finish level with {TEAM_NAMES[row.team] || row.team}</p>;
                   }
-                  return lines;
+                  return lines.map((text, k) => (
+                    <p key={k} className="text-[11px] text-gray-600 leading-snug">{text}</p>
+                  ));
                 })()}
               </div>
             )}
@@ -16873,7 +16932,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             {i === PLAYOFF_SPOTS_2026 - 1 && (
               <div className="flex items-center gap-2 px-3 py-1">
                 <span className="h-px flex-1 bg-gray-900/20" />
-                <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Playoff cut</span>
+                <span className="text-[11px] font-black text-gray-900 uppercase tracking-widest">Playoff cut</span>
                 <span className="h-px flex-1 bg-gray-900/20" />
               </div>
             )}
@@ -16882,35 +16941,6 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         );
       })}
 
-      <button
-        onClick={() => setExpanded(v => !v)}
-        className="w-full px-3 py-2 border-t border-gray-100 text-[11px] font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50">
-        {expanded ? "Hide tiebreakers" : "Show tiebreakers"}
-      </button>
-
-      {expanded && (
-        <div className="px-3 py-3 bg-gray-50 border-t border-gray-100 space-y-2">
-          <p className="text-[11px] text-gray-400 uppercase tracking-widest">How ties are broken</p>
-          <ol className="space-y-0.5 text-[12px] text-gray-600 leading-snug">
-            <li>1. Win percentage</li>
-            <li>2. Fewer forfeits</li>
-            <li>3. Head to head, the combined record against the other teams in the tie</li>
-            <li>4. Fewer spiritual fouls</li>
-            <li>5. Strength of Wins, the total wins of every team beaten, counted once per win</li>
-            <li className="flex items-center gap-1">6. Bible trivia <BibleIcon className="text-gray-400" /></li>
-          </ol>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            If a step separates a single team out of a tie of three or more, that team is placed and the remaining teams start the procedure over at step 1.
-          </p>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            TB Over lists teams whose season series is already complete and who can still finish level on record. A team with a rematch still to play is left off, since the tiebreaker between them is not settled yet. <span className="font-black text-gray-900">Bold</span> is a sweep, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
-          </p>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            Clinched is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
-          </p>
-          <p className="text-[11px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
-        </div>
-      )}
     </div>
   );
 }
