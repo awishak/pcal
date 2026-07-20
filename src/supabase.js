@@ -902,6 +902,23 @@ export async function adminDeleteGameLogForGame({ year, week, date, homeTeam, aw
 }
 
 // ============================================================================
+// TEAM PENALTIES (forfeits, spiritual fouls)
+// ============================================================================
+// Both tables are public-read; writes gate server-side on
+// has_admin_or_commish(). The counts feed steps 2 and 4 of the 2026 standings
+// tiebreaker ladder, so a fetch failure returns empty arrays rather than
+// throwing, and the ladder just falls through those two steps.
+export async function fetchTeamPenalties(year = 2026) {
+  const [f, s] = await Promise.all([
+    supabase.from("team_forfeits").select("*").eq("year", year),
+    supabase.from("team_spiritual_fouls").select("*").eq("year", year),
+  ]);
+  if (f.error) console.error("fetchTeamPenalties forfeits error:", f.error);
+  if (s.error) console.error("fetchTeamPenalties spiritual error:", s.error);
+  return { forfeits: f.data || [], spiritual: s.data || [] };
+}
+
+// ============================================================================
 // SCHEDULE (admin edit, auth-backed)
 // ============================================================================
 // Update editable fields on a single schedule game. Gated server-side by

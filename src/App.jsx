@@ -14,6 +14,7 @@ import {
   loadGameLog, bumpGameLogCache,
   requestLoginCode, verifyLoginCode, signOutUser, getCurrentSession,
   onAuthStateChange, loadCurrentUserRoles, verifyCommissionerPassword,
+  fetchTeamPenalties,
 } from "./supabase.js";
 import LiveSection from "./LiveSection.jsx";
 import { PLAYER_MERGE } from "./playerNames.js";
@@ -4881,6 +4882,16 @@ function RulesView() {
             { num: "1.31", text: "Each team shall face each other team in the league one to three times in the regular season. In the case of 5 teams, the regular season will be 8 or 10 games per team, with each team facing each other team 2 or 3 times. In the case of 6 teams, the regular season will be 10 games, with each team facing each other team 2 times. In the case of 7 teams, the regular season will be 10 games, with each team facing each other team 1 or 2 times." },
             { num: "1.32", text: "Playoffs will match the 1st seed vs the 4th seed and the 2nd seed vs the 3rd seed, with the winners of each game to face off in the final. The 1st seed chooses if their semifinal is played first or second." },
             { num: "1.33", text: "Efforts will be made to have each team host one week of games, subject to gym availability and travel possibilities." },
+            { num: "1.34", text: "Seeding and tiebreakers. Teams are seeded by win percentage. Teams tied on win percentage are separated by the following procedure, applied in order:", lines: [
+              "1. Fewer forfeits.",
+              "2. Head to head, meaning the combined record against the other teams in the tie.",
+              "3. Fewer spiritual fouls.",
+              "4. Strength of Wins, meaning the sum of the current win totals of every team a tied team has beaten. Each win counts separately, so beating the same opponent twice counts that opponent's win total twice. Strength of Wins uses current win totals, not the totals those teams held on the day they were beaten.",
+              "5. Bible trivia.",
+            ] },
+            { num: "1.35", text: "Restarting the tiebreaker procedure. If a step separates a single team out of a tie of three or more teams, that team is placed and the remaining tied teams start the procedure over from win percentage rather than continuing to the next step." },
+            { num: "1.36", text: "A forfeit is recorded as a loss in the standings in addition to counting against a team at the forfeit step of the tiebreaker procedure. This is intentional. A forfeited game is recorded as a 1-0 result." },
+            { num: "1.37", text: "All tiebreakers are subject to change." },
           ],
         },
       ],
@@ -14409,40 +14420,12 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
         </div>
       )}
 
-      {schedMode === "standings" && (() => {
-        const COLORS_2026 = {
-          SAC: { bg: "#7c3aed", text: "#ffffff" },
-          PDF: { bg: "#0d9488", text: "#ffffff" },
-          MOD: { bg: "#dc2626", text: "#ffffff" },
-          SJO: { bg: "#7f1d1d", text: "#ffffff" },
-          HAY: { bg: "#2563eb", text: "#ffffff" },
-          PLE: { bg: "#facc15", text: "#000000" },
-        };
-        const TEAMS_2026 = ["SAC", "PDF", "MOD", "SJO", "HAY", "PLE"];
-        return (
-          <div>
-            <p className="text-lg font-black text-gray-900 mb-4">2026 Standings</p>
-            <div className="space-y-2">
-              {TEAMS_2026.map((team, i) => {
-                const c = COLORS_2026[team];
-                return (
-                  <div key={team} className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-4">
-                    <span className="w-6 text-center text-lg font-black text-gray-400">{i + 1}</span>
-                    <TeamLogo team={team} size={48} />
-                    <div className="flex-1">
-                      <div className="text-base font-bold text-gray-900">{TEAM_NAMES[team] || team}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-black text-gray-900">0-0</div>
-                      <div className="text-xs text-gray-400">.000</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
+      {schedMode === "standings" && (
+        <div>
+          <p className="text-lg font-black text-gray-900 mb-4">2026 Standings</p>
+          <Standings2026Table />
+        </div>
+      )}
 
       {schedMode === "matchup" && (
         <div className="mb-4">
@@ -15455,6 +15438,31 @@ function ScheduleView() {
 // [7]pts [8]reb [9]stl [10]ast [11]blk [12]fgm [13]fga [14]ftm [15]fta
 // [16]tpm [17]tpa [19]gmsc [20]year.
 
+// ---------------------------------------------------------------------------
+// 2026 STANDINGS AND TIEBREAKERS
+//
+// Ladder, in order:
+//   1  Win percentage
+//   2  Fewer forfeits
+//   3  Head to head (combined record against the other teams in the tie)
+//   4  Fewer spiritual fouls
+//   5  Strength of Wins (add up the current win totals of every team beaten,
+//      counted once per win, so sweeping an opponent counts them twice)
+//   6  Bible trivia, settled in person and never resolved in code
+//
+// Restart rule: when a step splits a tie of three or more into smaller groups,
+// each group goes back to step 1 rather than continuing down the ladder.
+//
+// A forfeit is also a loss in the record, so it costs a team twice. That is
+// deliberate. Forfeits are meant to be avoided entirely.
+//
+// All tiebreakers are subject to change.
+// ---------------------------------------------------------------------------
+
+// Regular season meetings between any two 2026 teams (double round robin).
+// Lets a locked sweep be told apart from a lead with a rematch still to play.
+const MEETINGS_2026 = 2;
+
 // Build 2026 team game results. A team-game is keyed on date + team +
 // opp so doubleheaders don't merge. Regular season only (game_type R).
 function compute2026Standings(regularOnly = true) {
@@ -15468,8 +15476,11 @@ function compute2026Standings(regularOnly = true) {
     const key = date + "|" + team + "|" + opp;
     teamGame[key] = (teamGame[key] || 0) + (r[7] || 0);
   }
-  const records = {}, h2h = {}, beaten = {};
-  for (const t of TEAMS_2026) { records[t] = { w: 0, l: 0, pf: 0, pa: 0 }; h2h[t] = {}; beaten[t] = new Set(); }
+  const records = {}, h2h = {}, met = {}, beatList = {};
+  for (const t of TEAMS_2026) {
+    records[t] = { w: 0, l: 0, pf: 0, pa: 0 };
+    h2h[t] = {}; met[t] = {}; beatList[t] = [];
+  }
   const seen = new Set();
   for (const key of Object.keys(teamGame)) {
     const [date, team, opp] = key.split("|");
@@ -15483,33 +15494,304 @@ function compute2026Standings(regularOnly = true) {
     // Point totals count every completed game, ties included.
     records[team].pf += pf; records[team].pa += pa;
     records[opp].pf += pa; records[opp].pa += pf;
+    // A completed meeting counts toward the pair total even if it was a tie,
+    // since what matters here is whether a rematch is still pending.
+    met[team][opp] = (met[team][opp] || 0) + 1;
+    met[opp][team] = (met[opp][team] || 0) + 1;
     if (pf === pa) continue;
     const winner = pf > pa ? team : opp;
     const loser = pf > pa ? opp : team;
     records[winner].w++; records[loser].l++;
     h2h[winner][loser] = (h2h[winner][loser] || 0) + 1;
-    beaten[winner].add(loser);
+    // Every win is pushed, so a sweep lists that opponent twice. Strength of
+    // Wins reads this list, not a distinct set.
+    beatList[winner].push(loser);
   }
-  return { records, h2h, beaten };
+  return { records, h2h, met, beatList };
 }
 
-function sortStandings(regularOnly = true) {
-  const { records, h2h, beaten } = compute2026Standings(regularOnly);
-  const wins = (t) => records[t].w;
-  // Strength of wins: sum of season win totals of distinct teams beaten.
-  const strength = {};
-  for (const t of TEAMS_2026) { let s = 0; beaten[t].forEach(o => { s += wins(o); }); strength[t] = s; }
-  const pct = (t) => { const { w, l } = records[t]; return (w + l) === 0 ? 0 : w / (w + l); };
-  const order = [...TEAMS_2026].sort((a, b) => {
-    if (pct(b) !== pct(a)) return pct(b) - pct(a);                 // 1 win pct
-    if (wins(b) !== wins(a)) return wins(b) - wins(a);             // 2 total wins
-    const hA = (h2h[a] && h2h[a][b]) || 0;                         // 3 head-to-head (pairwise)
-    const hB = (h2h[b] && h2h[b][a]) || 0;
-    if (hB !== hA) return hB - hA;
-    if (strength[b] !== strength[a]) return strength[b] - strength[a]; // 4 strength of wins
-    return a.localeCompare(b);
-  });
-  return order.map(t => ({ team: t, w: records[t].w, l: records[t].l, pct: pct(t), pf: records[t].pf, pa: records[t].pa, diff: records[t].pf - records[t].pa }));
+// Penalty rows arrive from Supabase as { year, team, ... }. The standings only
+// need a per-team count for the season being shown.
+function countPenalties2026(rows, year = 2026) {
+  const out = {};
+  for (const t of TEAMS_2026) out[t] = 0;
+  for (const r of (rows || [])) {
+    if (r.year !== year) continue;
+    if (!(r.team in out)) continue;
+    out[r.team]++;
+  }
+  return out;
+}
+
+// Everything the ladder reads, computed once per render.
+function build2026Context(penalties = {}, regularOnly = true) {
+  const { records, h2h, met, beatList } = compute2026Standings(regularOnly);
+  const forfeits = countPenalties2026(penalties.forfeits);
+  const spiritual = countPenalties2026(penalties.spiritual);
+  // Strength of Wins reads current win totals, not the totals those teams
+  // carried on the day they were beaten, so it moves every week.
+  const sow = {}, pct = {};
+  for (const t of TEAMS_2026) {
+    sow[t] = beatList[t].reduce((s, o) => s + (records[o] ? records[o].w : 0), 0);
+    const { w, l } = records[t];
+    pct[t] = (w + l) === 0 ? 0 : w / (w + l);
+  }
+  return { records, h2h, met, beatList, forfeits, spiritual, sow, pct };
+}
+
+// Combined record against the other teams in the tie, as a win percentage so
+// an uneven number of meetings inside the group doesn't skew it. A team with
+// no completed games against the group scores 0.
+function h2hScore2026(team, group, ctx) {
+  let w = 0, n = 0;
+  for (const o of group) {
+    if (o === team) continue;
+    const mine = (ctx.h2h[team] && ctx.h2h[team][o]) || 0;
+    const theirs = (ctx.h2h[o] && ctx.h2h[o][team]) || 0;
+    w += mine; n += mine + theirs;
+  }
+  return n === 0 ? 0 : w / n;
+}
+
+// Steps 1 through 5. Each scores one team within the group being resolved;
+// higher always wins. Step 6 (bible trivia) has no score and is handled by
+// the resolver falling off the end of this list.
+const TIEBREAK_STEPS_2026 = [
+  { key: "pct", label: "Win percentage", score: (t, g, c) => c.pct[t] },
+  { key: "forfeits", label: "Fewer forfeits", score: (t, g, c) => -c.forfeits[t] },
+  { key: "h2h", label: "Head to head", score: (t, g, c) => h2hScore2026(t, g, c) },
+  { key: "spiritual", label: "Fewer spiritual fouls", score: (t, g, c) => -c.spiritual[t] },
+  { key: "sow", label: "Strength of Wins", score: (t, g, c) => c.sow[t] },
+];
+
+// Resolve one group into a final order. Walks the ladder from `from`; the
+// first step that splits the group hands each resulting subgroup back to the
+// top of the ladder. Terminates because every split yields strictly smaller
+// groups. Returns { team, trivia, via } per team, where `via` is the step that
+// placed it and `trivia` marks a tie the ladder could not settle.
+function resolveGroup2026(group, ctx, from = 0, via = null) {
+  if (group.length <= 1) return group.map(t => ({ team: t, trivia: false, triviaKey: null, via }));
+  for (let i = from; i < TIEBREAK_STEPS_2026.length; i++) {
+    const step = TIEBREAK_STEPS_2026[i];
+    const scored = group.map(t => ({ t, s: step.score(t, group, ctx) }));
+    const buckets = [...new Set(scored.map(x => x.s))].sort((a, b) => b - a);
+    if (buckets.length === 1) continue;   // this step separated nobody
+    const out = [];
+    for (const b of buckets) {
+      const sub = scored.filter(x => x.s === b).map(x => x.t);
+      // Restart rule: subgroups resume at step 1, not at step i + 1.
+      out.push(...resolveGroup2026(sub, ctx, 0, step.key));
+    }
+    return out;
+  }
+  // Ladder exhausted. Bible trivia settles it in person, so hold the order
+  // alphabetically and flag it rather than pretending it is decided. triviaKey
+  // identifies the group, so two unrelated trivia ties sitting next to each
+  // other are never mistaken for one.
+  const key = [...group].sort().join("-");
+  return [...group].sort((a, b) => a.localeCompare(b)).map(t => ({ team: t, trivia: true, triviaKey: key, via }));
+}
+
+function sortStandings(regularOnly = true, penalties = {}) {
+  const ctx = build2026Context(penalties, regularOnly);
+  return standingsFromContext2026(ctx);
+}
+
+function standingsFromContext2026(ctx) {
+  return resolveGroup2026([...TEAMS_2026], ctx, 0).map(({ team, trivia, via }) => ({
+    team,
+    w: ctx.records[team].w,
+    l: ctx.records[team].l,
+    pct: ctx.pct[team],
+    pf: ctx.records[team].pf,
+    pa: ctx.records[team].pa,
+    diff: ctx.records[team].pf - ctx.records[team].pa,
+    sow: ctx.sow[team],
+    forfeits: ctx.forfeits[team],
+    spiritual: ctx.spiritual[team],
+    trivia,
+    via,
+  }));
+}
+
+// The kind of edge `a` holds over `b`, or null if `a` does not hold it. Win
+// percentage is skipped on purpose: this answers "if these two were tied."
+//   forfeit  a has fewer forfeits, settled at step 2
+//   sweep    a won both meetings, nothing left to change it
+//   lead     a leads head to head with a rematch still to play
+//   edge     level head to head, decided on spiritual fouls or Strength of Wins
+//   trivia   level all the way down, bible trivia settles it
+function pairTiebreak2026(a, b, ctx) {
+  if (ctx.forfeits[a] !== ctx.forfeits[b]) {
+    return ctx.forfeits[a] < ctx.forfeits[b] ? "forfeit" : null;
+  }
+  const mine = (ctx.h2h[a] && ctx.h2h[a][b]) || 0;
+  const theirs = (ctx.h2h[b] && ctx.h2h[b][a]) || 0;
+  if (mine !== theirs) {
+    if (mine < theirs) return null;
+    const played = (ctx.met[a] && ctx.met[a][b]) || 0;
+    return played >= MEETINGS_2026 ? "sweep" : "lead";
+  }
+  // Level head to head: either a genuine split, or they have not met yet.
+  if (ctx.spiritual[a] !== ctx.spiritual[b]) {
+    return ctx.spiritual[a] < ctx.spiritual[b] ? "edge" : null;
+  }
+  if (ctx.sow[a] !== ctx.sow[b]) {
+    return ctx.sow[a] > ctx.sow[b] ? "edge" : null;
+  }
+  return "trivia";
+}
+
+// Who each team holds the tiebreaker over, for the TB Over column. Settled
+// results sort ahead of leads, which sort ahead of edges.
+const TB_KIND_RANK_2026 = { forfeit: 0, sweep: 1, lead: 2, edge: 3, trivia: 4 };
+
+const pairKey2026 = (a, b) => [a, b].sort().join("-");
+
+// Games still to be played, as unordered pairs, derived from the double round
+// robin rather than from SCHEDULE_2026 so no date-format matching is needed.
+function remainingPairs2026(ctx) {
+  const out = [];
+  for (let i = 0; i < TEAMS_2026.length; i++) {
+    for (let j = i + 1; j < TEAMS_2026.length; j++) {
+      const a = TEAMS_2026[i], b = TEAMS_2026[j];
+      const left = MEETINGS_2026 - ((ctx.met[a] && ctx.met[a][b]) || 0);
+      for (let k = 0; k < left; k++) out.push([a, b]);
+    }
+  }
+  return out;
+}
+
+// Which pairs can still finish level on wins. Every team plays the same number
+// of games, so a tied record means a tied win total. Tested by checking whether
+// the two reachable win windows can overlap, allowing for the games the pair
+// still plays against each other (each of those shifts the two windows in
+// opposite directions). Enumerating instead would be 2^30 in week 1.
+function tieEligiblePairs2026(ctx) {
+  const rem = remainingPairs2026(ctx);
+  const left = {}, shared = {};
+  for (const t of TEAMS_2026) left[t] = 0;
+  for (const [a, b] of rem) {
+    left[a]++; left[b]++;
+    const k = pairKey2026(a, b);
+    shared[k] = (shared[k] || 0) + 1;
+  }
+  const out = new Set();
+  for (let i = 0; i < TEAMS_2026.length; i++) {
+    for (let j = i + 1; j < TEAMS_2026.length; j++) {
+      const a = TEAMS_2026[i], b = TEAMS_2026[j];
+      const g = shared[pairKey2026(a, b)] || 0;
+      const oa = left[a] - g, ob = left[b] - g;
+      const wa = ctx.records[a].w, wb = ctx.records[b].w;
+      for (let k = 0; k <= g; k++) {
+        const aLo = wa + k, aHi = wa + k + oa;
+        const bLo = wb + (g - k), bHi = wb + (g - k) + ob;
+        if (Math.max(aLo, bLo) <= Math.min(aHi, bHi)) { out.add(pairKey2026(a, b)); break; }
+      }
+    }
+  }
+  return out;
+}
+
+// Who each team holds the tiebreaker over, for the TB Over column. Pairs that
+// can no longer finish level are dropped, since a tiebreaker between them
+// would never be consulted. Settled results sort ahead of leads, then edges.
+function tiebreakOver2026(ctx, eligible = null) {
+  const out = {};
+  for (const a of TEAMS_2026) {
+    const list = [];
+    for (const b of TEAMS_2026) {
+      if (a === b) continue;
+      if (eligible && !eligible.has(pairKey2026(a, b))) continue;
+      const kind = pairTiebreak2026(a, b, ctx);
+      if (kind) list.push({ opp: b, kind });
+    }
+    list.sort((x, y) => (TB_KIND_RANK_2026[x.kind] - TB_KIND_RANK_2026[y.kind]) || x.opp.localeCompare(y.opp));
+    out[a] = list;
+  }
+  return out;
+}
+
+// A copy of the context with hypothetical results applied. Used by the clinch
+// scan, which replays every combination of the games still to be played.
+function withResults2026(ctx, results) {
+  const records = {}, h2h = {}, met = {}, beatList = {};
+  for (const t of TEAMS_2026) {
+    records[t] = { ...ctx.records[t] };
+    h2h[t] = { ...ctx.h2h[t] };
+    met[t] = { ...ctx.met[t] };
+    beatList[t] = ctx.beatList[t].slice();
+  }
+  for (const [w, l] of results) {
+    records[w].w++; records[l].l++;
+    h2h[w][l] = (h2h[w][l] || 0) + 1;
+    met[w][l] = (met[w][l] || 0) + 1;
+    met[l][w] = (met[l][w] || 0) + 1;
+    beatList[w].push(l);
+  }
+  const sow = {}, pct = {};
+  for (const t of TEAMS_2026) {
+    sow[t] = beatList[t].reduce((s, o) => s + records[o].w, 0);
+    const { w, l } = records[t];
+    pct[t] = (w + l) === 0 ? 0 : w / (w + l);
+  }
+  return { ...ctx, records, h2h, met, beatList, sow, pct };
+}
+
+const PLAYOFF_SPOTS_2026 = 4;
+// Clinching depends on tiebreakers, so it has to be enumerated rather than
+// reasoned about with win windows. 2^12 keeps the scan well under a frame's
+// worth of work; above that no badge is shown, which only affects the early
+// weeks when nobody has clinched anything anyway.
+const CLINCH_MAX_SCENARIOS_2026 = 4096;
+
+// "clinched" means the team cannot finish outside the top 4 under any
+// combination of remaining results. "eliminated" means it cannot finish
+// inside it. A team holding a top-4 spot only through an unresolved bible
+// trivia tie is not clinched, since it could lose the trivia, so trivia
+// counts against the team for both badges.
+function clinchStatus2026(ctx) {
+  const out = {};
+  for (const t of TEAMS_2026) out[t] = null;
+  const rem = remainingPairs2026(ctx);
+  const total = 1 << rem.length;
+  if (rem.length > 30 || total > CLINCH_MAX_SCENARIOS_2026) return out;
+  const canMiss = {}, canMake = {};
+  for (const t of TEAMS_2026) { canMiss[t] = false; canMake[t] = false; }
+  for (let mask = 0; mask < total; mask++) {
+    const results = rem.map(([a, b], i) => (mask & (1 << i)) ? [a, b] : [b, a]);
+    const order = resolveGroup2026([...TEAMS_2026], withResults2026(ctx, results), 0);
+    order.forEach((row, i) => {
+      let worst = i, best = i;
+      if (row.trivia) {
+        for (let j = i + 1; j < order.length && order[j].triviaKey === row.triviaKey; j++) worst = j;
+        for (let j = i - 1; j >= 0 && order[j].triviaKey === row.triviaKey; j--) best = j;
+      }
+      if (worst >= PLAYOFF_SPOTS_2026) canMiss[row.team] = true;
+      if (best < PLAYOFF_SPOTS_2026) canMake[row.team] = true;
+    });
+  }
+  for (const t of TEAMS_2026) {
+    out[t] = !canMiss[t] ? "clinched" : !canMake[t] ? "eliminated" : null;
+  }
+  return out;
+}
+
+// One line of plain English for how a pair sits, from `a`'s point of view.
+// `a` is expected to be the team that currently holds the tiebreaker.
+function tbExplain2026(a, b, ctx) {
+  const kind = pairTiebreak2026(a, b, ctx);
+  const mine = (ctx.h2h[a] && ctx.h2h[a][b]) || 0;
+  const theirs = (ctx.h2h[b] && ctx.h2h[b][a]) || 0;
+  if (kind === "forfeit") return `${a} on fewer forfeits, ${ctx.forfeits[a]} to ${ctx.forfeits[b]}`;
+  if (kind === "sweep") return `${a} swept the series ${mine}-${theirs}, settled`;
+  if (kind === "lead") return `${a} leads head to head ${mine}-${theirs}, rematch still to play`;
+  if (kind === "edge" && ctx.spiritual[a] !== ctx.spiritual[b]) {
+    return `Head to head level ${mine}-${theirs}, ${a} on fewer spiritual fouls, ${ctx.spiritual[a]} to ${ctx.spiritual[b]}`;
+  }
+  if (kind === "edge") return `Head to head level ${mine}-${theirs}, ${a} on Strength of Wins, ${ctx.sow[a]} to ${ctx.sow[b]}`;
+  if (kind === "trivia") return `Level all the way down, bible trivia settles it`;
+  return null;
 }
 
 // Points scored per 2026 team-game, keyed "date|team|opp" (date is the game
@@ -16455,8 +16737,181 @@ function thBuildNameMap(names) {
   return out;
 }
 
+const EMPTY_PENALTIES_2026 = { forfeits: [], spiritual: [] };
+
+// TB Over is capped so a wide tie doesn't push the row off a phone screen.
+// The overflow count keeps it honest rather than silently truncating.
+const TB_OVER_CAP_2026 = 3;
+
+// Bible trivia marker. No emoji anywhere in this app, so this is an inline SVG.
+const BibleIcon = ({ size = 11, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    <path d="M12 6.5v6" /><path d="M9.5 9h5" />
+  </svg>
+);
+
+// The 2026 standings table. Shared by the Teams hub and the Schedule tab's
+// Standings mode, so both show the same numbers. Renders the tiebreaker state
+// rather than just the record: who holds the tiebreaker over whom, and once
+// expanded, why.
+function Standings2026Table({ regularOnly = true, penalties = null }) {
+  const [ownPen, setOwnPen] = useState(null);
+  useEffect(() => {
+    if (penalties) return undefined;
+    let alive = true;
+    (async () => { const p = await fetchTeamPenalties(2026); if (alive) setOwnPen(p); })();
+    return () => { alive = false; };
+  }, [penalties]);
+  const pen = penalties || ownPen || EMPTY_PENALTIES_2026;
+
+  const ctx = useMemo(() => build2026Context(pen, regularOnly), [pen, regularOnly]);
+  const standings = useMemo(() => standingsFromContext2026(ctx), [ctx]);
+  const eligible = useMemo(() => tieEligiblePairs2026(ctx), [ctx]);
+  const tbOver = useMemo(() => tiebreakOver2026(ctx, eligible), [ctx, eligible]);
+  const clinch = useMemo(() => clinchStatus2026(ctx), [ctx]);
+  const [expanded, setExpanded] = useState(false);
+
+  // How settled the edge is drives the styling: bold for a result nothing can
+  // change, plain for a lead with a rematch pending, italic for an edge that
+  // rests on spiritual fouls or Strength of Wins.
+  const kindClass = (kind) =>
+    (kind === "forfeit" || kind === "sweep") ? "font-black text-gray-900"
+      : kind === "edge" ? "italic text-gray-500"
+        : kind === "trivia" ? "text-gray-400"
+          : "text-gray-600";
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden mb-7">
+      <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 border-b border-gray-100 text-[9px] font-semibold text-gray-400 uppercase tracking-wider">
+        <span className="w-4 text-center">#</span>
+        <span className="w-[22px]" />
+        <span className="flex-1 min-w-0">Team</span>
+        <span className="w-10 text-right">W-L</span>
+        <span className="w-9 text-right">Pct</span>
+        <span className="w-7 text-right">SoW</span>
+        <span className="w-[74px] text-right">TB Over</span>
+        <span className="w-9 text-right">Misc</span>
+      </div>
+
+      {standings.map((row, i) => {
+        const list = tbOver[row.team] || [];
+        const shown = list.slice(0, TB_OVER_CAP_2026);
+        const extra = list.length - shown.length;
+        const status = clinch[row.team];
+        const dim = status === "eliminated";
+        return (
+          <div key={row.team}>
+            <div className={`flex items-center gap-1.5 px-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""} ${dim ? "opacity-60" : ""}`}>
+              <span className={`w-4 text-center text-sm font-black tabular-nums ${i === 0 ? "text-gray-900" : "text-gray-300"}`}>{i + 1}</span>
+              <TeamLogo team={row.team} size={22} />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-bold text-gray-900 truncate leading-tight">{TEAM_NAMES[row.team] || row.team}</div>
+                <div className="flex items-center gap-1 leading-tight">
+                  <span className="text-[10px] text-gray-400 uppercase tracking-wider">{row.team}</span>
+                  {status === "clinched" && <span className="text-[8px] font-black text-emerald-600 uppercase tracking-wider">Clinched</span>}
+                  {status === "eliminated" && <span className="text-[8px] font-black text-gray-400 uppercase tracking-wider">Out</span>}
+                  {row.trivia && <BibleIcon className="text-gray-400" />}
+                </div>
+              </div>
+              <span className="w-10 text-right text-[13px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
+              <span className="w-9 text-right text-[11px] text-gray-500 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
+              <span className="w-7 text-right text-[11px] font-semibold text-gray-700 tabular-nums">{row.sow}</span>
+              <span className="w-[74px] text-right text-[10px] leading-tight">
+                {shown.length === 0 ? <span className="text-gray-300">-</span> : shown.map((x, k) => (
+                  <span key={x.opp} className={kindClass(x.kind)}>{x.opp}{k < shown.length - 1 ? " " : ""}</span>
+                ))}
+                {extra > 0 && <span className="text-gray-400"> +{extra}</span>}
+              </span>
+              <span className="w-9 text-right text-[9px] font-bold leading-tight">
+                {row.forfeits > 0 && <span className="text-red-500 block">{row.forfeits} FF</span>}
+                {row.spiritual > 0 && <span className="text-amber-600 block">{row.spiritual} SF</span>}
+                {row.forfeits === 0 && row.spiritual === 0 && <span className="text-gray-300">-</span>}
+              </span>
+            </div>
+
+            {expanded && (
+              <div className="px-3 pb-3 pl-[38px] space-y-0.5">
+                {status === "clinched" && <p className="text-[10px] font-bold text-emerald-600">Clinched a playoff spot, cannot finish 5th or 6th</p>}
+                {status === "eliminated" && <p className="text-[10px] font-bold text-gray-400">Eliminated, cannot reach the top 4</p>}
+                {(() => {
+                  const lines = [];
+                  for (const opp of TEAMS_2026) {
+                    if (opp === row.team) continue;
+                    if (!eligible.has(pairKey2026(row.team, opp))) continue;
+                    const holder = pairTiebreak2026(row.team, opp, ctx) ? row.team : opp;
+                    const other = holder === row.team ? opp : row.team;
+                    lines.push(
+                      <p key={opp} className="text-[10px] text-gray-500 leading-snug">
+                        <span className="font-semibold text-gray-700">vs {opp}</span>
+                        {"  "}{tbExplain2026(holder, other, ctx)}
+                      </p>
+                    );
+                  }
+                  if (lines.length === 0) {
+                    return <p className="text-[10px] text-gray-400 leading-snug">No team can still finish level with {row.team}</p>;
+                  }
+                  return lines;
+                })()}
+              </div>
+            )}
+
+            {i === PLAYOFF_SPOTS_2026 - 1 && (
+              <div className="flex items-center gap-2 px-3 py-1">
+                <span className="h-px flex-1 bg-gray-900/20" />
+                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Playoff cut</span>
+                <span className="h-px flex-1 bg-gray-900/20" />
+              </div>
+            )}
+            {i !== PLAYOFF_SPOTS_2026 - 1 && i < standings.length - 1 && <div className="border-b border-gray-50" />}
+          </div>
+        );
+      })}
+
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full px-3 py-2 border-t border-gray-100 text-[10px] font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50">
+        {expanded ? "Hide tiebreakers" : "Show tiebreakers"}
+      </button>
+
+      {expanded && (
+        <div className="px-3 py-3 bg-gray-50 border-t border-gray-100 space-y-2">
+          <p className="text-[10px] text-gray-400 uppercase tracking-widest">How ties are broken</p>
+          <ol className="space-y-0.5 text-[11px] text-gray-600 leading-snug">
+            <li>1. Win percentage</li>
+            <li>2. Fewer forfeits</li>
+            <li>3. Head to head, the combined record against the other teams in the tie</li>
+            <li>4. Fewer spiritual fouls</li>
+            <li>5. Strength of Wins, the total wins of every team beaten, counted once per win</li>
+            <li className="flex items-center gap-1">6. Bible trivia <BibleIcon className="text-gray-400" /></li>
+          </ol>
+          <p className="text-[10px] text-gray-500 leading-snug">
+            If a step separates a single team out of a tie of three or more, that team is placed and the remaining teams start the procedure over at step 1.
+          </p>
+          <p className="text-[10px] text-gray-500 leading-snug">
+            TB Over lists only teams that can still finish level on record. <span className="font-black text-gray-900">Bold</span> is settled and cannot change, plain is a lead with a rematch still to play, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
+          </p>
+          <p className="text-[10px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, rosterCols = 3, setRosterCols, photoVersion = 0 }) {
-  const standings = useMemo(() => sortStandings(regularOnly), [regularOnly]);
+  // Forfeits and spiritual fouls are tiebreaker steps 2 and 4. They live in
+  // their own tables, so the ladder runs without them until this resolves.
+  const [penalties, setPenalties] = useState({ forfeits: [], spiritual: [] });
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const p = await fetchTeamPenalties(2026);
+      if (alive) setPenalties(p);
+    })();
+    return () => { alive = false; };
+  }, []);
+  const standings = useMemo(() => sortStandings(regularOnly, penalties), [regularOnly, penalties]);
   const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
   // Roster section lists teams alphabetically by name (standings stays ranked).
   const teamsAlpha = useMemo(() => [...TEAMS_2026].sort((a, b) => (TEAM_NAMES[a] || a).localeCompare(TEAM_NAMES[b] || b)), []);
@@ -16598,36 +17053,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   return (
     <div>
       <p className="text-xl font-black text-gray-900 mb-3">2026 Standings</p>
-      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden mb-7">
-        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-          <span className="w-5 text-center">#</span>
-          <span className="w-7" />
-          <span className="flex-1">Team</span>
-          <span className="w-12 text-right">W-L</span>
-          <span className="w-11 text-right">Pct</span>
-          <span className="w-8 text-right">GB</span>
-          <span className="w-10 text-right">Diff</span>
-        </div>
-        {standings.map((row, i) => {
-          const lead = standings[0];
-          const gb = ((lead.w - row.w) + (row.l - lead.l)) / 2;
-          const diff = row.diff || 0;
-          return (
-            <div key={row.team} className={`flex items-center gap-2 px-3 py-2.5 border-b border-gray-50 last:border-0 ${i === 0 ? "bg-gray-50/60" : ""}`}>
-              <span className={`w-5 text-center text-sm font-black tabular-nums ${i === 0 ? "text-gray-900" : "text-gray-300"}`}>{i + 1}</span>
-              <TeamLogo team={row.team} size={28} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-bold text-gray-900 truncate leading-tight">{TEAM_NAMES[row.team] || row.team}</div>
-                <div className="text-[10px] text-gray-400 uppercase tracking-wider leading-tight">{row.team}</div>
-              </div>
-              <span className="w-12 text-right text-sm font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
-              <span className="w-11 text-right text-xs text-gray-500 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
-              <span className="w-8 text-right text-xs text-gray-400 tabular-nums">{gb === 0 ? "-" : (Number.isInteger(gb) ? gb : gb.toFixed(1))}</span>
-              <span className={`w-10 text-right text-xs font-semibold tabular-nums ${diff > 0 ? "text-emerald-600" : diff < 0 ? "text-red-500" : "text-gray-400"}`}>{diff > 0 ? "+" : ""}{diff}</span>
-            </div>
-          );
-        })}
-      </div>
+      <Standings2026Table regularOnly={regularOnly} penalties={penalties} />
 
       <div className="flex items-center justify-between mb-1">
         <p className="text-xl font-black text-gray-900">Rosters and Season Stats</p>

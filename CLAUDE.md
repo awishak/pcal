@@ -81,6 +81,29 @@ The app derives all season data from GAME_LOG in the browser via `buildSeasonDat
 - Daniel Elsakr: MOD rep.
 - Andrew Sharkawy: media and social, registrar.
 
+## Standings and tiebreakers
+
+Top 4 make the playoffs. 1 seed vs 4 seed, 2 seed vs 3 seed, winners meet in the final. The 1 seed chooses whether its semifinal is played first or second (rule 1.32).
+
+Tiebreaker ladder, in order. This is rule 1.34 in the app rules and is implemented in `sortStandings` / `resolveGroup2026` in App.jsx.
+
+1. Win percentage
+2. Fewer forfeits
+3. Head to head, the combined record against the other teams in the tie
+4. Fewer spiritual fouls
+5. Strength of Wins
+6. Bible trivia
+
+- **Strength of Wins** is the sum of the current win totals of every team beaten, counted once per win. Sweeping an opponent counts that opponent twice. It reads current win totals, not the totals held on the day of the win, so it moves every week.
+- **Restart rule**: when a step separates a single team out of a tie of three or more, that team is placed and the remaining teams start over at step 1, not at the next step.
+- A forfeit is also a loss in the record, so it costs a team twice. That is deliberate. Forfeited games are recorded 1-0.
+- Point differential is displayed nowhere in the ladder. It is not a tiebreaker.
+- All tiebreakers are subject to change. Say so wherever they are shown.
+
+Forfeits and spiritual fouls live in the `team_forfeits` and `team_spiritual_fouls` tables, public read, admin write via `has_admin_or_commish()`. They are not in game_log. Spiritual fouls are also captured during live scoring as `foul_subtype` on `live_events`, but the standings read the dedicated table, so a foul assessed outside a live-scored game must be entered there by hand.
+
+Clinch and elimination badges enumerate every remaining outcome, capped at 4096 scenarios (12 remaining games). Above that no badge is shown. Tie possibility for the TB Over column uses win-window overlap instead, since enumeration is 2^30 in week 1.
+
 ## Schedule rules (for any scheduling work)
 
 6 teams, 6 weeks, 5 games per week at 3, 4, 5, 6, 7pm. Games are 1 hour. Each team plays 2 games per week with 1 bye. Double round robin, 30 total games. Byes rotate in team order.
