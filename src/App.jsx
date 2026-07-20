@@ -16899,13 +16899,15 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
     return () => { alive = false; };
   }, []);
 
-  // Results in date order per team, as "W" / "L" / "T". Regular season only,
-  // to match the record beside it.
+  // Results in date order per team, as "W" / "L" / "T", plus a count of games
+  // still to play. Regular season only, to match the record beside it. The
+  // remaining count comes from unplayed scheduled games rather than a fixed
+  // season length, so a schedule change is picked up for free.
   const formByTeam = useMemo(() => {
     const results = compute2026Results();
     const md = (iso) => { const p = String(iso || "").split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : String(iso || ""); };
     const out = {};
-    for (const t of TEAMS_2026) out[t] = [];
+    for (const t of TEAMS_2026) out[t] = { played: [], remaining: 0 };
     for (const g of (schedRows || [])) {
       if (g.game_type && g.game_type !== "R") continue;
       for (const team of [g.home_team, g.away_team]) {
@@ -16913,8 +16915,8 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         const opp = g.home_team === team ? g.away_team : g.home_team;
         const mine = results[`${md(g.game_date)}|${team}|${opp}`];
         const theirs = results[`${md(g.game_date)}|${opp}|${team}`];
-        if (mine == null || theirs == null) continue;
-        out[team].push(mine > theirs ? "W" : mine < theirs ? "L" : "T");
+        if (mine == null || theirs == null) { out[team].remaining++; continue; }
+        out[team].played.push(mine > theirs ? "W" : mine < theirs ? "L" : "T");
       }
     }
     return out;
@@ -16967,7 +16969,13 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             TB Over lists teams whose season series is already complete and who can still finish level on record. A team with a rematch still to play is left off, since the tiebreaker between them is not settled yet. <span className="font-black text-gray-900">Bold</span> is a sweep, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
           </p>
           <p className="text-[11px] text-gray-500 leading-snug">
-            Clinched is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
+            A <span className="font-black text-emerald-600">green edge</span> on a row means that team has clinched a top 4 spot. An asterisk after the name means the clinch holds on results but not if that team forfeits.
+          </p>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            The W and L strip runs oldest first. A grey dot is a game still to play.
+          </p>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            Clinching is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
           </p>
           <p className="text-[11px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
         </div>
@@ -16989,27 +16997,32 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
         const shown = list.slice(0, TB_OVER_CAP_2026);
         const extra = list.length - shown.length;
         const look = outlook[row.team];
+        const form = formByTeam[row.team] || { played: [], remaining: 0 };
         return (
           <div key={row.team}>
-            <div className={`flex items-center gap-1.5 px-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""}`}>
+            {/* Green edge marks a clinched playoff spot. Unclinched rows carry
+                a transparent border of the same width so nothing shifts. */}
+            <div className={`border-l-4 ${look.status === "clinched" ? "border-emerald-500" : "border-transparent"}`}>
+            <div className={`flex items-center gap-1.5 pl-2 pr-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""}`}>
               <span className="w-4 text-center text-sm font-black text-gray-900 tabular-nums">{i + 1}</span>
               <TeamLogo team={row.team} size={22} />
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-x-1.5">
-                  <span className="text-[13px] font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}</span>
-                  {look.status === "clinched" && (
-                    <span
-                      title="Clinched a playoff spot"
-                      className="shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded bg-emerald-600 text-white text-[11px] font-black leading-none">
-                      P{look.clinchRestsOnNoForfeit ? "*" : ""}
-                    </span>
-                  )}
+                  <span className="text-[13px] font-bold text-gray-900 leading-tight">
+                    {TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}
+                    {look.status === "clinched" && look.clinchRestsOnNoForfeit ? " *" : ""}
+                  </span>
                   {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
                 </div>
-                {/* Form: every result so far, oldest first. */}
-                <div className="flex flex-wrap gap-x-1 leading-tight">
-                  {(formByTeam[row.team] || []).map((f, k) => (
-                    <span key={k} className={`text-[11px] font-black tabular-nums ${f === "W" ? "text-emerald-600" : f === "L" ? "text-red-500" : "text-gray-400"}`}>{f}</span>
+                {/* Form, oldest first, then one dot per game still to play.
+                    Every mark is the same width so the strip lines up down the
+                    column; tabular-nums only evens out digits, not letters. */}
+                <div className="flex flex-wrap items-center gap-x-0.5 leading-tight">
+                  {(form.played || []).map((f, k) => (
+                    <span key={k} className={`inline-block w-[10px] text-center text-[11px] font-black ${f === "W" ? "text-emerald-600" : f === "L" ? "text-red-500" : "text-gray-400"}`}>{f}</span>
+                  ))}
+                  {Array.from({ length: form.remaining || 0 }).map((_, k) => (
+                    <span key={`r${k}`} title="Game still to play" className="inline-block w-[10px] text-center text-[11px] font-black text-gray-300">·</span>
                   ))}
                 </div>
               </div>
@@ -17030,13 +17043,13 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             </div>
 
             {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
-              <div className="px-3 pb-1.5 pl-[38px] text-[11px] text-gray-500 leading-tight">
+              <div className="pr-3 pb-1.5 pl-[34px] text-[11px] text-gray-500 leading-tight">
                 *assuming no {row.team} forfeits
               </div>
             )}
 
             {expanded && (
-              <div className="px-3 pb-3 pl-[38px] space-y-0.5">
+              <div className="pr-3 pb-3 pl-[34px] space-y-0.5">
                 {(() => {
                   const lines = tbSummaryLines2026(row.team, ctx, eligible);
                   if (lines.length === 0) {
@@ -17057,6 +17070,7 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
                 )}
               </div>
             )}
+            </div>
 
             {i === PLAYOFF_SPOTS_2026 - 1 && (
               <div className="flex items-center gap-2 px-3 py-1">
