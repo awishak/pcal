@@ -15982,6 +15982,56 @@ function thOrdinal(n) {
   return n + suf;
 }
 
+// Category leaders per 2026 team, for the summary line on a roster card.
+//
+// Regular season only, so the leaders line agrees with the record printed
+// beside it. A player must have appeared in at least half the team's games,
+// rounded up. Guests are excluded, since the placeholder rows are not real
+// players. Repeats are allowed: if one player leads three categories, they
+// appear three times. A category with nobody eligible comes back null and
+// renders as an empty slot.
+const TH_LEADER_CATS = [
+  { label: "PPG", src: "pts" },
+  { label: "RPG", src: "reb" },
+  { label: "APG", src: "ast" },
+  { label: "SPG", src: "stl" },
+];
+
+function th2026TeamLeaders() {
+  const teamGames = {}, players = {};
+  for (const r of GAME_LOG) {
+    if (r[20] !== 2026 || r[5] !== "R" || r[6] !== 1) continue;
+    const team = r[1], name = r[0];
+    if (!team || !name) continue;
+    // Keyed on date plus opponent so a doubleheader counts as two games.
+    (teamGames[team] = teamGames[team] || new Set()).add(r[4] + "|" + r[2]);
+    const k = team + "|" + name;
+    const p = players[k] = players[k] || { team, name, g: 0, pts: 0, reb: 0, ast: 0, stl: 0 };
+    p.g++;
+    p.pts += r[7] || 0; p.reb += r[8] || 0; p.stl += r[9] || 0; p.ast += r[10] || 0;
+  }
+  const pool = Object.values(players);
+  const out = {};
+  for (const team of TEAMS_2026) {
+    const played = teamGames[team] ? teamGames[team].size : 0;
+    const min = Math.ceil(played / 2);
+    const eligible = pool.filter(p => p.team === team && !thIsGuest(p.name) && p.g >= min && p.g > 0);
+    out[team] = TH_LEADER_CATS.map(cat => {
+      let best = null;
+      for (const p of eligible) {
+        const value = p[cat.src] / p.g;
+        // Ties go to more games played, then alphabetically, so the card does
+        // not reshuffle for no reason between renders.
+        const better = !best || value > best.value
+          || (value === best.value && (p.g > best.g || (p.g === best.g && p.name < best.name)));
+        if (better) best = { name: p.name, value, g: p.g };
+      }
+      return best ? { label: cat.label, name: best.name, value: best.value } : null;
+    });
+  }
+  return out;
+}
+
 // Display "F. Lastname" from a "LASTNAME Firstname" string.
 function thShortName(name) {
   if (thIsGuest(name)) return "Guest Player";
@@ -17024,15 +17074,17 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   }, []);
   const standings = useMemo(() => sortStandings(regularOnly, penalties), [regularOnly, penalties]);
   const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
-  // Roster section lists teams alphabetically by name (standings stays ranked).
-  const teamsAlpha = useMemo(() => [...TEAMS_2026].sort((a, b) => (TEAM_NAMES[a] || a).localeCompare(TEAM_NAMES[b] || b)), []);
+  // Roster cards follow the standings, so the order matches the table above.
+  const teamsRanked = useMemo(() => standings.map(r => r.team), [standings]);
+  const leadersByTeam = useMemo(() => th2026TeamLeaders(), [GAME_LOG.length]);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
   const [dobMap, setDobMap] = useState({});
   const [cityMap, setCityMap] = useState({});
   const [caMap, setCaMap] = useState({});
-  // Roster sections start expanded so players are visible without tapping.
-  const [expanded, setExpanded] = useState(() => new Set(TEAMS_2026));
+  // Roster sections start collapsed. The leaders line stays visible either
+  // way, so a closed card still says who the team is.
+  const [expanded, setExpanded] = useState(() => new Set());
   const toggleTeam = (team) => setExpanded(prev => {
     const next = new Set(prev);
     if (next.has(team)) next.delete(team); else next.add(team);
@@ -17180,22 +17232,46 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
       <p className="text-[11px] text-gray-500 mb-3">Tap any player to see their 2026 season stats.</p>
 
       <div className="space-y-2">
-        {teamsAlpha.map(team => {
+        {teamsRanked.map(team => {
           const rec = recById[team] || { w: 0, l: 0 };
           const open = expanded.has(team);
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
+          const leaders = leadersByTeam[team] || [null, null, null, null];
           // Chunk the roster into rows of `cols` so an opened player's stat
           // panel can render full-width directly below that player's row.
           const rows = [];
           for (let i = 0; i < roster.length; i += cols) rows.push(roster.slice(i, i + cols));
           return (
             <div key={team} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-              <button onClick={() => toggleTeam(team)} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
-                <TeamLogo team={team} size={36} />
-                <span className="flex-1 text-base font-bold text-gray-900">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
-                <span className="text-xs text-gray-400 tabular-nums">{rec.w}-{rec.l}</span>
-                <svg className={`w-4 h-4 text-gray-300 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+              <button onClick={() => toggleTeam(team)} className="w-full p-3 text-left active:bg-gray-50">
+                <div className="flex items-center gap-3">
+                  <TeamLogo team={team} size={36} />
+                  <span className="flex-1 min-w-0 text-base font-bold text-gray-900">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
+                  <span className="text-2xl font-black text-gray-900 tabular-nums leading-none">{rec.w}-{rec.l}</span>
+                  <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                </div>
+
+                {/* Category leaders. Stays visible when the card is collapsed. */}
+                <div className="grid grid-cols-4 gap-1 mt-3">
+                  {leaders.map((ld, k) => (
+                    <div key={k} className="flex flex-col items-center text-center min-w-0">
+                      {ld ? (
+                        <>
+                          <ThAvatar name={ld.name} size={44} photoUrl={photoFor(ld.name)} />
+                          <span className="mt-1 text-[11px] font-bold text-gray-900 leading-tight truncate w-full">{thShortName(ld.name)}</span>
+                          <span className="text-[11px] text-gray-500 leading-tight tabular-nums">{th1(ld.value)} {ld.label}</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="rounded-full bg-gray-50" style={{ width: 44, height: 44 }} />
+                          <span className="mt-1 text-[11px] text-gray-300 leading-tight">-</span>
+                          <span className="text-[11px] text-gray-300 leading-tight">{TH_LEADER_CATS[k].label}</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </button>
 
               {open && (
