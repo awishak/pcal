@@ -15987,9 +15987,10 @@ function thOrdinal(n) {
 // Regular season only, so the leaders line agrees with the record printed
 // beside it. A player must have appeared in at least half the team's games,
 // rounded up. Guests are excluded, since the placeholder rows are not real
-// players. Repeats are allowed: if one player leads three categories, they
-// appear three times. A category with nobody eligible comes back null and
-// renders as an empty slot.
+// players. Each player fills at most one slot: categories are resolved in
+// order and a player already shown is skipped, so a team that has one player
+// leading three categories still puts four different faces on its card. A
+// slot with nobody left to fill it comes back null and renders empty.
 const TH_LEADER_CATS = [
   { label: "PPG", src: "pts" },
   { label: "RPG", src: "reb" },
@@ -16016,9 +16017,11 @@ function th2026TeamLeaders() {
     const played = teamGames[team] ? teamGames[team].size : 0;
     const min = Math.ceil(played / 2);
     const eligible = pool.filter(p => p.team === team && !thIsGuest(p.name) && p.g >= min && p.g > 0);
+    const used = new Set();
     out[team] = TH_LEADER_CATS.map(cat => {
       let best = null;
       for (const p of eligible) {
+        if (used.has(p.name)) continue;
         const value = p[cat.src] / p.g;
         // Ties go to more games played, then alphabetically, so the card does
         // not reshuffle for no reason between renders.
@@ -16026,7 +16029,9 @@ function th2026TeamLeaders() {
           || (value === best.value && (p.g > best.g || (p.g === best.g && p.name < best.name)));
         if (better) best = { name: p.name, value, g: p.g };
       }
-      return best ? { label: cat.label, name: best.name, value: best.value } : null;
+      if (!best) return null;
+      used.add(best.name);
+      return { label: cat.label, name: best.name, value: best.value };
     });
   }
   return out;
@@ -17248,7 +17253,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                 <div className="flex items-center gap-3">
                   <TeamLogo team={team} size={36} />
                   <span className="flex-1 min-w-0 text-base font-bold text-gray-900">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
-                  <span className="text-2xl font-black text-gray-900 tabular-nums leading-none">{rec.w}-{rec.l}</span>
+                  <span className="text-lg font-black text-gray-900 tabular-nums leading-none">{rec.w}-{rec.l}</span>
                   <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </div>
 
