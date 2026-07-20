@@ -16950,6 +16950,9 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
               <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-1.5">
                 <span className="text-[13px] font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}</span>
                 {look.status === "clinched" && <span className="shrink-0 px-1.5 rounded bg-emerald-50 text-emerald-700 text-[11px] font-bold leading-tight">Clinched</span>}
+                {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
+                  <span className="shrink-0 text-[11px] text-gray-500 leading-tight">(assuming no forfeits)</span>
+                )}
                 {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
               </div>
               <span className="w-10 text-right text-[14px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
