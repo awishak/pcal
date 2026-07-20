@@ -16885,6 +16885,41 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
   }, [penalties]);
   const pen = penalties || ownPen || EMPTY_PENALTIES_2026;
 
+  // The schedule is what puts a team's games in true order. GAME_LOG carries a
+  // date but no tip time, so two games on the same Sunday could not otherwise
+  // be told apart, and the form list would show them in the wrong order.
+  const [schedRows, setSchedRows] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.from("schedule").select("*").eq("season", 2026)
+        .order("game_date", { ascending: true }).order("game_time", { ascending: true });
+      if (alive) setSchedRows(data || []);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Results in date order per team, as "W" / "L" / "T". Regular season only,
+  // to match the record beside it.
+  const formByTeam = useMemo(() => {
+    const results = compute2026Results();
+    const md = (iso) => { const p = String(iso || "").split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : String(iso || ""); };
+    const out = {};
+    for (const t of TEAMS_2026) out[t] = [];
+    for (const g of (schedRows || [])) {
+      if (g.game_type && g.game_type !== "R") continue;
+      for (const team of [g.home_team, g.away_team]) {
+        if (!out[team]) continue;
+        const opp = g.home_team === team ? g.away_team : g.home_team;
+        const mine = results[`${md(g.game_date)}|${team}|${opp}`];
+        const theirs = results[`${md(g.game_date)}|${opp}|${team}`];
+        if (mine == null || theirs == null) continue;
+        out[team].push(mine > theirs ? "W" : mine < theirs ? "L" : "T");
+      }
+    }
+    return out;
+  }, [schedRows, GAME_LOG.length]);
+
   const ctx = useMemo(() => build2026Context(pen, regularOnly), [pen, regularOnly]);
   const standings = useMemo(() => standingsFromContext2026(ctx), [ctx]);
   const eligible = useMemo(() => tieEligiblePairs2026(ctx), [ctx]);
@@ -16959,13 +16994,24 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
             <div className={`flex items-center gap-1.5 px-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""}`}>
               <span className="w-4 text-center text-sm font-black text-gray-900 tabular-nums">{i + 1}</span>
               <TeamLogo team={row.team} size={22} />
-              <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-1.5">
-                <span className="text-[13px] font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}</span>
-                {look.status === "clinched" && <span className="shrink-0 px-1.5 rounded bg-emerald-50 text-emerald-700 text-[11px] font-bold leading-tight">Clinched</span>}
-                {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
-                  <span className="shrink-0 text-[11px] text-gray-500 leading-tight">(assuming no forfeits)</span>
-                )}
-                {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-1.5">
+                  <span className="text-[13px] font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}</span>
+                  {look.status === "clinched" && (
+                    <span
+                      title="Clinched a playoff spot"
+                      className="shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded bg-emerald-600 text-white text-[11px] font-black leading-none">
+                      P{look.clinchRestsOnNoForfeit ? "*" : ""}
+                    </span>
+                  )}
+                  {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
+                </div>
+                {/* Form: every result so far, oldest first. */}
+                <div className="flex flex-wrap gap-x-1 leading-tight">
+                  {(formByTeam[row.team] || []).map((f, k) => (
+                    <span key={k} className={`text-[11px] font-black tabular-nums ${f === "W" ? "text-emerald-600" : f === "L" ? "text-red-500" : "text-gray-400"}`}>{f}</span>
+                  ))}
+                </div>
               </div>
               <span className="w-10 text-right text-[14px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
               <span className="w-9 text-right text-[12px] font-semibold text-gray-900 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
@@ -16982,6 +17028,12 @@ function Standings2026Table({ regularOnly = true, penalties = null }) {
                 {row.forfeits === 0 && row.spiritual === 0 && <span className="text-gray-300">-</span>}
               </span>
             </div>
+
+            {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
+              <div className="px-3 pb-1.5 pl-[38px] text-[11px] text-gray-500 leading-tight">
+                *assuming no {row.team} forfeits
+              </div>
+            )}
 
             {expanded && (
               <div className="px-3 pb-3 pl-[38px] space-y-0.5">
