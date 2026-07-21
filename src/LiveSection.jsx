@@ -198,35 +198,12 @@ const STAT_BUTTONS = [
 // Lookup used by both flows. "ast" has no STAT_BUTTONS entry (the classic
 // grid can't record one directly), so it is added here with no follow-up
 // prompt.
-// Playing kits, which are not the brand colours used for chips and charts.
-// `line` is the outline, needed because San Jose play in white on a white card.
-const JERSEY_KIT = {
-  PDF: { body: "#9ca3af", ink: "#ffffff", line: "rgba(0,0,0,0.20)" },
-  SAC: { body: "#7c3aed", ink: "#ffffff", line: "rgba(0,0,0,0.20)" },
-  MOD: { body: "#dc2626", ink: "#111827", line: "rgba(0,0,0,0.20)" },
-  SJO: { body: "#ffffff", ink: "#c41e3a", line: "#cbd5e1" },
-  HAY: { body: "#2563eb", ink: "#ffffff", line: "rgba(0,0,0,0.20)" },
-  PLE: { body: "#111827", ink: "#facc15", line: "rgba(0,0,0,0.35)" },
-};
-
-// A tank top with the number on it, rather than a bare numeral. The armhole
-// edges curve inward, which is what separates a singlet from a t-shirt; an
-// outward curve there reads as a sleeve.
-function JerseyNumber({ team, number, size = 56 }) {
-  const kit = JERSEY_KIT[team] || { body: "#6b7280", ink: "#ffffff", line: "rgba(0,0,0,0.20)" };
-  const n = String(number == null ? "" : number);
-  // Shrink the digits as they widen so a 3-digit number still fits the body.
-  const fs = n.length >= 3 ? size * 0.34 : n.length === 2 ? size * 0.46 : size * 0.56;
+// Flame for a hot shooter. No emoji anywhere in this app, so it is drawn.
+function FireIcon({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" aria-label={n ? `Number ${n}` : "No number"}>
-      <path
-        d="M20 4 L28 4 Q32 12 36 4 L44 4 Q46 18 53 30 L53 56 Q53 60 49 60 L15 60 Q11 60 11 56 L11 30 Q18 18 20 4 Z"
-        fill={kit.body} stroke={kit.line} strokeWidth="1.75" strokeLinejoin="round"
-      />
-      <text
-        x="32" y="45" textAnchor="middle" fill={kit.ink}
-        style={{ fontSize: fs, fontWeight: 900, fontFamily: "inherit" }}
-      >{n}</text>
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-label="Hot" role="img">
+      <path d="M13.5 1.5c.6 3-1.2 4.4-2.6 5.8C9.2 8.9 8 10.4 8 13a6 6 0 0 0 12 0c0-3.4-2-5.6-3.4-7.2-.5 1.2-1.3 1.9-2.1 2.2.6-2.3.4-4.6-1-6.5Z" fill="#f97316" />
+      <path d="M14 12c.3 1.4-.6 2-1.3 2.6-.6.6-1.2 1.3-1.2 2.4a2.5 2.5 0 0 0 5 0c0-1.5-.9-2.5-1.6-3.2-.2.5-.6.8-1 1 .3-1 .2-2-.9-2.8Z" fill="#fbbf24" />
     </svg>
   );
 }
@@ -422,21 +399,20 @@ function statCountForPlayer(statKey, boxEntry) {
 // player to decide whether to show the fire icon.
 function isOnHotStreak(events, playerName) {
   if (!playerName) return false;
-  let streak = 0;
-  for (let i = events.length - 1; i >= 0; i--) {
+  const FG = new Set(["made_2", "made_3", "missed_2", "missed_3"]);
+  const shots = [];
+  for (let i = events.length - 1; i >= 0 && shots.length < 6; i--) {
     const e = events[i];
-    if (e.deleted) continue;
-    if (e.player_name !== playerName) continue;
-    // Ignore non-field-goal shots
-    if (e.stat_type === "made_ft" || e.stat_type === "missed_ft") continue;
-    if (e.stat_type === "made_2" || e.stat_type === "made_3") {
-      streak += 1;
-      if (streak >= 3) return true;
-    } else if (e.stat_type === "missed_2" || e.stat_type === "missed_3") {
-      return false;
-    }
+    if (e.deleted || e.player_name !== playerName) continue;
+    if (!FG.has(e.stat_type)) continue;
+    shots.push(e.stat_type === "made_2" || e.stat_type === "made_3");
   }
-  return streak >= 3;
+  if (shots.length === 0) return false;
+  // Three straight makes, counting back from the most recent attempt.
+  if (shots.length >= 3 && shots[0] && shots[1] && shots[2]) return true;
+  // Or four of the last six.
+  if (shots.length >= 6 && shots.filter(Boolean).length >= 4) return true;
+  return false;
 }
 
 // Last-name sort helper for roster arrays.
@@ -1984,8 +1960,10 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
       )}
 
       {/* Scoreboard */}
+      {/* Not rendered while scoring: everything in it has moved into the
+          pinned board, so it would be an empty bordered box. */}
+      {!(mode === "score" && (myRole === "home_scorer" || myRole === "away_scorer")) && (
       <Scoreboard
-        hideTopBlock={mode === "score" && (myRole === "home_scorer" || myRole === "away_scorer")}
         game={game}
         live={live}
         teamScore={displayTeamScore}
@@ -1997,6 +1975,7 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
         box={displayBox}
         rosters={rosters}
       />
+      )}
 
       {mode === "score" && me && (
         /* Any logged-in user sees ScorerControls. ScorerControls itself
@@ -2641,22 +2620,88 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 
   // Timeouts as a vertical stack of dots down the outer edge of each score
   // box. A filled dot is available, a hollow one is spent.
+  // Undo and redo live here, next to the plays they act on. Undo is a soft
+  // delete, so redo is simply clearing the flag on whatever was undone last.
+  const myEvents = (events || []).filter(e =>
+    e.scorer_pin === me?.pin && !["game_start", "game_end", "reopen"].includes(e.stat_type));
+  const undoable = myEvents.filter(e => !e.deleted);
+  const redoable = myEvents.filter(e => e.deleted)
+    .sort((a, b) => String(a.edited_at || "").localeCompare(String(b.edited_at || "")));
+  const lastPlays = undoable.slice(-10).reverse();
+  const [playsOpen, setPlaysOpen] = useState(false);
+
+  const setDeleted = async (ev, flag) => {
+    if (!ev) return;
+    const { error } = await supabase.from("live_events").update({
+      deleted: flag, edited_at: new Date().toISOString(), edited_by: me.name,
+    }).eq("event_id", ev.event_id);
+    if (error) { alert(error.message); return; }
+    await supabase.from("audit_log").insert({
+      game_id: game.game_id, actor_pin: me.pin, actor_name: me.name,
+      action: flag ? "undo" : "redo", event_id: ev.event_id, before_value: ev,
+    });
+  };
+  const undoLastPlay = () => {
+    const last = undoable[undoable.length - 1];
+    if (!last) return;
+    if (last.stat_type === "period_change") { alert("Undo the period change from the play log."); return; }
+    setDeleted(last, true);
+  };
+  const redoLastPlay = () => setDeleted(redoable[redoable.length - 1], false);
+
+  const playsPanel = (
+    <div className="mt-2 pt-2 border-t border-gray-100">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <button onClick={undoLastPlay} disabled={undoable.length === 0}
+          className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-40">
+          Undo last
+        </button>
+        <button onClick={redoLastPlay} disabled={redoable.length === 0}
+          className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-40">
+          Redo last
+        </button>
+      </div>
+      {lastPlays.length === 0 ? (
+        <div className="text-[11px] text-gray-400">No plays yet.</div>
+      ) : (
+        <>
+          <div className="space-y-0.5">
+            {lastPlays.slice(0, playsOpen ? 10 : 3).map(e => (
+              <div key={e.event_id} className="text-[11px] text-gray-600 truncate leading-snug">
+                {formatEventText(e)}
+              </div>
+            ))}
+          </div>
+          {lastPlays.length > 3 && (
+            <button onClick={() => setPlaysOpen(v => !v)}
+              className="mt-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest active:text-gray-700">
+              {playsOpen ? "Show less" : `Last 10 plays`}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   const renderTimeoutDots = (teamCode, usedCount) => {
     const iCanTap = teamCode === myTeamCode && inRegulation && !gameIsOver;
     const left = 3 - usedCount;
     return (
-      <div className="flex flex-col justify-center gap-1.5 flex-shrink-0" title={`${left} timeout${left === 1 ? "" : "s"} left`}>
-        {[0, 1, 2].map(i => {
-          const spent = i >= left;
+      <div className="flex flex-col items-center justify-center gap-1 flex-shrink-0">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400 leading-none">TO</span>
+        {[1, 2, 3].map(n => {
+          const spent = n > left;
           return (
-            <button key={i}
+            <button key={n}
               onClick={() => !spent && iCanTap && callTimeout(teamCode)}
               disabled={spent || !iCanTap}
-              aria-label={spent ? "Timeout used" : `Call timeout for ${teamCode}`}
-              className={`w-3.5 h-3.5 rounded-full border-2 disabled:cursor-default ${
-                spent ? "bg-transparent border-gray-200" : "bg-green-500 border-green-600 active:bg-green-600"
+              aria-label={spent ? `Timeout ${n} used` : `Call timeout for ${teamCode}`}
+              className={`w-6 h-6 rounded-full border-2 text-[10px] font-black flex items-center justify-center disabled:cursor-default ${
+                spent
+                  ? "bg-transparent border-gray-200 text-gray-300"
+                  : "bg-green-500 border-green-600 text-white active:bg-green-600"
               }`}
-            />
+            >{n}</button>
           );
         })}
       </div>
@@ -2667,13 +2712,13 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   // sit close together instead of being pushed to opposite edges.
   const scoreBox = (teamCode, score) => (
     <div className="flex-1 min-w-0 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5 text-center">
-      <div className="flex items-center justify-center gap-1.5 min-w-0">
-        <TeamLogoLocal team={teamCode} size={18} />
-        <span className="text-[12px] font-black text-gray-900 truncate">
-          {TEAM_NAMES[teamCode] || teamCode}
-        </span>
+      <div className="text-[15px] font-black text-gray-900 truncate leading-tight">
+        {TEAM_NAMES[teamCode] || teamCode}
       </div>
-      <div className="text-4xl font-black text-gray-900 leading-none tabular-nums mt-0.5">{score}</div>
+      <div className="flex items-center justify-center gap-2 mt-0.5">
+        <TeamLogoLocal team={teamCode} size={30} />
+        <span className="text-4xl font-black text-gray-900 leading-none tabular-nums">{score}</span>
+      </div>
     </div>
   );
 
@@ -2730,6 +2775,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
         {scoreBox(homeTeam, teamScore?.[homeTeam] || 0)}
         {renderTimeoutDots(homeTeam, homeTOUsed)}
       </div>
+      {playsPanel}
     </>
   );
 }
@@ -2759,6 +2805,21 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     setFlash({ text, tone });
     flashRef.current = setTimeout(() => setFlash(null), 650);
   };
+  // Six fouls is a disqualification, which a scorer must not miss. Fires once
+  // per player; the ref stops it firing again on every re-render or refetch.
+  const [fouledOut, setFouledOut] = useState(null);
+  const announcedFoulOut = useRef(new Set());
+  useEffect(() => {
+    if (!box) return;
+    for (const [name, st] of Object.entries(box)) {
+      if ((st?.foul || 0) >= 6 && st?.team === myTeamCode && !announcedFoulOut.current.has(name)) {
+        announcedFoulOut.current.add(name);
+        setFouledOut(name);
+        break;
+      }
+    }
+  }, [box, myTeamCode]);
+
   const setMode = (m) => {
     setScoreMode(m);
     try { localStorage.setItem("pcal_score_mode", m); } catch (e) { /* private browsing */ }
@@ -3391,7 +3452,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     // player crosses 10+ in the displayed stat, a gold badge sits on the
     // photo showing that count (keeps climbing past 10).
     const renderPlayerCard = (p, opts = {}) => {
-      const { onClick, disabled, showCount = true } = opts;
+      const { onClick, disabled } = opts;
       const name = p.player_name || "";
       const parts = name.trim().split(/\s+/);
       const displayLast = parts[0]
@@ -3399,60 +3460,57 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         : name;
       const firstFull = parts.slice(1)
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-      const countKey = opts.countKey || partitionStatKey;
-      const statInfo = showCount && countKey
-        ? statLabelForPlayer(countKey, box[name])
-        : { count: 0, label: "" };
       const jersey = p.jersey_number || "";
-      // Milestone chip: show for any countable stat where they have >=10.
-      // Uses the PARTITION stat, which for shot keys is points (so "10 pts"
-      // triggers it, which is the right semantic: double-digit scorer).
-      const hasMilestone = statInfo.count >= 10;
+      const b = box[name] || {};
+      const hot = isOnHotStreak(events, name);
+      // Thresholds worth noticing at a glance mid-game.
+      const hl = (v, at) => (v || 0) >= at ? "text-gray-900 font-black" : "";
+      const line2 = [
+        { v: b.reb || 0, at: 8, label: "REB" },
+        { v: b.stl || 0, at: 3, label: "STL" },
+        { v: b.ast || 0, at: 3, label: "AST" },
+        { v: b.blk || 0, at: 2, label: "BLK" },
+        { v: b.foul || 0, at: 4, label: b.foul === 1 ? "Foul" : "Fouls" },
+      ].filter(x => x.v > 0);
       return (
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
           className="relative p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
-          {/* Square photo on the left, jersey number filling the space beside
-              it. Both are sized to be hit and read at arm's length while
-              someone is scoring a live game. */}
-          <div className="flex items-center gap-2">
-            <div className="relative shrink-0">
-              <PlayerAvatar name={name} team={p.team} size={72} square />
-              {hasMilestone && (
-                <span
-                  className="absolute -top-1 -left-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white tabular-nums border-2 border-white"
-                  title="Double-digit!"
-                >
-                  {statInfo.count}
-                </span>
+          <div className="flex items-start gap-2">
+            <PlayerAvatar name={name} team={p.team} size={72} square />
+            {/* Stats sit where the kit used to, and carry the weight. */}
+            <div className="flex-1 min-w-0 text-[13px] leading-snug text-gray-500 tabular-nums">
+              <div>
+                <span className={b.fga ? "text-gray-900 font-bold" : ""}>{b.fgm || 0}/{b.fga || 0}</span> FG
+                <span className="text-gray-300">, </span>
+                <span className={hl(b.pts, 15) || "text-gray-900 font-bold"}>{b.pts || 0}</span> PTS
+              </div>
+              {line2.length > 0 && (
+                <div className="mt-0.5">
+                  {line2.map((x, i) => (
+                    <span key={x.label}>
+                      {i > 0 && <span className="text-gray-300">, </span>}
+                      <span className={hl(x.v, x.at)}>{x.v}</span> {x.label}
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
-            <div className="flex-1 min-w-0 flex items-center justify-center">
-              {jersey
-                ? <JerseyNumber team={p.team} number={jersey} size={74} />
-                : <span className="text-4xl font-black text-gray-200 leading-none">-</span>}
-            </div>
           </div>
-          {/* Name underneath, with the stat count beside it rather than
-              floating over the card, so neither can cover the other. */}
+          {/* Name with the number inline. */}
           <div className="mt-1.5 flex items-baseline gap-1.5">
             <span className="flex-1 min-w-0 text-[17px] text-gray-900 truncate leading-tight">
               {firstFull && <span className="font-normal">{firstFull} </span>}
               <span className="font-black">{displayLast}</span>
+              {jersey && <span className="font-normal text-gray-400"> #{jersey}</span>}
             </span>
-            {showCount && statInfo.label && statInfo.count > 0 && (
-              <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black bg-gray-100 text-gray-700 tabular-nums">
-                {statInfo.label}
-              </span>
-            )}
+            {hot && <span className="shrink-0" title="Hot: 3 straight or 4 of 6"><FireIcon /></span>}
           </div>
         </button>
       );
     };
 
-    // Scorer's last 3 events for the history panel (includes period_change).
-    const lastThree = myUndoableEvents.slice(-3).reverse();
 
     return (
       <div className="space-y-3">
@@ -3492,10 +3550,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
                   ? (pickedPlayer ? "Tap stat" : "Tap player")
                   : "Tap stat"} &middot; {myTeamCode}
               </div>
-              <button onClick={undoLast}
-                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200 flex-shrink-0">
-                Undo last
-              </button>
+
             </div>
 
             {scoreMode === "classic" ? (
@@ -3557,10 +3612,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           </div>
         )}
 
-        {/* Last-3 history panel (collapsible under the stat grid) */}
-        {!gameIsOver && lastThree.length > 0 && (
-          <LastThreePanel events={lastThree} onUndo={undoSpecific} />
-        )}
 
         {/* Mode switch lives below the grid so it can't be hit by accident
             mid-game, but is still reachable if the new flow misbehaves. */}
@@ -3581,6 +3632,19 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
               Release scoring responsibility
             </button>
           </div>
+        )}
+
+        {fouledOut && (
+          <ModalShell title="Fouled out" onClose={() => setFouledOut(null)}>
+            <div className="text-center py-2">
+              <div className="text-lg font-black text-gray-900">{formatName(fouledOut)}</div>
+              <div className="mt-1 text-sm text-gray-600">has 6 fouls and has fouled out.</div>
+              <button onClick={() => setFouledOut(null)}
+                className="mt-4 w-full py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
+                Got it
+              </button>
+            </div>
+          </ModalShell>
         )}
 
         {/* Primary stat box picker (opens whenever a stat is tapped) */}
