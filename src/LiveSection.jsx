@@ -46,6 +46,9 @@ function LocationLine({ location, className = "text-sm text-gray-600 font-semibo
 // circle fallback) if LiveSection was instantiated without a logos prop.
 const LogosContext = createContext(null);
 const useLogos = () => useContext(LogosContext);
+// 2026 AI Score by upper-cased player name, supplied by App.
+const AiContext = createContext(null);
+const useAiScores = () => useContext(AiContext);
 
 // Context carries player photo URLs keyed by "LASTNAME Firstname" (matching
 // rosters.player_name). Fetched from the player_photos table in LiveGameView
@@ -268,7 +271,7 @@ function buildPlayLines(events, homeTeam, awayTeam) {
 
     const plain = {
       missed_2: "missed 2", missed_3: "missed 3", reb: "rebound",
-      reb_other_team: "rebound, other team", ast: "assist", stl: "steal",
+      ast: "assist", stl: "steal",
       blk: "block", timeout: "timeout",
     }[e.stat_type];
     if (e.stat_type === "foul") {
@@ -290,6 +293,21 @@ function buildPlayLines(events, homeTeam, awayTeam) {
   }
   return out.reverse();
 }
+
+// Playing kits for the number badge. Separate from TEAM_COLORS, which is the
+// brand palette used for chips and charts. Pacific play in grey with a teal
+// trim; San Jose in white, which needs a cardinal ring to be visible at all.
+const JERSEY_KIT = {
+  PDF: { body: "#9ca3af", ink: "#ffffff", ring: "#0d9488" },
+  SJO: { body: "#ffffff", ink: "#c41e3a", ring: "#c41e3a" },
+  SAC: { body: "#7c3aed", ink: "#ffffff", ring: "transparent" },
+  MOD: { body: "#dc2626", ink: "#111827", ring: "transparent" },
+  HAY: { body: "#2563eb", ink: "#ffffff", ring: "transparent" },
+  PLE: { body: "#111827", ink: "#facc15", ring: "transparent" },
+};
+const kitFor = (team) => JERSEY_KIT[team] || { body: "#111827", ink: "#ffffff", ring: "transparent" };
+
+const thIsGuestName = (n) => /^GUEST\b/i.test(String(n || "").trim());
 
 // Flame for a hot shooter. No emoji anywhere in this app, so it is drawn.
 function FireIcon({ size = 15 }) {
@@ -566,7 +584,7 @@ function PlayerAvatar({ name, team, size = 40, square = false }) {
 // ------------------------------------------------------------
 // Main Live Section
 // ------------------------------------------------------------
-export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null, scheduleWarning = { bannerEnabled: false, text: "" }, isAdmin = false } = {}) {
+export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null, aiScores = null, scheduleWarning = { bannerEnabled: false, text: "" }, isAdmin = false } = {}) {
   // Cached login from localStorage. This is kept so the scoring UI has
   // a player identity ({name, team, pin, season}) to attach to events.
   // It's synced below to the Supabase Auth session so logging in via the
@@ -674,6 +692,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
 
   return (
     <LogosContext.Provider value={logos}>
+      <AiContext.Provider value={aiScores}>
       <div>
         {view === "home" && (
           <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} onEditSchedule={() => setView("schedule_edit")} scheduleWarning={scheduleWarning} />
@@ -688,6 +707,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
           <ScheduleEditor onBack={() => setView("home")} />
         )}
       </div>
+      </AiContext.Provider>
     </LogosContext.Provider>
   );
 }
@@ -2818,6 +2838,9 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
       <div className={`flex items-center gap-2 mt-0.5 ${side === "left" ? "" : "flex-row-reverse"}`}>
         <TeamLogoLocal team={teamCode} size={30} />
         <span className="flex-1 text-4xl font-black text-gray-900 leading-none tabular-nums text-center">{score}</span>
+        {/* Balances the logo so the number sits on the box's centre line,
+            directly under the team name. */}
+        <span className="w-[30px] flex-shrink-0" aria-hidden="true" />
       </div>
     </div>
   );
@@ -2918,6 +2941,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
 
   const myTeamCode = myRole === "home_scorer" ? game.home_team : myRole === "away_scorer" ? game.away_team : null;
   const myRoster = myRole === "home_scorer" ? rosters.home : myRole === "away_scorer" ? rosters.away : [];
+  const aiScores = useAiScores();
 
   // Six fouls is a disqualification, which a scorer must not miss. Fires once
   // per player; the ref stops it firing again on every re-render or refetch.
@@ -3517,7 +3541,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     // second, sorted by last name). For rebound/assist prompts we partition
     // on the relevant secondary stat instead.
     const partitionStatKey = (() => {
-      if (promptMode === "rebound_own_player") return "reb";
+      if (promptMode === "rebound" || promptMode === "rebound_own_player") return "reb";
       if (promptMode === "assist") return "ast";
       if (promptMode === "foul_subtype_player") return "foul";
       return pendingStat?.key || null;
@@ -3532,7 +3556,16 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     // rather than held in state, so a refresh mid-game rebuilds the same order.
     const PF_ACTIVE = Math.min(6, myRoster.length);
     const pfOrderedRoster = (() => {
-      const order = myRoster.map(p => p.player_name);
+      const seed = [...myRoster].sort((x, y) => {
+        const gx = thIsGuestName(x.player_name) ? 1 : 0, gy = thIsGuestName(y.player_name) ? 1 : 0;
+        if (gx !== gy) return gx - gy;
+        const ax = aiScores?.[(x.player_name || "").toUpperCase()];
+        const ay = aiScores?.[(y.player_name || "").toUpperCase()];
+        const nx = ax == null ? -Infinity : ax, ny = ay == null ? -Infinity : ay;
+        if (nx !== ny) return ny - nx;
+        return (x.player_name || "").localeCompare(y.player_name || "");
+      });
+      const order = seed.map(p => p.player_name);
       const seen = {};
       order.forEach(n => { seen[n] = -1; });
       let tick = 0;
@@ -3549,7 +3582,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         }
         const tmp = order[coldest]; order[coldest] = order[i]; order[i] = tmp;
       }
-      const byName = Object.fromEntries(myRoster.map(p => [p.player_name, p]));
+      const byName = Object.fromEntries(seed.map(p => [p.player_name, p]));
       return order.map(n => byName[n]).filter(Boolean);
     })();
 
@@ -3588,16 +3621,16 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           : fouls === 4 ? "bg-amber-100 text-amber-800"
             : fouls === 3 ? "bg-yellow-100 text-yellow-800"
               : "bg-gray-50 text-gray-700";
-      const kitBg = TEAM_COLORS[p.team] || "#111827";
+      const kit = kitFor(p.team);
       return (
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
           className={`w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : "border-gray-200"}`}>
-          <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
-            style={{ backgroundColor: kitBg }}>
+          <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden border-2"
+            style={{ backgroundColor: kit.body, borderColor: kit.ring }}>
             <span className="text-[27px] leading-none"
-              style={{ fontFamily: "'Anton', system-ui, sans-serif", color: textOnTeam(p.team) }}>
+              style={{ fontFamily: "'Anton', system-ui, sans-serif", color: kit.ink }}>
               {jersey || "-"}
             </span>
           </span>
@@ -3890,42 +3923,30 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             button because for the first 38 minutes of the game, PCAL
             rebounds off free throws are automatic to the other team. */}
         {promptMode === "rebound" && (
-          <ModalShell title="Rebound?" onClose={cancelPrompt}>
-            <div className="space-y-2">
-              {pendingStat?.key === "missed_ft" && (
-                <>
-                  <button onClick={() => chooseRebound("other_team")}
-                    className="w-full py-4 rounded-xl bg-gray-900 text-white font-black text-sm active:bg-gray-800">
-                    <div>Uncontested Rebound</div>
-                    <div className="text-[10px] font-normal text-gray-300 mt-0.5">
-                      (first 38 min of game)
-                    </div>
-                  </button>
-                  <div className="flex items-center gap-2 pt-1">
-                    <div className="flex-1 h-px bg-gray-200" />
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      or
-                    </span>
-                    <div className="flex-1 h-px bg-gray-200" />
-                  </div>
-                </>
-              )}
-              <button onClick={() => chooseRebound("own")}
-                className={`w-full py-3 rounded-xl font-bold text-sm active:bg-gray-800 ${
-                  pendingStat?.key === "missed_ft"
-                    ? "bg-gray-100 text-gray-700 active:bg-gray-200"
-                    : "bg-gray-900 text-white"
-                }`}>
-                {myTeamCode} rebound
-              </button>
+          <ModalShell title="Who got the rebound?" onClose={cancelPrompt}>
+            {/* Other team and no rebound lead, since they are the two answers that
+                are not a teammate, then the roster in the same order and the
+                same cards as everywhere else. */}
+            <div className="grid grid-cols-2 gap-1.5 mb-2">
               <button onClick={() => chooseRebound("other_team")}
-                className="w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
+                className="py-3 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
                 Other team
               </button>
               <button onClick={() => chooseRebound("none")}
-                className="w-full py-3 rounded-xl bg-gray-50 text-gray-500 font-bold text-sm active:bg-gray-100 border border-gray-200">
+                className="py-3 rounded-xl bg-gray-50 text-gray-500 font-bold text-sm active:bg-gray-100 border border-gray-200">
                 No rebound
               </button>
+            </div>
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+              {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseReboundPlayer(p) }))}
+              {partitioned?.withStat.length > 0 && (
+                <div className="my-1 flex items-center gap-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">No rebounds yet</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+              {partitioned?.withoutStat.map(p => renderPlayerCard(p, { onClick: () => chooseReboundPlayer(p) }))}
             </div>
           </ModalShell>
         )}
@@ -4488,6 +4509,9 @@ function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
     const out = [];
     for (const e of events) {
       if (e.deleted) continue;
+      // Other-team rebounds are recorded for audit but are not this team's
+      // play, so they stay out of the log.
+      if (e.stat_type === "reb_other_team") continue;
       const pts = e.stat_type === "made_2" ? 2 : e.stat_type === "made_3" ? 3
         : e.stat_type === "made_ft" ? 1 : 0;
       let scored = false;

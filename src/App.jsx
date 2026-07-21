@@ -2050,6 +2050,17 @@ function AppInner() {
   const [searchRandomSeed, setSearchRandomSeed] = useState(0);
   const [showFontControl, setShowFontControl] = useState(false);
   const [liveInitialGameId, setLiveInitialGameId] = useState(initialRoute.liveInitialGameId || null);
+  // 2026 AI Score by upper-cased name, handed to the live scorer so a roster
+  // can open in order of season performance rather than alphabetically.
+  const liveAiScores = useMemo(() => {
+    const m = {};
+    for (const r of DATA) {
+      if (r.year === 2026 && typeof r.aiScore === "number") {
+        m[String(r.player || "").trim().toUpperCase()] = r.aiScore;
+      }
+    }
+    return m;
+  }, [DATA.length, GAME_LOG.length]);
   // Box Scores (gamestats tab): the single game whose box score is open, which
   // is what gives each game its own URL. Cleared when leaving the tab so it
   // never resurfaces on an unrelated view.
@@ -3551,6 +3562,7 @@ function AppInner() {
             initialGameId={liveInitialGameId}
             onConsumeInitialGameId={() => setLiveInitialGameId(null)}
             logos={TEAM_LOGOS_CURRENT}
+            aiScores={liveAiScores}
             scheduleWarning={scheduleWarning}
             isAdmin={isAdminView}
           />
