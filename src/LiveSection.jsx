@@ -299,7 +299,7 @@ function buildPlayLines(events, homeTeam, awayTeam) {
 // trim; San Jose in white, which needs a cardinal ring to be visible at all.
 const JERSEY_KIT = {
   PDF: { body: "#9ca3af", ink: "#ffffff", ring: "#0d9488" },
-  SJO: { body: "#ffffff", ink: "#c41e3a", ring: "#c41e3a" },
+  SJO: { body: "#ffffff", ink: "#8c1428", ring: "#8c1428" },
   SAC: { body: "#7c3aed", ink: "#ffffff", ring: "transparent" },
   MOD: { body: "#dc2626", ink: "#111827", ring: "transparent" },
   HAY: { body: "#2563eb", ink: "#ffffff", ring: "transparent" },
