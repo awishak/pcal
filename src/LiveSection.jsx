@@ -198,34 +198,32 @@ const STAT_BUTTONS = [
 // Lookup used by both flows. "ast" has no STAT_BUTTONS entry (the classic
 // grid can't record one directly), so it is added here with no follow-up
 // prompt.
-// Playing-kit colours, which are not the same as the brand colours used for
-// chips and charts. Pacific play in grey. The rest are placeholders taken from
-// TEAM_COLORS until the real kits are confirmed.
+// Playing kits, which are not the brand colours used for chips and charts.
+// `line` is the outline, needed because San Jose play in white on a white card.
 const JERSEY_KIT = {
-  PDF: { body: "#9ca3af", ink: "#ffffff" },
-  SAC: { body: "#7c3aed", ink: "#ffffff" },
-  MOD: { body: "#dc2626", ink: "#ffffff" },
-  SJO: { body: "#7f1d1d", ink: "#ffffff" },
-  HAY: { body: "#2563eb", ink: "#ffffff" },
-  PLE: { body: "#facc15", ink: "#000000" },
+  PDF: { body: "#9ca3af", ink: "#ffffff", line: "rgba(0,0,0,0.20)" },
+  SAC: { body: "#7c3aed", ink: "#ffffff", line: "rgba(0,0,0,0.20)" },
+  MOD: { body: "#dc2626", ink: "#111827", line: "rgba(0,0,0,0.20)" },
+  SJO: { body: "#ffffff", ink: "#c41e3a", line: "#cbd5e1" },
+  HAY: { body: "#2563eb", ink: "#ffffff", line: "rgba(0,0,0,0.20)" },
+  PLE: { body: "#111827", ink: "#facc15", line: "rgba(0,0,0,0.35)" },
 };
 
-// A jersey with the number on it, rather than a bare numeral. Reads as a kit
-// at a glance, which is how a scorer actually identifies a player on court.
+// A tank top with the number on it, rather than a bare numeral. Narrow straps
+// and a deep armhole, so it reads as a singlet and not a t-shirt.
 function JerseyNumber({ team, number, size = 56 }) {
-  const kit = JERSEY_KIT[team] || { body: "#6b7280", ink: "#ffffff" };
+  const kit = JERSEY_KIT[team] || { body: "#6b7280", ink: "#ffffff", line: "rgba(0,0,0,0.20)" };
   const n = String(number == null ? "" : number);
-  // Shrink the digits as they get wider so a 3-digit number still fits.
-  const fs = n.length >= 3 ? size * 0.34 : n.length === 2 ? size * 0.42 : size * 0.5;
+  // Shrink the digits as they widen so a 3-digit number still fits the body.
+  const fs = n.length >= 3 ? size * 0.30 : n.length === 2 ? size * 0.40 : size * 0.48;
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-label={n ? `Number ${n}` : "No number"}>
-      {/* Straps, shoulders, then the body tapering to the hem. */}
       <path
-        d="M20 8 L26 6 Q32 13 38 6 L44 8 L56 16 L50 27 L45 24 L45 58 Q32 61 19 58 L19 24 L14 27 L8 16 Z"
-        fill={kit.body} stroke="rgba(0,0,0,0.18)" strokeWidth="1.5" strokeLinejoin="round"
+        d="M19 5 L27 5 Q32 13 37 5 L45 5 Q50 15 52 27 L52 56 Q52 59 49 59 L15 59 Q12 59 12 56 L12 27 Q14 15 19 5 Z"
+        fill={kit.body} stroke={kit.line} strokeWidth="1.75" strokeLinejoin="round"
       />
       <text
-        x="32" y="42" textAnchor="middle" fill={kit.ink}
+        x="32" y="44" textAnchor="middle" fill={kit.ink}
         style={{ fontSize: fs, fontWeight: 900, fontFamily: "inherit" }}
       >{n}</text>
     </svg>
@@ -2290,9 +2288,10 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
         </div>
         </>)}
 
-        {/* Top 3 performers (chosen by Game Score) below. Hidden while
-            scoring: the scorer needs tap targets near the top, not a summary. */}
-        <div className={hideTopBlock ? "hidden" : ""}>
+        {/* Top 3 performers (chosen by Game Score) below. Not rendered at all
+            while scoring: the scorer needs tap targets near the top. */}
+        {!hideTopBlock && (
+        <div>
           <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Top Performers</div>
           {top3.length === 0 ? (
             <div className="text-[11px] text-gray-400 py-3">No stats yet.</div>
@@ -2324,6 +2323,7 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
             </div>
           )}
         </div>
+        )}
 
         {/* Quarter scores summary */}
         {quarterScores.length > 0 && (
@@ -2638,18 +2638,17 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
     </>
   );
 
-  const scoreCol = (teamCode, score, used, align) => (
-    <div className={`flex-1 min-w-0 ${align === "right" ? "text-right" : "text-left"}`}>
-      <div className={`flex items-center gap-1.5 ${align === "right" ? "flex-row-reverse" : ""}`}>
+  // Two grey boxes side by side, matching the box score view, so the numbers
+  // sit close together instead of being pushed to opposite edges.
+  const scoreBox = (teamCode, score) => (
+    <div className="flex-1 min-w-0 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5 text-center">
+      <div className="flex items-center justify-center gap-1.5 min-w-0">
         <TeamLogoLocal team={teamCode} size={18} />
-        <span className="text-[12px] font-black text-gray-900 truncate leading-tight">
+        <span className="text-[12px] font-black text-gray-900 truncate">
           {TEAM_NAMES[teamCode] || teamCode}
         </span>
       </div>
-      <div className={`text-4xl font-black text-gray-900 leading-none tabular-nums ${align === "right" ? "pr-1" : "pl-1"}`}>{score}</div>
-      <div className={`mt-1.5 flex ${align === "right" ? "justify-end" : "justify-start"}`}>
-        {renderTimeoutPills(teamCode, used)}
-      </div>
+      <div className="text-4xl font-black text-gray-900 leading-none tabular-nums mt-0.5">{score}</div>
     </div>
   );
 
@@ -2700,12 +2699,14 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 
       {/* Both scores, each with that team's timeouts directly beneath.
           The word sits between the two groups rather than repeating codes. */}
-      <div className="flex items-start gap-1">
-        {scoreCol(awayTeam, teamScore?.[awayTeam] || 0, awayTOUsed, "left")}
-        <div className="flex-shrink-0 self-end pb-1 px-1">
-          <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">Timeouts</span>
-        </div>
-        {scoreCol(homeTeam, teamScore?.[homeTeam] || 0, homeTOUsed, "right")}
+      <div className="flex items-stretch gap-2">
+        {scoreBox(awayTeam, teamScore?.[awayTeam] || 0)}
+        {scoreBox(homeTeam, teamScore?.[homeTeam] || 0)}
+      </div>
+      <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex-1 flex justify-start">{renderTimeoutPills(awayTeam, awayTOUsed)}</div>
+        <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-widest text-gray-400">Timeouts</span>
+        <div className="flex-1 flex justify-end">{renderTimeoutPills(homeTeam, homeTOUsed)}</div>
       </div>
     </>
   );
