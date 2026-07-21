@@ -305,6 +305,23 @@ const JERSEY_KIT = {
   HAY: { body: "#2563eb", ink: "#ffffff", ring: "transparent" },
   PLE: { body: "#111827", ink: "#facc15", ring: "transparent" },
 };
+// Accent used to tint a team's scoreboard panel and colour its timeouts.
+// Pacific read as teal and San Jose as cardinal, matching their kits rather
+// than the chart palette. Pacific's teal is a step darker than the brand value
+// so a white digit on a filled timeout clears 5:1 instead of 3.7:1.
+const TEAM_ACCENT = {
+  PDF: "#0f766e", SJO: "#8c1428", SAC: "#7c3aed",
+  MOD: "#dc2626", HAY: "#2563eb", PLE: "#eab308",
+};
+const accentFor = (team) => TEAM_ACCENT[team] || "#111827";
+// Mix an accent down to a wash. Keeps one source of truth per team instead of
+// a hand-picked light variant for each.
+const accentAlpha = (hex, a) => {
+  const n = parseInt(String(hex).slice(1), 16);
+  if (Number.isNaN(n)) return `rgba(17, 24, 39, ${a})`;
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+
 const kitFor = (team) => JERSEY_KIT[team] || { body: "#111827", ink: "#ffffff", ring: "transparent" };
 
 const thIsGuestName = (n) => /^GUEST\b/i.test(String(n || "").trim());
@@ -2814,11 +2831,10 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
               onClick={() => !spent && iCanTap && callTimeout(teamCode)}
               disabled={spent || !iCanTap}
               aria-label={spent ? `Timeout ${n} used` : `Call timeout for ${teamCode}`}
-              className={`w-6 h-6 rounded-full border-2 text-[10px] font-black flex items-center justify-center disabled:cursor-default ${
-                spent
-                  ? "bg-transparent border-gray-200 text-gray-300"
-                  : "bg-green-500 border-green-600 text-white active:bg-green-600"
-              }`}
+              className="w-6 h-6 rounded-full border-2 text-[10px] font-black flex items-center justify-center disabled:cursor-default"
+              style={spent
+                ? { backgroundColor: "transparent", borderColor: "#e5e7eb", color: "#d1d5db" }
+                : { backgroundColor: accentFor(teamCode), borderColor: accentFor(teamCode), color: textOnTeam(teamCode) }}
             >{n}</button>
           );
         })}
@@ -2829,7 +2845,11 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   // Two grey boxes side by side, matching the box score view, so the numbers
   // sit close together instead of being pushed to opposite edges.
   const scoreBox = (teamCode, score, side) => (
-    <div className="flex-1 min-w-0 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5">
+    <div className="flex-1 min-w-0 rounded-xl border px-2 py-1.5"
+      style={{
+        backgroundColor: accentAlpha(accentFor(teamCode), 0.10),
+        borderColor: accentAlpha(accentFor(teamCode), 0.30),
+      }}>
       <div className="w-full text-[15px] font-black text-gray-900 truncate leading-tight text-center">
         {TEAM_NAMES[teamCode] || teamCode}
       </div>
