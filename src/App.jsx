@@ -15812,10 +15812,7 @@ function playoffOutlook2026(ctx) {
       if (p[t].best < PLAYOFF_SPOTS_2026) canMake[t] = true;
     }
   }
-  for (const t of TEAMS_2026) {
-    if (!canMiss[t]) out[t].status = "clinched";
-    else if (!canMake[t]) out[t].status = "eliminated";
-  }
+  for (const t of TEAMS_2026) if (!canMiss[t]) out[t].status = "clinched";
 
   const charged = (results, pick) => {
     const c = withResults2026(ctx, results);
@@ -15839,6 +15836,13 @@ function playoffOutlook2026(ctx) {
         }
       }
     }
+  }
+  // Eliminated means eliminated: no combination of results AND no forfeit by
+  // any rival can get this team into the top 4. A team that is out on results
+  // alone but could still be rescued by a rival forfeiting is not eliminated
+  // and is not marked as such.
+  for (const t of TEAMS_2026) {
+    if (!canMake[t] && !out[t].needsRivalForfeit) out[t].status = "eliminated";
   }
   return out;
 }
