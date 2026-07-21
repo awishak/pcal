@@ -16079,13 +16079,14 @@ function thAgeFromDob(dob) {
   return (a > 5 && a < 100) ? a : null;
 }
 
-function ThAvatar({ name, size, photoUrl }) {
+function ThAvatar({ name, size, photoUrl, square = false }) {
   const s = { width: size, height: size };
+  const shape = square ? "rounded-xl" : "rounded-full";
   if (photoUrl && !thIsGuest(name)) {
-    return <img src={photoUrl} alt="" style={{ ...s, objectFit: "cover", objectPosition: "top center" }} className="rounded-full flex-shrink-0 bg-gray-100" />;
+    return <img src={photoUrl} alt="" style={{ ...s, objectFit: "cover", objectPosition: "top center" }} className={`${shape} flex-shrink-0 bg-gray-100`} />;
   }
   return (
-    <div style={s} className="rounded-full flex-shrink-0 bg-gray-200 flex items-center justify-center text-gray-500 font-bold" >
+    <div style={s} className={`${shape} flex-shrink-0 bg-gray-200 flex items-center justify-center text-gray-500 font-bold`} >
       <span style={{ fontSize: Math.round(size * 0.36) }}>{thInitials(name)}</span>
     </div>
   );
@@ -16108,12 +16109,14 @@ function th2026AiScore(name) {
 // One player, full width. Everything the old card and its expandable panel
 // showed, minus season totals, with AI Score in place of Game Score.
 function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCareerLinks, photoUrl,
-  isAdmin, jerseyValue, onJerseyChange, onEditPhoto }) {
+  isAdmin, jerseyValue, onJerseyChange, onEditPhoto, aiScore }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const s = season.avg;
   const info = useMemo(() => thSeasonInfo(name), [name]);
-  const ai = useMemo(() => th2026AiScore(name), [name]);
+  const ai = aiScore !== undefined ? aiScore : th2026AiScore(name);
+  // Admins see the number, not an input, until they choose to change it.
+  const [editingJersey, setEditingJersey] = useState(false);
   const age = thAgeFromDob(dob);
   const guest = thIsGuest(name);
   const parts = String(name).trim().split(/\s+/);
@@ -16126,7 +16129,7 @@ function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCare
   const Stat = ({ label, value }) => (
     <div className="rounded-lg bg-gray-50 py-1.5 text-center">
       <div className="text-sm font-black text-gray-900 tabular-nums">{value}</div>
-      <div className="text-[11px] font-bold text-gray-900">{label}</div>
+      <div className="text-[11px] font-normal text-gray-900">{label}</div>
     </div>
   );
 
@@ -16137,7 +16140,7 @@ function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCare
           {isAdmin && onEditPhoto ? (
             <span role="button" tabIndex={0} title="Edit photo"
               onClick={() => onEditPhoto(name)} className="relative block cursor-pointer">
-              <ThAvatar name={name} size={96} photoUrl={photoUrl} />
+              <ThAvatar name={name} size={96} photoUrl={photoUrl} square />
               <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center border-2 border-white">
                 <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -16146,17 +16149,8 @@ function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCare
               </span>
             </span>
           ) : (
-            <ThAvatar name={name} size={96} photoUrl={photoUrl} />
+            <ThAvatar name={name} size={96} photoUrl={photoUrl} square />
           )}
-          {isAdmin ? (
-            <input
-              value={jerseyValue}
-              onChange={(e) => onJerseyChange(rosterEntry.roster_id, e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
-              inputMode="numeric" placeholder="#"
-              className="absolute -bottom-1 -right-1 w-8 text-center text-[11px] font-bold text-gray-900 tabular-nums border border-gray-300 rounded bg-white py-0.5" />
-          ) : num ? (
-            <span className="absolute -bottom-1 -right-1 min-w-[24px] px-1.5 text-center text-[12px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[22px]">#{num}</span>
-          ) : null}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -16170,11 +16164,31 @@ function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCare
           </div>
           {!guest && (
             <div className="mt-1 text-[12px] text-gray-900 leading-snug space-y-0.5">
-              <div><span className="font-bold">Age</span> {age || "-"} <span className="text-gray-300">|</span> <span className="font-bold">Debut</span> <span className="tabular-nums">{info.debut}</span></div>
-              <div><span className="font-bold">Exp</span> {thExpLabel(info.seasons)}</div>
-              <div><span className="font-bold">From</span> {fromText}</div>
+              <div><span className="font-normal">Age</span> <span className="font-bold">{age || "-"}</span> <span className="text-gray-300">|</span> <span className="font-normal">Debut</span> <span className="font-bold tabular-nums">{info.debut}</span></div>
+              <div><span className="font-normal">Exp</span> <span className="font-bold">{thExpLabel(info.seasons)}</span></div>
+              <div><span className="font-normal">From</span> <span className="font-bold">{fromText}</span></div>
             </div>
           )}
+        </div>
+
+        {/* Jersey number, large, on the right. Admins tap it to edit. */}
+        <div className="shrink-0 text-right">
+          {isAdmin && editingJersey ? (
+            <input
+              value={jerseyValue}
+              autoFocus
+              onBlur={() => setEditingJersey(false)}
+              onChange={(e) => onJerseyChange(rosterEntry.roster_id, e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+              inputMode="numeric" placeholder="#"
+              className="w-16 text-right text-3xl font-black text-gray-900 tabular-nums border-b-2 border-gray-900 bg-white leading-none outline-none" />
+          ) : isAdmin ? (
+            <button onClick={() => setEditingJersey(true)} title="Edit jersey number" className="leading-none active:opacity-60">
+              <span className="text-4xl font-black text-gray-900 tabular-nums leading-none">{num || "-"}</span>
+              <span className="block text-[11px] text-gray-500">edit</span>
+            </button>
+          ) : num ? (
+            <span className="text-4xl font-black text-gray-900 tabular-nums leading-none">{num}</span>
+          ) : null}
         </div>
       </div>
 
@@ -16961,6 +16975,24 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
   }, [photoVersion, rosters, photoTick]);
   const photoFor = (name) => photoIndex[thNorm(name)] || null;
 
+  // 2026 AI Score by normalised name, so ordering a roster does not re-scan
+  // DATA once per player.
+  const aiByName = useMemo(() => {
+    const m = {};
+    for (const r of DATA) if (r.year === 2026 && typeof r.aiScore === "number") m[thNorm(r.player)] = r.aiScore;
+    return m;
+  }, [DATA.length, GAME_LOG.length]);
+  // Roster order: best AI Score first, guests last, name as the final tiebreak
+  // so the list does not reshuffle between renders.
+  const rankRoster = (list) => [...list].sort((a, b) => {
+    const ga = thIsGuest(a.player_name) ? 1 : 0, gb = thIsGuest(b.player_name) ? 1 : 0;
+    if (ga !== gb) return ga - gb;
+    const av = aiByName[thNorm(a.player_name)], bv = aiByName[thNorm(b.player_name)];
+    const an = av == null ? -Infinity : av, bn = bv == null ? -Infinity : bv;
+    if (an !== bn) return bn - an;
+    return a.player_name.localeCompare(b.player_name);
+  });
+
   const schedByTeam = useMemo(() => {
     const m = {}; for (const t of TEAMS_2026) m[t] = [];
     (schedule || []).forEach(g => { if (m[g.home_team]) m[g.home_team].push(g); if (m[g.away_team]) m[g.away_team].push(g); });
@@ -17251,10 +17283,11 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
                 <div className="px-3 pb-3">
                   {roster.length === 0 && <div className="text-xs text-gray-400 py-3">No active players.</div>}
                   <div className="space-y-2 pt-1">
-                    {roster.map(p => (
+                    {rankRoster(roster).map(p => (
                       <RosterHeroCard
                         key={p.roster_id}
                         rosterEntry={p}
+                        aiScore={aiByName[thNorm(p.player_name)] ?? null}
                         goToPlayer={goToPlayer}
                         dob={dobMap[thNorm(p.player_name)]}
                         hometown={cityMap[thNorm(p.player_name)]}
