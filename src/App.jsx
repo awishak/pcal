@@ -17137,8 +17137,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
           </button>
         )}
       </div>
-      <p className="text-[11px] text-gray-400">All stats subject to adjustment from review.</p>
-      <p className="text-[11px] text-gray-500 mb-2">{teamPage ? "Tap any player to see their 2026 season stats." : "Teams are listed in standings order. Tap a team to see its roster."}</p>
+      {!teamPage && <p className="text-[11px] text-gray-500 mb-2">Teams are listed in standings order. Tap a team to see its roster.</p>}
 
       <div className={`flex flex-wrap items-center gap-1.5 mb-3 ${teamPage ? "hidden" : ""}`}>
         <button
