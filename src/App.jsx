@@ -14415,15 +14415,7 @@ function AllSchedulesView({ initialMode, scheduleWarning = { bannerEnabled: fals
       {!initialMode && (
         <div className="flex gap-1.5 mb-3">
           <button onClick={() => setSchedMode("schedule")} className={`px-3 py-1.5 rounded-xl text-xs font-bold ${schedMode === "schedule" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Schedule</button>
-          <button onClick={() => setSchedMode("standings")} className={`px-3 py-1.5 rounded-xl text-xs font-bold ${schedMode === "standings" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Standings</button>
           <button onClick={() => setSchedMode("matchup")} className={`px-3 py-1.5 rounded-xl text-xs font-bold ${schedMode === "matchup" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>Matchup History</button>
-        </div>
-      )}
-
-      {schedMode === "standings" && (
-        <div>
-          <p className="text-lg font-black text-gray-900 mb-4">2026 Standings</p>
-          <Standings2026Table />
         </div>
       )}
 
@@ -15645,6 +15637,15 @@ function pairTiebreak2026(a, b, ctx) {
 // Who each team holds the tiebreaker over, for the TB Over column. Settled
 // results sort ahead of leads, which sort ahead of edges.
 const TB_KIND_RANK_2026 = { forfeit: 0, sweep: 1, lead: 2, edge: 3, trivia: 4 };
+
+// How settled a tiebreaker edge is: bold for a result nothing can change,
+// plain for a lead with a rematch pending, italic for an edge resting on
+// spiritual fouls or Strength of Wins.
+const kindClass2026 = (kind) =>
+  (kind === "forfeit" || kind === "sweep") ? "font-black text-gray-900"
+    : kind === "edge" ? "italic text-gray-500"
+      : kind === "trivia" ? "text-gray-400"
+        : "text-gray-600";
 
 const pairKey2026 = (a, b) => [a, b].sort().join("-");
 
@@ -16868,12 +16869,6 @@ function thBuildNameMap(names) {
   return out;
 }
 
-const EMPTY_PENALTIES_2026 = { forfeits: [], spiritual: [] };
-
-// TB Over is capped so a wide tie doesn't push the row off a phone screen.
-// The overflow count keeps it honest rather than silently truncating.
-const TB_OVER_CAP_2026 = 3;
-
 // Bible trivia marker. No emoji anywhere in this app, so this is an inline SVG.
 const BibleIcon = ({ size = 11, className = "" }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -16887,209 +16882,6 @@ const BibleIcon = ({ size = 11, className = "" }) => (
 // Standings mode, so both show the same numbers. Renders the tiebreaker state
 // rather than just the record: who holds the tiebreaker over whom, and once
 // expanded, why.
-function Standings2026Table({ regularOnly = true, penalties = null }) {
-  const [ownPen, setOwnPen] = useState(null);
-  useEffect(() => {
-    if (penalties) return undefined;
-    let alive = true;
-    (async () => { const p = await fetchTeamPenalties(2026); if (alive) setOwnPen(p); })();
-    return () => { alive = false; };
-  }, [penalties]);
-  const pen = penalties || ownPen || EMPTY_PENALTIES_2026;
-
-  // The schedule is what puts a team's games in true order. GAME_LOG carries a
-  // date but no tip time, so two games on the same Sunday could not otherwise
-  // be told apart, and the form list would show them in the wrong order.
-  const [schedRows, setSchedRows] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const { data } = await supabase.from("schedule").select("*").eq("season", 2026)
-        .order("game_date", { ascending: true }).order("game_time", { ascending: true });
-      if (alive) setSchedRows(data || []);
-    })();
-    return () => { alive = false; };
-  }, []);
-
-  // Opponents each team still has to play, in the order they come up. Read
-  // from unplayed scheduled games rather than assuming a fixed season length,
-  // so a schedule change is picked up for free. Regular season only, to match
-  // the record beside it. A team met twice appears twice.
-  const remainingByTeam = useMemo(() => {
-    const results = compute2026Results();
-    const md = (iso) => { const p = String(iso || "").split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : String(iso || ""); };
-    const out = {};
-    for (const t of TEAMS_2026) out[t] = [];
-    for (const g of (schedRows || [])) {
-      if (g.game_type && g.game_type !== "R") continue;
-      const md1 = md(g.game_date);
-      const played = results[`${md1}|${g.home_team}|${g.away_team}`] != null
-        && results[`${md1}|${g.away_team}|${g.home_team}`] != null;
-      if (played) continue;
-      if (out[g.home_team]) out[g.home_team].push(g.away_team);
-      if (out[g.away_team]) out[g.away_team].push(g.home_team);
-    }
-    return out;
-  }, [schedRows, GAME_LOG.length]);
-
-  const ctx = useMemo(() => build2026Context(pen, regularOnly), [pen, regularOnly]);
-  const standings = useMemo(() => standingsFromContext2026(ctx), [ctx]);
-  const eligible = useMemo(() => tieEligiblePairs2026(ctx), [ctx]);
-  const tbOver = useMemo(() => tiebreakOver2026(ctx, eligible), [ctx, eligible]);
-  const outlook = useMemo(() => playoffOutlook2026(ctx), [ctx]);
-  const [expanded, setExpanded] = useState(false);
-
-  // How settled the edge is drives the styling: bold for a result nothing can
-  // change, plain for a lead with a rematch pending, italic for an edge that
-  // rests on spiritual fouls or Strength of Wins.
-  const kindClass = (kind) =>
-    (kind === "forfeit" || kind === "sweep") ? "font-black text-gray-900"
-      : kind === "edge" ? "italic text-gray-500"
-        : kind === "trivia" ? "text-gray-400"
-          : "text-gray-600";
-
-  return (
-    <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden mb-7">
-      <div className="px-3 py-2.5 border-b border-gray-100">
-        <button
-          onClick={() => setExpanded(v => !v)}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-bold ${expanded ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
-          {expanded ? "Hide playoff info" : "Show playoff info"}
-          <svg className={`w-3 h-3 ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </div>
-
-      {expanded && (
-        <div className="px-3 py-3 bg-gray-50 border-b border-gray-100 space-y-2">
-          <p className="text-[12px] font-black text-gray-900 uppercase tracking-wide">How ties are broken</p>
-          <ol className="space-y-0.5 text-[12px] text-gray-600 leading-snug">
-            <li>1. Win percentage</li>
-            <li>2. Fewer forfeits</li>
-            <li>3. Head to head, the combined record against the other teams in the tie</li>
-            <li>4. Fewer spiritual fouls</li>
-            <li>5. Strength of Wins, the total wins of every team beaten, counted once per win</li>
-            <li className="flex items-center gap-1">6. Bible trivia <BibleIcon className="text-gray-400" /></li>
-          </ol>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            If a step separates a single team out of a tie of three or more, that team is placed and the remaining teams start the procedure over at step 1.
-          </p>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            TB Over lists teams whose season series is already complete and who can still finish level on record. A team with a rematch still to play is left off, since the tiebreaker between them is not settled yet. <span className="font-black text-gray-900">Bold</span> is a sweep, <span className="italic">italic</span> rests on spiritual fouls or Strength of Wins.
-          </p>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            A <span className="font-black text-emerald-600">green edge</span> on a row means that team has clinched a top 4 spot.
-          </p>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            Remaining shows the opponents a team still has to play, in schedule order.
-          </p>
-          <p className="text-[11px] text-gray-500 leading-snug">
-            Clinching is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
-          </p>
-          <p className="text-[11px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
-        </div>
-      )}
-
-      <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 border-b border-gray-100 text-[11px] font-black text-gray-900 uppercase tracking-wider">
-        <span className="w-4 text-center">#</span>
-        <span className="w-[22px]" />
-        <span className="flex-1 min-w-0">Team</span>
-        <span className="w-10 text-right">W-L</span>
-        <span className="w-9 text-right">Pct</span>
-        <span className="w-[74px] text-right">TB Over</span>
-        <span className="w-7 text-right">SoW</span>
-        <span className="w-9 text-right">Misc</span>
-      </div>
-
-      {standings.map((row, i) => {
-        const list = tbOver[row.team] || [];
-        const shown = list.slice(0, TB_OVER_CAP_2026);
-        const extra = list.length - shown.length;
-        const look = outlook[row.team];
-        const remaining = remainingByTeam[row.team] || [];
-        return (
-          <div key={row.team}>
-            {/* Green edge marks a clinched playoff spot. Unclinched rows carry
-                a transparent border of the same width so nothing shifts. */}
-            <div className={`border-l-4 ${look.status === "clinched" ? "border-emerald-500" : "border-transparent"}`}>
-            <div className={`flex items-center gap-1.5 pl-2 pr-3 py-2.5 ${i === 0 ? "bg-gray-50/60" : ""}`}>
-              <span className="w-4 text-center text-sm font-black text-gray-900 tabular-nums">{i + 1}</span>
-              <TeamLogo team={row.team} size={22} />
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-x-1.5">
-                  <span className="text-[13px] font-bold text-gray-900 leading-tight">
-                    {TEAM_FULL_NAMES[row.team] || TEAM_NAMES[row.team] || row.team}
-                  </span>
-                  {row.trivia && <BibleIcon size={12} className="text-gray-400 shrink-0" />}
-                </div>
-                {/* Opponents still to play, in schedule order. */}
-                {remaining.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1 leading-tight mt-0.5">
-                    <span className="text-[11px] text-gray-500">Remaining:</span>
-                    {remaining.map((opp, k) => (
-                      <TeamLogo key={`${opp}${k}`} team={opp} size={15} />
-                    ))}
-                  </div>
-                )}
-              </div>
-              <span className="w-10 text-right text-[14px] font-black text-gray-900 tabular-nums">{row.w}-{row.l}</span>
-              <span className="w-9 text-right text-[12px] font-semibold text-gray-900 tabular-nums">{(row.pct || 0).toFixed(3).replace(/^0/, "")}</span>
-              <span className="w-[74px] text-right text-[11px] leading-tight">
-                {shown.length === 0 ? <span className="text-gray-300">-</span> : shown.map((x, k) => (
-                  <span key={x.opp} className={kindClass(x.kind)}>{x.opp}{k < shown.length - 1 ? " " : ""}</span>
-                ))}
-                {extra > 0 && <span className="text-gray-400"> +{extra}</span>}
-              </span>
-              <span className="w-7 text-right text-[12px] font-semibold text-gray-900 tabular-nums">{row.sow}</span>
-              <span className="w-9 text-right text-[11px] font-bold leading-tight">
-                {row.forfeits > 0 && <span className="text-red-500 block">{row.forfeits} FF</span>}
-                {row.spiritual > 0 && <span className="text-amber-600 block">{row.spiritual} SF</span>}
-                {row.forfeits === 0 && row.spiritual === 0 && <span className="text-gray-300">-</span>}
-              </span>
-            </div>
-
-
-            {expanded && (
-              <div className="pr-3 pb-3 pl-[34px] space-y-0.5">
-                {(() => {
-                  const lines = tbSummaryLines2026(row.team, ctx, eligible);
-                  if (lines.length === 0) {
-                    return <p className="text-[11px] text-gray-400 leading-snug">No team can still finish level with {TEAM_NAMES[row.team] || row.team}</p>;
-                  }
-                  return lines.map((text, k) => (
-                    <p key={k} className="text-[11px] text-gray-600 leading-snug">{text}</p>
-                  ));
-                })()}
-                {look.status === "clinched" && !look.clinchRestsOnNoForfeit && (
-                  <p className="text-[11px] font-bold text-emerald-600 leading-snug pt-0.5">In the top 4 under every combination of results and forfeits</p>
-                )}
-                {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
-                  <p className="text-[11px] font-bold text-emerald-600 leading-snug pt-0.5">In the top 4 on results, but forfeiting a game of their own could still cost them the spot</p>
-                )}
-                {look.needsRivalForfeit && (
-                  <p className="text-[11px] font-bold text-amber-600 leading-snug pt-0.5">Cannot reach the top 4 on results. Only another team forfeiting puts them back in, since fewer forfeits is step 2.</p>
-                )}
-              </div>
-            )}
-            </div>
-
-            {i === PLAYOFF_SPOTS_2026 - 1 && (
-              <div className="flex items-center gap-2 px-3 py-1">
-                <span className="h-px flex-1 bg-gray-900/20" />
-                <span className="text-[11px] font-black text-gray-900 uppercase tracking-widest">Playoff cut</span>
-                <span className="h-px flex-1 bg-gray-900/20" />
-              </div>
-            )}
-            {i !== PLAYOFF_SPOTS_2026 - 1 && i < standings.length - 1 && <div className="border-b border-gray-50" />}
-          </div>
-        );
-      })}
-
-    </div>
-  );
-}
-
 function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, rosterCols = 3, setRosterCols, photoVersion = 0 }) {
   // Forfeits and spiritual fouls are tiebreaker steps 2 and 4. They live in
   // their own tables, so the ladder runs without them until this resolves.
@@ -17102,7 +16894,14 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
     })();
     return () => { alive = false; };
   }, []);
-  const standings = useMemo(() => sortStandings(regularOnly, penalties), [regularOnly, penalties]);
+  // Everything the tiebreaker ladder needs. Built once and shared, rather than
+  // letting sortStandings rebuild the context on its own.
+  const ctx = useMemo(() => build2026Context(penalties, regularOnly), [penalties, regularOnly]);
+  const standings = useMemo(() => standingsFromContext2026(ctx), [ctx]);
+  const eligible = useMemo(() => tieEligiblePairs2026(ctx), [ctx]);
+  const tbOver = useMemo(() => tiebreakOver2026(ctx, eligible), [ctx, eligible]);
+  const outlook = useMemo(() => playoffOutlook2026(ctx), [ctx]);
+  const [showPlayoffInfo, setShowPlayoffInfo] = useState(false);
   const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
   // Roster cards follow the standings, so the order matches the table above.
   const teamsRanked = useMemo(() => standings.map(r => r.team), [standings]);
@@ -17200,6 +16999,23 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   // Convert a schedule "YYYY-MM-DD" into the game log's "M/D" (no leading zeros).
   const mdKey = (iso) => { if (!iso) return ""; const p = iso.split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : iso; };
 
+  // Opponents each team still has to play, in the order they come up. Read from
+  // unplayed scheduled games rather than assuming a fixed season length, so a
+  // schedule change is picked up for free.
+  const remainingByTeam = useMemo(() => {
+    const out = {};
+    for (const t of TEAMS_2026) out[t] = [];
+    for (const g of (schedule || [])) {
+      if (g.game_type && g.game_type !== "R") continue;
+      const md = mdKey(g.game_date);
+      if (resultByKey[`${md}|${g.home_team}|${g.away_team}`] != null
+        && resultByKey[`${md}|${g.away_team}|${g.home_team}`] != null) continue;
+      if (out[g.home_team]) out[g.home_team].push(g.away_team);
+      if (out[g.away_team]) out[g.away_team].push(g.home_team);
+    }
+    return out;
+  }, [schedule, resultByKey]);
+
   // The team's most recent game day and its next one, each carrying every game
   // on that day. Teams play twice a day, so both usually hold two games. A bye
   // means the next day is not necessarily next week, which is why this keys off
@@ -17290,9 +17106,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
 
   return (
     <div>
-      <p className="text-xl font-black text-gray-900 mb-3">2026 Standings</p>
-      <Standings2026Table regularOnly={regularOnly} penalties={penalties} />
-
       <div className="flex items-center justify-between mb-1">
         <p className="text-xl font-black text-gray-900">Teams</p>
         {isAdmin && (
@@ -17304,11 +17117,47 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
         )}
       </div>
       <p className="text-[11px] text-gray-400">All stats subject to adjustment from review.</p>
-      <p className="text-[11px] text-gray-500 mb-3">Tap any player to see their 2026 season stats.</p>
+      <p className="text-[11px] text-gray-500 mb-2">Teams are listed in standings order. Tap any player to see their 2026 season stats.</p>
+
+      <button
+        onClick={() => setShowPlayoffInfo(v => !v)}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-bold mb-3 ${showPlayoffInfo ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
+        {showPlayoffInfo ? "Hide playoff info" : "Show playoff info"}
+        <svg className={`w-3 h-3 ${showPlayoffInfo ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {showPlayoffInfo && (
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 mb-3 space-y-2">
+          <p className="text-[12px] font-black text-gray-900 uppercase tracking-wide">How ties are broken</p>
+          <ol className="space-y-0.5 text-[12px] text-gray-600 leading-snug">
+            <li>1. Win percentage</li>
+            <li>2. Fewer forfeits</li>
+            <li>3. Head to head, the combined record against the other teams in the tie</li>
+            <li>4. Fewer spiritual fouls</li>
+            <li>5. Strength of Wins, the total wins of every team beaten, counted once per win</li>
+            <li className="flex items-center gap-1">6. Bible trivia <BibleIcon className="text-gray-400" /></li>
+          </ol>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            If a step separates a single team out of a tie of three or more, that team is placed and the remaining teams start the procedure over at step 1.
+          </p>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            TB Over lists teams whose season series is already complete and who can still finish level on record. A team with a rematch still to play is left off, since the tiebreaker between them is not settled yet.
+          </p>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            Clinching is worked out from match results only, holding forfeits and spiritual fouls at their current counts. No team is ever shown as out, since fewer forfeits is step 2 and a forfeit by a rival can pull a team back into the top 4.
+          </p>
+          <p className="text-[11px] text-gray-400 italic leading-snug">All tiebreakers are subject to change.</p>
+        </div>
+      )}
 
       <div className="space-y-2">
-        {teamsRanked.map(team => {
+        {teamsRanked.map((team, ti) => {
           const rec = recById[team] || { w: 0, l: 0 };
+          const look = outlook[team] || { status: null, needsRivalForfeit: false, clinchRestsOnNoForfeit: false };
+          const remaining = remainingByTeam[team] || [];
+          const tbList = tbOver[team] || [];
           const open = expanded.has(team);
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
@@ -17319,10 +17168,12 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           const rows = [];
           for (let i = 0; i < roster.length; i += cols) rows.push(roster.slice(i, i + cols));
           return (
-            <div key={team} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+            <React.Fragment key={team}>
+            <div className={`rounded-2xl border bg-white overflow-hidden ${look.status === "clinched" ? "border-emerald-500" : "border-gray-100"}`}>
               <button onClick={() => toggleTeam(team)} className="w-full p-3 text-left active:bg-gray-50">
-                <div className="flex items-center gap-3">
-                  <TeamLogo team={team} size={36} />
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full border-2 border-gray-900 text-[12px] font-black text-gray-900 tabular-nums leading-none">{ti + 1}</span>
+                  <TeamLogo team={team} size={32} />
                   <span className="flex-1 min-w-0">
                     <span className="block text-base font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
                     {scoreNote && <span className="block text-[11px] text-gray-500 leading-tight">{scoreNote}</span>}
@@ -17330,6 +17181,13 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                   <span className="text-lg font-black text-gray-900 tabular-nums leading-none">{rec.w}-{rec.l}</span>
                   <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </div>
+
+                {remaining.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 mt-2">
+                    <span className="text-[11px] text-gray-500">Remaining:</span>
+                    {remaining.map((opp, k) => <TeamLogo key={`${opp}${k}`} team={opp} size={15} />)}
+                  </div>
+                )}
 
                 {/* Last game day and next one. Stays visible when collapsed. */}
                 {(blocks.last || blocks.next) && (
@@ -17366,6 +17224,46 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Standings detail: clinch, who they hold a tiebreaker over,
+                    Strength of Wins, and any forfeits or spiritual fouls. */}
+                <div className="mt-3 pt-2 border-t border-gray-100 text-center text-[11px] leading-snug">
+                  <span className="text-gray-500">
+                    {look.status === "clinched" && (
+                      <span className="font-black text-emerald-600">Clinched{look.clinchRestsOnNoForfeit ? "*" : ""}</span>
+                    )}
+                    {look.status === "clinched" && <span className="text-gray-300"> · </span>}
+                    {tbList.length > 0 && (
+                      <>
+                        <span>TB over </span>
+                        {tbList.map((x, k) => (
+                          <span key={x.opp} className={kindClass2026(x.kind)}>{x.opp}{k < tbList.length - 1 ? " " : ""}</span>
+                        ))}
+                        <span className="text-gray-300"> · </span>
+                      </>
+                    )}
+                    <span>Strength of Wins {ctx.sow[team]}</span>
+                    {ctx.forfeits[team] > 0 && <><span className="text-gray-300"> · </span><span className="font-bold text-red-500">{ctx.forfeits[team]} FF</span></>}
+                    {ctx.spiritual[team] > 0 && <><span className="text-gray-300"> · </span><span className="font-bold text-amber-600">{ctx.spiritual[team]} SF</span></>}
+                  </span>
+                </div>
+
+                {showPlayoffInfo && (
+                  <div className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
+                    {tbSummaryLines2026(team, ctx, eligible).map((text, k) => (
+                      <p key={k} className="text-[11px] text-gray-600 leading-snug">{text}</p>
+                    ))}
+                    {look.status === "clinched" && !look.clinchRestsOnNoForfeit && (
+                      <p className="text-[11px] font-bold text-emerald-600 leading-snug">In the top 4 under every combination of results and forfeits</p>
+                    )}
+                    {look.status === "clinched" && look.clinchRestsOnNoForfeit && (
+                      <p className="text-[11px] font-bold text-emerald-600 leading-snug">*In the top 4 on results, but forfeiting a game of their own could still cost them the spot</p>
+                    )}
+                    {look.needsRivalForfeit && (
+                      <p className="text-[11px] font-bold text-amber-600 leading-snug">Cannot reach the top 4 on results. Only another team forfeiting puts them back in, since fewer forfeits is step 2.</p>
+                    )}
                   </div>
                 )}
               </button>
@@ -17457,6 +17355,14 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                 </div>
               )}
             </div>
+            {ti === PLAYOFF_SPOTS_2026 - 1 && (
+              <div className="flex items-center gap-2 py-1">
+                <span className="h-px flex-1 bg-gray-900/20" />
+                <span className="text-[11px] font-black text-gray-900 uppercase tracking-wide text-center">Top 4 teams make playoffs</span>
+                <span className="h-px flex-1 bg-gray-900/20" />
+              </div>
+            )}
+            </React.Fragment>
           );
         })}
       </div>
