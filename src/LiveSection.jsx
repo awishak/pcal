@@ -2805,6 +2805,15 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     setFlash({ text, tone });
     flashRef.current = setTimeout(() => setFlash(null), 650);
   };
+  const setMode = (m) => {
+    setScoreMode(m);
+    try { localStorage.setItem("pcal_score_mode", m); } catch (e) { /* private browsing */ }
+    setPendingStat(null); setPromptMode(null); setPickedPlayer(null);
+  };
+
+  const myTeamCode = myRole === "home_scorer" ? game.home_team : myRole === "away_scorer" ? game.away_team : null;
+  const myRoster = myRole === "home_scorer" ? rosters.home : myRole === "away_scorer" ? rosters.away : [];
+
   // Six fouls is a disqualification, which a scorer must not miss. Fires once
   // per player; the ref stops it firing again on every re-render or refetch.
   const [fouledOut, setFouledOut] = useState(null);
@@ -2820,14 +2829,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     }
   }, [box, myTeamCode]);
 
-  const setMode = (m) => {
-    setScoreMode(m);
-    try { localStorage.setItem("pcal_score_mode", m); } catch (e) { /* private browsing */ }
-    setPendingStat(null); setPromptMode(null); setPickedPlayer(null);
-  };
-
-  const myTeamCode = myRole === "home_scorer" ? game.home_team : myRole === "away_scorer" ? game.away_team : null;
-  const myRoster = myRole === "home_scorer" ? rosters.home : myRole === "away_scorer" ? rosters.away : [];
 
   const gameStatus = live?.status || "scheduled";
   const gameIsOver = gameStatus === "ended" || gameStatus === "approved";
