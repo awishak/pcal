@@ -326,6 +326,21 @@ const kitFor = (team) => JERSEY_KIT[team] || { body: "#111827", ink: "#ffffff", 
 
 const thIsGuestName = (n) => /^GUEST\b/i.test(String(n || "").trim());
 
+// Ball for the assist pass animation. Drawn, not an emoji.
+function BallIcon({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" fill="#e2711d" stroke="#7c3f0d" strokeWidth="1" />
+      <g stroke="#7c3f0d" strokeWidth="1.1" fill="none">
+        <path d="M1 12h22" />
+        <path d="M12 1v22" />
+        <path d="M4 3.5c3.5 3.6 3.5 13.4 0 17" />
+        <path d="M20 3.5c-3.5 3.6-3.5 13.4 0 17" />
+      </g>
+    </svg>
+  );
+}
+
 // Flame for a hot shooter. No emoji anywhere in this app, so it is drawn.
 function FireIcon({ size = 15 }) {
   return (
@@ -2947,6 +2962,41 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   const [celebrate, setCelebrate] = useState(null);
   const celebrateRef = useRef(null);
   useEffect(() => () => clearTimeout(celebrateRef.current), []);
+  // An assisted basket throws a ball from the passer's row to the scorer's row,
+  // then the scorer's row lights up. Positions are measured off the live cards
+  // after the roster has painted, so it follows the real layout however the
+  // ordering has shuffled.
+  const [pass, setPass] = useState(null);
+  const ballRef = useRef(null);
+  const cardAt = (playerName) => {
+    const nodes = document.querySelectorAll("[data-player-card]");
+    for (const n of nodes) if (n.getAttribute("data-player-card") === playerName) return n;
+    return null;
+  };
+  useEffect(() => {
+    if (!pass) return undefined;
+    let dead = false;
+    const reduce = typeof window !== "undefined"
+      && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const raf = requestAnimationFrame(() => {
+      const from = cardAt(pass.from), to = cardAt(pass.to), el = ballRef.current;
+      const done = () => { if (!dead) { fireCelebrate(pass.to, pass.pts); setPass(null); } };
+      if (reduce || !from || !to || !el || !el.animate) { done(); return; }
+      const a1 = from.getBoundingClientRect(), b1 = to.getBoundingClientRect();
+      const x0 = a1.left + 34, y0 = a1.top + a1.height / 2 - 13;
+      const x1 = b1.left + 34, y1 = b1.top + b1.height / 2 - 13;
+      const arc = Math.min(y0, y1) - Math.max(46, Math.abs(y1 - y0) * 0.45);
+      const anim = el.animate([
+        { transform: `translate(${x0}px, ${y0}px) scale(.55)`, opacity: 0 },
+        { transform: `translate(${(x0 + x1) / 2}px, ${arc}px) scale(1.15)`, opacity: 1, offset: 0.5 },
+        { transform: `translate(${x1}px, ${y1}px) scale(.7)`, opacity: 0 },
+      ], { duration: 620, easing: "cubic-bezier(.3,.7,.4,1)" });
+      anim.onfinish = done;
+      anim.oncancel = done;
+    });
+    return () => { dead = true; cancelAnimationFrame(raf); };
+  }, [pass]);
+
   const fireCelebrate = (playerName, pts) => {
     if (!playerName || !pts) return;
     clearTimeout(celebrateRef.current);
@@ -3260,9 +3310,13 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     }
     const shooter = pendingStat?.shooter?.player_name;
     const pts = pendingStat?.key === "made_3" ? 3 : pendingStat?.key === "made_2" ? 2 : 0;
+    const passer = choice === "player" && player ? player.player_name : null;
     setPendingStat(null);
     setPromptMode(null);
-    fireCelebrate(shooter, pts);
+    toTop();
+    if (!pts) return;
+    if (passer && passer !== shooter) setPass({ from: passer, to: shooter, pts, key: Date.now() });
+    else fireCelebrate(shooter, pts);
   };
 
   const cancelPrompt = () => { setPendingStat(null); setPromptMode(null); };
@@ -3660,6 +3714,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       const party = celebrate && celebrate.name === name ? celebrate : null;
       return (
         <button key={p.roster_id}
+          data-player-card={name}
           onClick={onClick}
           disabled={disabled}
           className={`relative overflow-hidden w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : "border-gray-200"}`}>
@@ -3723,6 +3778,13 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         )}
 
         {/* Flash confirmation for the player-first flow. */}
+        {pass && (
+          <span ref={ballRef} aria-hidden="true"
+            className="fixed left-0 top-0 z-50 pointer-events-none will-change-transform">
+            <BallIcon size={26} />
+          </span>
+        )}
+
         {flash && (
           <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
             <div className="rounded-2xl bg-gray-900 px-7 py-4 text-center shadow-xl">
