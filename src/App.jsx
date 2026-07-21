@@ -15760,9 +15760,10 @@ const CLINCH_MAX_SCENARIOS_2026 = 4096;
 // held where they are today, so both verdicts are conditional on those not
 // changing. That matters: fewer forfeits is step 2, above head to head and
 // above spiritual fouls, so a forfeit by a rival can pull a team that is out
-// on results back into the top 4. The UI deliberately never renders the
-// "eliminated" verdict for that reason. It is returned here only because it
-// falls out of the same scan as "clinched".
+// on results back into the top 4. "eliminated" therefore means out on results,
+// not mathematically dead, and needsRivalForfeit says whether a way back
+// exists. The card shows both: an orange border and the sentence explaining
+// what would have to happen.
 // Best and worst finishing position for every team in one hypothetical. An
 // unresolved bible trivia group spans several positions, so the two differ
 // there and the team is credited with neither outcome.
@@ -15811,7 +15812,10 @@ function playoffOutlook2026(ctx) {
       if (p[t].best < PLAYOFF_SPOTS_2026) canMake[t] = true;
     }
   }
-  for (const t of TEAMS_2026) if (!canMiss[t]) out[t].status = "clinched";
+  for (const t of TEAMS_2026) {
+    if (!canMiss[t]) out[t].status = "clinched";
+    else if (!canMake[t]) out[t].status = "eliminated";
+  }
 
   const charged = (results, pick) => {
     const c = withResults2026(ctx, results);
@@ -16902,6 +16906,8 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   const tbOver = useMemo(() => tiebreakOver2026(ctx, eligible), [ctx, eligible]);
   const outlook = useMemo(() => playoffOutlook2026(ctx), [ctx]);
   const [showPlayoffInfo, setShowPlayoffInfo] = useState(false);
+  // Compact strips a card back to identity and record. Expanded is the default.
+  const [compact, setCompact] = useState(false);
   const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
   // Roster cards follow the standings, so the order matches the table above.
   const teamsRanked = useMemo(() => standings.map(r => r.team), [standings]);
@@ -16999,22 +17005,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   // Convert a schedule "YYYY-MM-DD" into the game log's "M/D" (no leading zeros).
   const mdKey = (iso) => { if (!iso) return ""; const p = iso.split("-"); return p.length === 3 ? `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : iso; };
 
-  // Opponents each team still has to play, in the order they come up. Read from
-  // unplayed scheduled games rather than assuming a fixed season length, so a
-  // schedule change is picked up for free.
-  const remainingByTeam = useMemo(() => {
-    const out = {};
-    for (const t of TEAMS_2026) out[t] = [];
-    for (const g of (schedule || [])) {
-      if (g.game_type && g.game_type !== "R") continue;
-      const md = mdKey(g.game_date);
-      if (resultByKey[`${md}|${g.home_team}|${g.away_team}`] != null
-        && resultByKey[`${md}|${g.away_team}|${g.home_team}`] != null) continue;
-      if (out[g.home_team]) out[g.home_team].push(g.away_team);
-      if (out[g.away_team]) out[g.away_team].push(g.home_team);
-    }
-    return out;
-  }, [schedule, resultByKey]);
 
   // The team's most recent game day and its next one, each carrying every game
   // on that day. Teams play twice a day, so both usually hold two games. A bye
@@ -17119,14 +17109,21 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
       <p className="text-[11px] text-gray-400">All stats subject to adjustment from review.</p>
       <p className="text-[11px] text-gray-500 mb-2">Teams are listed in standings order. Tap any player to see their 2026 season stats.</p>
 
-      <button
-        onClick={() => setShowPlayoffInfo(v => !v)}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-bold mb-3 ${showPlayoffInfo ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
-        {showPlayoffInfo ? "Hide playoff info" : "Show playoff info"}
-        <svg className={`w-3 h-3 ${showPlayoffInfo ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+        <button
+          onClick={() => setShowPlayoffInfo(v => !v)}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-bold ${showPlayoffInfo ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
+          {showPlayoffInfo ? "Hide playoff info" : "Show playoff info"}
+          <svg className={`w-3 h-3 ${showPlayoffInfo ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <button
+          onClick={() => setCompact(v => !v)}
+          className={`px-3 py-1.5 rounded-xl text-[12px] font-bold ${compact ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
+          {compact ? "Expanded view" : "Compact view"}
+        </button>
+      </div>
 
       {showPlayoffInfo && (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 mb-3 space-y-2">
@@ -17156,7 +17153,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
         {teamsRanked.map((team, ti) => {
           const rec = recById[team] || { w: 0, l: 0 };
           const look = outlook[team] || { status: null, needsRivalForfeit: false, clinchRestsOnNoForfeit: false };
-          const remaining = remainingByTeam[team] || [];
           const tbList = tbOver[team] || [];
           const open = expanded.has(team);
           const roster = rosterByTeam[team] || [];
@@ -17169,7 +17165,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           for (let i = 0; i < roster.length; i += cols) rows.push(roster.slice(i, i + cols));
           return (
             <React.Fragment key={team}>
-            <div className={`rounded-2xl border bg-white overflow-hidden ${look.status === "clinched" ? "border-emerald-500" : "border-gray-100"}`}>
+            <div className={`rounded-2xl border-2 bg-white overflow-hidden ${look.status === "clinched" ? "border-emerald-500" : look.status === "eliminated" ? "border-orange-500" : "border-gray-900"}`}>
               <button onClick={() => toggleTeam(team)} className="w-full p-3 text-left active:bg-gray-50">
                 <div className="flex items-center gap-2">
                   <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full border-2 border-gray-900 text-[12px] font-black text-gray-900 tabular-nums leading-none">{ti + 1}</span>
@@ -17182,15 +17178,9 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                   <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </div>
 
-                {remaining.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1 mt-2">
-                    <span className="text-[11px] text-gray-500">Remaining:</span>
-                    {remaining.map((opp, k) => <TeamLogo key={`${opp}${k}`} team={opp} size={15} />)}
-                  </div>
-                )}
 
                 {/* Last game day and next one. Stays visible when collapsed. */}
-                {(blocks.last || blocks.next) && (
+                {!compact && (blocks.last || blocks.next) && (
                   <div className="grid grid-cols-2 gap-3 mt-3">
                     {[[blocks.last, false, "Last Games", "No games played yet"], [blocks.next, true, "Next Games", "Season complete"]].map(([block, upcoming, heading, empty], bi) => (
                       <div key={bi} className="min-w-0">
@@ -17203,7 +17193,10 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                               const loss = r.played && r.mine < r.theirs;
                               return (
                                 <div key={k} className={`flex-1 min-w-0 rounded-lg px-1 py-1 text-center ${win ? "bg-emerald-50" : loss ? "bg-red-50" : "bg-gray-50"}`}>
-                                  <div className="text-[11px] font-bold text-gray-900 truncate">{r.opp}</div>
+                                  <div className="flex items-center justify-center gap-1">
+                                    {upcoming && <TeamLogo team={r.opp} size={14} />}
+                                    <span className="text-[11px] font-bold text-gray-900 truncate">{r.opp}</span>
+                                  </div>
                                   {upcoming ? (
                                     <div className="text-[13px] font-black text-gray-700 tabular-nums truncate">{fmtTime(r.g.game_time)}</div>
                                   ) : (
@@ -17229,6 +17222,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
 
                 {/* Standings detail: clinch, who they hold a tiebreaker over,
                     Strength of Wins, and any forfeits or spiritual fouls. */}
+                {!compact && (
                 <div className="mt-3 pt-2 border-t border-gray-100 text-center text-[11px] leading-snug">
                   <span className="text-gray-500">
                     {look.status === "clinched" && (
@@ -17249,8 +17243,9 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                     {ctx.spiritual[team] > 0 && <><span className="text-gray-300"> · </span><span className="font-bold text-amber-600">{ctx.spiritual[team]} SF</span></>}
                   </span>
                 </div>
+                )}
 
-                {showPlayoffInfo && (
+                {showPlayoffInfo && !compact && (
                   <div className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
                     {tbSummaryLines2026(team, ctx, eligible).map((text, k) => (
                       <p key={k} className="text-[11px] text-gray-600 leading-snug">{text}</p>
