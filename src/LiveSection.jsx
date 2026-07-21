@@ -198,6 +198,40 @@ const STAT_BUTTONS = [
 // Lookup used by both flows. "ast" has no STAT_BUTTONS entry (the classic
 // grid can't record one directly), so it is added here with no follow-up
 // prompt.
+// Playing-kit colours, which are not the same as the brand colours used for
+// chips and charts. Pacific play in grey. The rest are placeholders taken from
+// TEAM_COLORS until the real kits are confirmed.
+const JERSEY_KIT = {
+  PDF: { body: "#9ca3af", ink: "#ffffff" },
+  SAC: { body: "#7c3aed", ink: "#ffffff" },
+  MOD: { body: "#dc2626", ink: "#ffffff" },
+  SJO: { body: "#7f1d1d", ink: "#ffffff" },
+  HAY: { body: "#2563eb", ink: "#ffffff" },
+  PLE: { body: "#facc15", ink: "#000000" },
+};
+
+// A jersey with the number on it, rather than a bare numeral. Reads as a kit
+// at a glance, which is how a scorer actually identifies a player on court.
+function JerseyNumber({ team, number, size = 56 }) {
+  const kit = JERSEY_KIT[team] || { body: "#6b7280", ink: "#ffffff" };
+  const n = String(number == null ? "" : number);
+  // Shrink the digits as they get wider so a 3-digit number still fits.
+  const fs = n.length >= 3 ? size * 0.34 : n.length === 2 ? size * 0.42 : size * 0.5;
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-label={n ? `Number ${n}` : "No number"}>
+      {/* Straps, shoulders, then the body tapering to the hem. */}
+      <path
+        d="M20 8 L26 6 Q32 13 38 6 L44 8 L56 16 L50 27 L45 24 L45 58 Q32 61 19 58 L19 24 L14 27 L8 16 Z"
+        fill={kit.body} stroke="rgba(0,0,0,0.18)" strokeWidth="1.5" strokeLinejoin="round"
+      />
+      <text
+        x="32" y="42" textAnchor="middle" fill={kit.ink}
+        style={{ fontSize: fs, fontWeight: 900, fontFamily: "inherit" }}
+      >{n}</text>
+    </svg>
+  );
+}
+
 const STAT_BY_KEY_ALL = Object.assign(
   Object.fromEntries(STAT_BUTTONS.map(s => [s.key, s])),
   { ast: { key: "ast", label: "Assist", pts: 0, prompt: null } }
@@ -2256,8 +2290,9 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
         </div>
         </>)}
 
-        {/* Top 3 performers (chosen by Game Score) below */}
-        <div>
+        {/* Top 3 performers (chosen by Game Score) below. Hidden while
+            scoring: the scorer needs tap targets near the top, not a summary. */}
+        <div className={hideTopBlock ? "hidden" : ""}>
           <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Top Performers</div>
           {top3.length === 0 ? (
             <div className="text-[11px] text-gray-400 py-3">No stats yet.</div>
@@ -2595,7 +2630,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
           {formatGameTime(game.game_time)}
         </span>
       } />
-      <div className="sticky top-11 z-20 -mx-4 px-4 pt-1 pb-2 bg-white">
+      <div className="sticky top-11 z-20 -mx-4 px-4 pt-4 pb-2 bg-white">
         <div className="rounded-2xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
           {children}
         </div>
@@ -2608,10 +2643,10 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
       <div className={`flex items-center gap-1.5 ${align === "right" ? "flex-row-reverse" : ""}`}>
         <TeamLogoLocal team={teamCode} size={18} />
         <span className="text-[12px] font-black text-gray-900 truncate leading-tight">
-          {TEAM_FULL_NAMES[teamCode] || TEAM_NAMES[teamCode] || teamCode}
+          {TEAM_NAMES[teamCode] || teamCode}
         </span>
       </div>
-      <div className="text-4xl font-black text-gray-900 leading-none tabular-nums">{score}</div>
+      <div className={`text-4xl font-black text-gray-900 leading-none tabular-nums ${align === "right" ? "pr-1" : "pl-1"}`}>{score}</div>
       <div className={`mt-1.5 flex ${align === "right" ? "justify-end" : "justify-start"}`}>
         {renderTimeoutPills(teamCode, used)}
       </div>
@@ -2665,9 +2700,9 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 
       {/* Both scores, each with that team's timeouts directly beneath.
           The word sits between the two groups rather than repeating codes. */}
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-1">
         {scoreCol(awayTeam, teamScore?.[awayTeam] || 0, awayTOUsed, "left")}
-        <div className="flex-shrink-0 self-end pb-1">
+        <div className="flex-shrink-0 self-end pb-1 px-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">Timeouts</span>
         </div>
         {scoreCol(homeTeam, teamScore?.[homeTeam] || 0, homeTOUsed, "right")}
@@ -3370,10 +3405,10 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
                 </span>
               )}
             </div>
-            <div className="flex-1 min-w-0 text-center">
-              <div className="text-5xl font-black text-gray-900 leading-none tabular-nums">
-                {jersey || <span className="text-gray-200">-</span>}
-              </div>
+            <div className="flex-1 min-w-0 flex items-center justify-center">
+              {jersey
+                ? <JerseyNumber team={p.team} number={jersey} size={62} />
+                : <span className="text-4xl font-black text-gray-200 leading-none">-</span>}
             </div>
           </div>
           {/* Name underneath, with the stat count beside it rather than
@@ -4214,7 +4249,7 @@ function formatEventText(e) {
     game_start: "Game started",
     game_end: "Game ended",
     reopen: "Game reopened",
-    timeout: `${e.team} timeout`,
+    timeout: `Timeout`,
   };
   const base = map[e.stat_type] || e.stat_type;
   // period_change and timeout already carry the team in their label (or none),
@@ -4227,9 +4262,30 @@ function formatEventText(e) {
 
 function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
   const canEdit = myRole === "home_scorer" || myRole === "away_scorer";
-  const visible = events.filter(e => !e.deleted).slice().reverse();
+  // My team goes left, the opponent right, so two scorers reading the same log
+  // on different phones each see their own side on their own edge.
+  const myTeam = myRole === "home_scorer" ? game.home_team
+    : myRole === "away_scorer" ? game.away_team : game.away_team;
+  const otherTeam = myTeam === game.home_team ? game.away_team : game.home_team;
+
+  // Walk forward to attach a running score to every event that changes it,
+  // then reverse for display so the newest sits on top.
+  const visible = useMemo(() => {
+    const run = { [game.home_team]: 0, [game.away_team]: 0 };
+    const out = [];
+    for (const e of events) {
+      if (e.deleted) continue;
+      const pts = e.stat_type === "made_2" ? 2 : e.stat_type === "made_3" ? 3
+        : e.stat_type === "made_ft" ? 1 : 0;
+      let scored = false;
+      if (pts && e.team && run[e.team] != null) { run[e.team] += pts; scored = true; }
+      out.push({ ...e, _scored: scored, _mine: run[myTeam], _theirs: run[otherTeam] });
+    }
+    return out.reverse();
+  }, [events, game.home_team, game.away_team, myTeam, otherTeam]);
 
   const [editing, setEditing] = useState(null); // event object
+  const [showTime, setShowTime] = useState(false);
 
   const deleteEvent = async (ev) => {
     if (!confirm("Delete this event?")) return;
@@ -4264,28 +4320,47 @@ function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
       {visible.map(e => {
         const mine = e.scorer_pin === me?.pin;
         const milestone = milestoneForEvent(events, e);
+        const isMineTeam = e.team === myTeam;
+        const noTeam = !e.team;
         return (
-          <div key={e.event_id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg border border-gray-100 bg-white text-[11px]">
-            <span className="text-gray-400 tabular-nums w-16">{formatTime(e.event_ts)}</span>
-            <span className="text-gray-400 w-10 font-bold">{e.period}</span>
-            <span className="flex-1 text-gray-700">
-              {formatEventText(e)}
-              {milestone && (
-                <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums align-middle">
-                  {milestone.label}
+            <div key={e.event_id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg border border-gray-100 bg-white text-[11px]">
+              {showTime && <span className="text-gray-400 tabular-nums w-16 flex-shrink-0">{formatTime(e.event_ts)}</span>}
+              <div className={`flex-1 min-w-0 flex items-center gap-1.5 ${
+                noTeam ? "justify-center" : isMineTeam ? "" : "flex-row-reverse text-right"
+              }`}>
+                {e.team && <TeamLogoLocal team={e.team} size={16} className="flex-shrink-0" />}
+                <span className="text-gray-700 min-w-0">
+                  {formatEventText(e)}
+                  {milestone && (
+                    <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums align-middle">
+                      {milestone.label}
+                    </span>
+                  )}
+                  {e.edited_at && <span className="ml-1.5 text-[9px] text-gray-400 italic">edited</span>}
+                </span>
+              </div>
+              {e._scored && (
+                <span className="flex-shrink-0 text-[11px] font-black text-gray-900 tabular-nums bg-gray-100 rounded px-1.5 py-0.5">
+                  {e._mine}-{e._theirs}
                 </span>
               )}
-            </span>
-            {e.edited_at && <span className="text-[9px] text-gray-400 italic">edited</span>}
-            {canEdit && mine && (
-              <div className="flex gap-1">
-                <button onClick={() => setEditing(e)} className="text-[10px] text-gray-500 font-bold px-1.5 py-0.5 rounded bg-gray-50 active:bg-gray-100">Edit</button>
-                <button onClick={() => deleteEvent(e)} className="text-[10px] text-red-600 font-bold px-1.5 py-0.5 rounded bg-red-50 active:bg-red-100">Del</button>
-              </div>
-            )}
-          </div>
+              {canEdit && mine && (
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => setEditing(e)} className="text-[10px] text-gray-500 font-bold px-1.5 py-0.5 rounded bg-gray-50 active:bg-gray-100">Edit</button>
+                  <button onClick={() => deleteEvent(e)} className="text-[10px] text-red-600 font-bold px-1.5 py-0.5 rounded bg-red-50 active:bg-red-100">Del</button>
+                </div>
+              )}
+            </div>
         );
       })}
+      {visible.length > 0 && (
+        <div className="pt-3">
+          <button onClick={() => setShowTime(v => !v)}
+            className="w-full py-2 rounded-lg text-[11px] font-semibold text-gray-400 border border-dashed border-gray-200 active:bg-gray-50 active:text-gray-600">
+            {showTime ? "Hide timestamps" : "Show timestamps"}
+          </button>
+        </div>
+      )}
       {editing && <EditEventModal ev={editing} onClose={() => setEditing(null)} onSave={updateEvent} />}
     </div>
   );
