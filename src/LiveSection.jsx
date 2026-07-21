@@ -209,21 +209,22 @@ const JERSEY_KIT = {
   PLE: { body: "#111827", ink: "#facc15", line: "rgba(0,0,0,0.35)" },
 };
 
-// A tank top with the number on it, rather than a bare numeral. Narrow straps
-// and a deep armhole, so it reads as a singlet and not a t-shirt.
+// A tank top with the number on it, rather than a bare numeral. The armhole
+// edges curve inward, which is what separates a singlet from a t-shirt; an
+// outward curve there reads as a sleeve.
 function JerseyNumber({ team, number, size = 56 }) {
   const kit = JERSEY_KIT[team] || { body: "#6b7280", ink: "#ffffff", line: "rgba(0,0,0,0.20)" };
   const n = String(number == null ? "" : number);
   // Shrink the digits as they widen so a 3-digit number still fits the body.
-  const fs = n.length >= 3 ? size * 0.30 : n.length === 2 ? size * 0.40 : size * 0.48;
+  const fs = n.length >= 3 ? size * 0.34 : n.length === 2 ? size * 0.46 : size * 0.56;
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-label={n ? `Number ${n}` : "No number"}>
       <path
-        d="M19 5 L27 5 Q32 13 37 5 L45 5 Q50 15 52 27 L52 56 Q52 59 49 59 L15 59 Q12 59 12 56 L12 27 Q14 15 19 5 Z"
+        d="M20 4 L28 4 Q32 12 36 4 L44 4 Q46 18 53 30 L53 56 Q53 60 49 60 L15 60 Q11 60 11 56 L11 30 Q18 18 20 4 Z"
         fill={kit.body} stroke={kit.line} strokeWidth="1.75" strokeLinejoin="round"
       />
       <text
-        x="32" y="44" textAnchor="middle" fill={kit.ink}
+        x="32" y="45" textAnchor="middle" fill={kit.ink}
         style={{ fontSize: fs, fontWeight: 900, fontFamily: "inherit" }}
       >{n}</text>
     </svg>
@@ -1997,39 +1998,6 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
         rosters={rosters}
       />
 
-      {/* Admin: reset a game (started by mistake, or a finished-but-not-yet-
-          approved game) back to scheduled. Password-gated. Not shown for
-          approved games, which must be reversed first (they have game_log
-          rows) before this would be safe. */}
-      {live && live.status !== "approved" &&
-       !(live.status === "scheduled" && !live.home_scorer_pin && !live.away_scorer_pin) && (
-        <div className="flex justify-end mb-3">
-          <button
-            onClick={() => { if (confirm("Un-live this game? It goes back to scheduled, clears the scorer slots, and the live scoring is cleared (recoverable). The admin password is required next.")) setShowUnlivePw(true); }}
-            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 active:bg-amber-200">
-            Un-live game (admin)
-          </button>
-        </div>
-      )}
-      {showUnlivePw && (
-        <AdminPasswordModal
-          title="Un-live game"
-          subtitle="Send this game back to scheduled and clear the live scoring?"
-          onClose={() => setShowUnlivePw(false)}
-          onOk={executeUnlive}
-        />
-      )}
-
-      {/* Mode tabs */}
-      <div className="flex gap-1.5 mb-3">
-        {["score","box","log"].map(m => (
-          <button key={m} onClick={() => setMode(m)}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${mode === m ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
-            {m === "score" ? "Live Score Mode" : m === "box" ? "Box Score" : "Play-by-play"}
-          </button>
-        ))}
-      </div>
-
       {mode === "score" && me && (
         /* Any logged-in user sees ScorerControls. ScorerControls itself
             handles the sub-states: not-yet-claimed (shows claim-team
@@ -2083,6 +2051,39 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
           </div>
         </div>
       )}
+      {/* Admin: reset a game (started by mistake, or a finished-but-not-yet-
+          approved game) back to scheduled. Password-gated. Not shown for
+          approved games, which must be reversed first (they have game_log
+          rows) before this would be safe. */}
+      {live && live.status !== "approved" &&
+       !(live.status === "scheduled" && !live.home_scorer_pin && !live.away_scorer_pin) && (
+        <div className="flex justify-end mb-3">
+          <button
+            onClick={() => { if (confirm("Un-live this game? It goes back to scheduled, clears the scorer slots, and the live scoring is cleared (recoverable). The admin password is required next.")) setShowUnlivePw(true); }}
+            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 active:bg-amber-200">
+            Un-live game (admin)
+          </button>
+        </div>
+      )}
+      {showUnlivePw && (
+        <AdminPasswordModal
+          title="Un-live game"
+          subtitle="Send this game back to scheduled and clear the live scoring?"
+          onClose={() => setShowUnlivePw(false)}
+          onOk={executeUnlive}
+        />
+      )}
+
+      {/* Mode tabs */}
+      <div className="flex gap-1.5 mb-3">
+        {["score","box","log"].map(m => (
+          <button key={m} onClick={() => setMode(m)}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${mode === m ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+            {m === "score" ? "Live Score Mode" : m === "box" ? "Box Score" : "Play-by-play"}
+          </button>
+        ))}
+      </div>
+
       {mode === "box" && <BoxScoreView game={game} box={displayBox} rosters={rosters}
         showSourceToggle={isAdmin && hasOfficial} boxSource={boxSource} onSourceChange={setBoxSource} />}
       {mode === "log" && <PlayByPlay events={events} me={me} myRole={myRole} game={game} isFinal={isFinal} />}
@@ -2339,7 +2340,7 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
         )}
 
         {/* Last play / tappable expand to last 10 */}
-        {lastPlay && (
+        {!hideTopBlock && lastPlay && (
           <div className={`${quarterScores.length > 0 ? "mt-2 pt-2" : "mt-3 pt-3 border-t border-gray-100"}`}>
             <button
               onClick={() => setLogExpanded(v => !v)}
@@ -2638,6 +2639,30 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
     </>
   );
 
+  // Timeouts as a vertical stack of dots down the outer edge of each score
+  // box. A filled dot is available, a hollow one is spent.
+  const renderTimeoutDots = (teamCode, usedCount) => {
+    const iCanTap = teamCode === myTeamCode && inRegulation && !gameIsOver;
+    const left = 3 - usedCount;
+    return (
+      <div className="flex flex-col justify-center gap-1.5 flex-shrink-0" title={`${left} timeout${left === 1 ? "" : "s"} left`}>
+        {[0, 1, 2].map(i => {
+          const spent = i >= left;
+          return (
+            <button key={i}
+              onClick={() => !spent && iCanTap && callTimeout(teamCode)}
+              disabled={spent || !iCanTap}
+              aria-label={spent ? "Timeout used" : `Call timeout for ${teamCode}`}
+              className={`w-3.5 h-3.5 rounded-full border-2 disabled:cursor-default ${
+                spent ? "bg-transparent border-gray-200" : "bg-green-500 border-green-600 active:bg-green-600"
+              }`}
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
   // Two grey boxes side by side, matching the box score view, so the numbers
   // sit close together instead of being pushed to opposite edges.
   const scoreBox = (teamCode, score) => (
@@ -2699,14 +2724,11 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 
       {/* Both scores, each with that team's timeouts directly beneath.
           The word sits between the two groups rather than repeating codes. */}
-      <div className="flex items-stretch gap-2">
+      <div className="flex items-stretch gap-1.5">
+        {renderTimeoutDots(awayTeam, awayTOUsed)}
         {scoreBox(awayTeam, teamScore?.[awayTeam] || 0)}
         {scoreBox(homeTeam, teamScore?.[homeTeam] || 0)}
-      </div>
-      <div className="flex items-center gap-2 mt-1.5">
-        <div className="flex-1 flex justify-start">{renderTimeoutPills(awayTeam, awayTOUsed)}</div>
-        <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-widest text-gray-400">Timeouts</span>
-        <div className="flex-1 flex justify-end">{renderTimeoutPills(homeTeam, homeTOUsed)}</div>
+        {renderTimeoutDots(homeTeam, homeTOUsed)}
       </div>
     </>
   );
@@ -3408,14 +3430,14 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             </div>
             <div className="flex-1 min-w-0 flex items-center justify-center">
               {jersey
-                ? <JerseyNumber team={p.team} number={jersey} size={62} />
+                ? <JerseyNumber team={p.team} number={jersey} size={74} />
                 : <span className="text-4xl font-black text-gray-200 leading-none">-</span>}
             </div>
           </div>
           {/* Name underneath, with the stat count beside it rather than
               floating over the card, so neither can cover the other. */}
           <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="flex-1 min-w-0 text-base text-gray-900 truncate leading-tight">
+            <span className="flex-1 min-w-0 text-[17px] text-gray-900 truncate leading-tight">
               {firstFull && <span className="font-normal">{firstFull} </span>}
               <span className="font-black">{displayLast}</span>
             </span>
@@ -3470,16 +3492,10 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
                   ? (pickedPlayer ? "Tap stat" : "Tap player")
                   : "Tap stat"} &middot; {myTeamCode}
               </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button onClick={() => setMode(scoreMode === "player" ? "classic" : "player")}
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
-                  {scoreMode === "player" ? "Classic" : "Player first"}
-                </button>
-                <button onClick={undoLast}
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
-                  Undo last
-                </button>
-              </div>
+              <button onClick={undoLast}
+                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200 flex-shrink-0">
+                Undo last
+              </button>
             </div>
 
             {scoreMode === "classic" ? (
@@ -3544,6 +3560,17 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         {/* Last-3 history panel (collapsible under the stat grid) */}
         {!gameIsOver && lastThree.length > 0 && (
           <LastThreePanel events={lastThree} onUndo={undoSpecific} />
+        )}
+
+        {/* Mode switch lives below the grid so it can't be hit by accident
+            mid-game, but is still reachable if the new flow misbehaves. */}
+        {!gameIsOver && (
+          <div className="pt-2">
+            <button onClick={() => setMode(scoreMode === "player" ? "classic" : "player")}
+              className="w-full py-2 rounded-lg text-[11px] font-bold text-gray-600 bg-gray-100 active:bg-gray-200">
+              {scoreMode === "player" ? "Switch to classic scoring" : "Switch to player-first scoring"}
+            </button>
+          </div>
         )}
 
         {/* Release scorer button (bottom of scoring UI, subtle) */}
