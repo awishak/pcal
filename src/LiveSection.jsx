@@ -2557,22 +2557,17 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
         </div>
       );
     }
-    // Remaining green pills, renumbered 1..remaining
+    // Remaining pills, renumbered 1..remaining. All look the same and any of
+    // them spends one, so there is no odd highlighted-but-identical pill.
     for (let i = 0; i < remaining; i++) {
-      const label = i + 1;
-      const isNext = i === 0;
       pills.push(
         <button key={`r${i}`}
-          onClick={() => isNext && iCanTap && callTimeout(teamCode)}
-          disabled={!isNext || !iCanTap}
-          className={`w-6 h-6 rounded-md text-[10px] font-black flex items-center justify-center flex-shrink-0 transition-all ${
-            isNext && iCanTap
-              ? "bg-green-500 text-white border-2 border-green-600 active:bg-green-600"
-              : "bg-green-100 text-green-700 border border-green-200"
-          } disabled:cursor-default`}
-          title={iCanTap && isNext ? `Call timeout for ${teamCode}` : ""}
+          onClick={() => iCanTap && callTimeout(teamCode)}
+          disabled={!iCanTap}
+          className="w-6 h-6 rounded-md text-[10px] font-black flex items-center justify-center flex-shrink-0 bg-green-100 text-green-700 border border-green-200 active:bg-green-200 disabled:cursor-default"
+          title={iCanTap ? `Call timeout for ${teamCode}` : ""}
         >
-          {label}
+          {i + 1}
         </button>
       );
     }
@@ -2587,27 +2582,37 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   // Everything a scorer needs while scoring, pinned to the top of the screen:
   // date and time beside Back, status and period and the end-half control on
   // one line, then both scores with each team's timeouts directly beneath.
+  // Back and the date scroll away; only the board itself pins. It sits at
+  // top-11 so it tucks under the app's own sticky header (App.jsx, top-0
+  // z-30) rather than fighting it for the same strip, and at a lower z so
+  // that header always wins the overlap.
   const shell = (children) => (
-    <div className="sticky top-0 z-30 -mx-4 px-4 pt-2 pb-2 mb-3 bg-white border-b border-gray-200">
-      <BackRow onBack={onBack} className="mb-1.5" trailing={
+    <>
+      <BackRow onBack={onBack} className="mb-2" trailing={
         <span className="text-[11px] font-bold text-gray-500">
           {formatGameDate(game.game_date)}
           <span className="text-gray-300"> &middot; </span>
           {formatGameTime(game.game_time)}
         </span>
       } />
-      {children}
-    </div>
+      <div className="sticky top-11 z-20 -mx-4 px-4 pt-1 pb-2 bg-white">
+        <div className="rounded-2xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
+          {children}
+        </div>
+      </div>
+    </>
   );
 
   const scoreCol = (teamCode, score, used, align) => (
     <div className={`flex-1 min-w-0 ${align === "right" ? "text-right" : "text-left"}`}>
       <div className={`flex items-center gap-1.5 ${align === "right" ? "flex-row-reverse" : ""}`}>
-        <TeamLogoLocal team={teamCode} size={20} />
-        <span className="text-[12px] font-black text-gray-900 truncate">{teamCode}</span>
+        <TeamLogoLocal team={teamCode} size={18} />
+        <span className="text-[12px] font-black text-gray-900 truncate leading-tight">
+          {TEAM_FULL_NAMES[teamCode] || TEAM_NAMES[teamCode] || teamCode}
+        </span>
       </div>
-      <div className="text-4xl font-black text-gray-900 leading-none tabular-nums mt-0.5">{score}</div>
-      <div className={`mt-1 flex ${align === "right" ? "justify-end" : "justify-start"}`}>
+      <div className="text-4xl font-black text-gray-900 leading-none tabular-nums">{score}</div>
+      <div className={`mt-1.5 flex ${align === "right" ? "justify-end" : "justify-start"}`}>
         {renderTimeoutPills(teamCode, used)}
       </div>
     </div>
@@ -2631,7 +2636,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   return shell(
     <>
       {/* Status, period and the end-half control all on one line. */}
-      <div className="flex items-center justify-between gap-2 mb-1.5">
+      <div className="flex items-center justify-between gap-2 mb-2">
         <span className="inline-flex items-center gap-1.5">
           {live?.status === "live" && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
@@ -2662,7 +2667,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
           The word sits between the two groups rather than repeating codes. */}
       <div className="flex items-start gap-2">
         {scoreCol(awayTeam, teamScore?.[awayTeam] || 0, awayTOUsed, "left")}
-        <div className="flex-shrink-0 self-end pb-0.5">
+        <div className="flex-shrink-0 self-end pb-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">Timeouts</span>
         </div>
         {scoreCol(homeTeam, teamScore?.[homeTeam] || 0, homeTOUsed, "right")}
