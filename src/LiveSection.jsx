@@ -2744,13 +2744,17 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 
   const playsPanel = (
     <div className="mt-2 pt-2 border-t border-gray-100">
-      <div className="flex items-center gap-1.5 mb-1.5">
+      <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+        <button onClick={() => setPlaysOpen(v => !v)} disabled={lastPlays.length <= 3}
+          className="py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-40">
+          {playsOpen ? "Last 3" : "Last 10"}
+        </button>
         <button onClick={undoLastPlay} disabled={undoable.length === 0}
-          className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-40">
+          className="py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-40">
           Undo last
         </button>
         <button onClick={redoLastPlay} disabled={redoable.length === 0}
-          className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-40">
+          className="py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200 disabled:opacity-40">
           Redo last
         </button>
       </div>
@@ -2771,12 +2775,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
               </div>
             ))}
           </div>
-          {lastPlays.length > 3 && (
-            <button onClick={() => setPlaysOpen(v => !v)}
-              className="mt-1.5 w-full py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200">
-              {playsOpen ? "Show last 3 plays" : "Show last 10 plays"}
-            </button>
-          )}
+
         </>
       )}
     </div>
@@ -2899,6 +2898,10 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   });
   const [pickedPlayer, setPickedPlayer] = useState(null);
   const [otherFoulOpen, setOtherFoulOpen] = useState(false);
+  // Both screens must open at the top: the stat grid so all twelve buttons are
+  // reachable without scrolling, and the roster so it never reopens half-way
+  // down where the previous screen left it.
+  const toTop = () => { try { window.scrollTo({ top: 0 }); } catch (e) { /* older webviews */ } };
   const [flash, setFlash] = useState(null);
   const flashRef = useRef(null);
   useEffect(() => () => clearTimeout(flashRef.current), []);
@@ -3127,16 +3130,19 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       setPendingStat({ key: statKey, meta, shooter: player });
       setPromptMode("rebound");
       setPickedPlayer(null);
+      toTop();
       return;
     }
     if (meta && meta.prompt === "assist") {
       setPendingStat({ key: statKey, meta, shooter: player });
       setPromptMode("assist");
       setPickedPlayer(null);
+      toTop();
       return;
     }
     setPickedPlayer(null);
     setOtherFoulOpen(false);
+    toTop();
   };
 
   // Technical / spiritual foul from the player-first grid. The player is
@@ -3556,7 +3562,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     // player crosses 10+ in the displayed stat, a gold badge sits on the
     // photo showing that count (keeps climbing past 10).
     const renderPlayerCard = (p, opts = {}) => {
-      const { onClick, disabled } = opts;
+      const { onClick, disabled, selected = false } = opts;
       const name = p.player_name || "";
       const parts = name.trim().split(/\s+/);
       const last = parts[0]
@@ -3587,7 +3593,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
-          className="w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
+          className={`w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : "border-gray-200"}`}>
           <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
             style={{ backgroundColor: kitBg }}>
             <span className="text-[27px] leading-none"
@@ -3657,14 +3663,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             away and writes identical events, so it is a safe fallback. */}
         {!gameIsOver && (
           <div>
-            <div className="flex items-center justify-between mb-2 gap-2">
-              <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide truncate">
-                {scoreMode === "player"
-                  ? (pickedPlayer ? "Tap stat" : "Tap player")
-                  : "Tap stat"} &middot; {myTeamCode}
-              </div>
-
-            </div>
 
             {scoreMode === "classic" ? (
               <div className="space-y-1.5">
@@ -3680,20 +3678,11 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
               </div>
             ) : pickedPlayer ? (
               <div>
-                <div className="flex items-center gap-2 mb-2 rounded-xl border-2 border-gray-900 bg-white p-2">
-                  <PlayerAvatar name={pickedPlayer.player_name} team={pickedPlayer.team} size={44} square />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-base font-black text-gray-900 truncate leading-tight">
-                      {formatName(pickedPlayer.player_name)}
-                    </div>
-                    <div className="text-[11px] text-gray-500">
-                      {pickedPlayer.jersey_number ? "#" + pickedPlayer.jersey_number : "no number"}
-                    </div>
-                  </div>
-                  <button onClick={() => { setPickedPlayer(null); setOtherFoulOpen(false); }}
-                    className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200 flex-shrink-0">
-                    Cancel
-                  </button>
+                <div className="mb-1.5">
+                  {renderPlayerCard(pickedPlayer, {
+                    onClick: () => { setPickedPlayer(null); setOtherFoulOpen(false); toTop(); },
+                    selected: true,
+                  })}
                 </div>
                 {otherFoulOpen ? (
                   <div className="space-y-1.5">
@@ -3737,7 +3726,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             ) : (
               <div className="space-y-1.5">
                 {pfOrderedRoster.map(p => renderPlayerCard(p, {
-                  onClick: () => setPickedPlayer(p),
+                  onClick: () => { setPickedPlayer(p); toTop(); },
                 }))}
               </div>
             )}
