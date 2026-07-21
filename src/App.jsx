@@ -16081,7 +16081,7 @@ function thAgeFromDob(dob) {
 
 function ThAvatar({ name, size, photoUrl, square = false }) {
   const s = { width: size, height: size };
-  const shape = square ? "rounded-xl" : "rounded-full";
+  const shape = square ? "rounded-none" : "rounded-full";
   if (photoUrl && !thIsGuest(name)) {
     return <img src={photoUrl} alt="" style={{ ...s, objectFit: "cover", objectPosition: "top center" }} className={`${shape} flex-shrink-0 bg-gray-100`} />;
   }
