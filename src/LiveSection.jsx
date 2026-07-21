@@ -1,67 +1,3 @@
-    const renderPlayerCard = (p, opts = {}) => {
-      const { onClick, disabled } = opts;
-      const name = p.player_name || "";
-      const parts = name.trim().split(/\s+/);
-      const last = parts[0]
-        ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase()
-        : name;
-      const firstFull = parts.slice(1)
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-      // The number has to stay prominent, so the first name gives way to an
-      // initial once the pair would be too wide for one line.
-      const first = (firstFull && (firstFull.length + last.length) > 13)
-        ? firstFull.charAt(0) + "."
-        : firstFull;
-      const jersey = p.jersey_number || "";
-      const b = box[name] || {};
-      const hot = isOnHotStreak(events, name);
-      const hl = (v, at) => (v || 0) >= at ? "text-gray-900 font-black" : "";
-      const line2 = [
-        { v: b.reb || 0, at: 8, label: "REB" },
-        { v: b.stl || 0, at: 3, label: "STL" },
-        { v: b.ast || 0, at: 3, label: "AST" },
-        { v: b.blk || 0, at: 2, label: "BLK" },
-        { v: b.foul || 0, at: 4, label: "F" },
-      ].filter(x => x.v > 0);
-      return (
-        <button key={p.roster_id}
-          onClick={onClick}
-          disabled={disabled}
-          className="relative p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
-          <div className="flex items-start gap-2">
-            <PlayerAvatar name={name} team={p.team} size={64} square />
-            {/* Stats never wrap: they shrink and clip instead, so every card
-                stays the same height however busy a player's night is. */}
-            <div className="flex-1 min-w-0 text-[11px] leading-snug text-gray-500 tabular-nums">
-              <div className="whitespace-nowrap overflow-hidden text-ellipsis">
-                <span className={b.fga ? "text-gray-900 font-bold" : ""}>{b.fgm || 0}/{b.fga || 0}</span> FG
-                <span className="text-gray-300">, </span>
-                <span className={hl(b.pts, 15) || "text-gray-900 font-bold"}>{b.pts || 0}</span> PTS
-              </div>
-              {line2.length > 0 && (
-                <div className="mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis">
-                  {line2.map((x, i) => (
-                    <span key={x.label}>
-                      {i > 0 && <span className="text-gray-300">, </span>}
-                      <span className={hl(x.v, x.at)}>{x.v}</span> {x.label}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            {jersey && <span className="text-[19px] font-black text-gray-900 tabular-nums leading-none flex-shrink-0">#{jersey}</span>}
-            <span className="flex-1 min-w-0 text-[15px] text-gray-900 truncate leading-tight">
-              {first && <span className="font-normal">{first} </span>}
-              <span className="font-black">{last}</span>
-            </span>
-            {hot && <span className="flex-shrink-0" title="Hot: 3 straight or 4 of 6"><FireIcon /></span>}
-          </div>
-        </button>
-      );
-    };
-
 // ============================================================
 // LiveSection.jsx
 // PCAL Live Scoring - single-file React module.
@@ -2749,7 +2685,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   // The board is the first thing on the page and pins immediately, so there is
   // nothing above it to scroll. Back and the date live inside it.
   const shell = (children) => (
-    <div className="sticky top-11 z-20 -mx-4 px-4 pt-4 pb-2 bg-white">
+    <div className="sticky top-[53px] z-20 -mx-4 -mt-4 px-4 pt-4 pb-2 bg-white">
       <div className="rounded-2xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <button onClick={onBack} className="flex items-center gap-0.5 text-[11px] font-bold text-gray-400 active:text-gray-900 flex-shrink-0">
@@ -2869,7 +2805,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   // sit close together instead of being pushed to opposite edges.
   const scoreBox = (teamCode, score, side) => (
     <div className="flex-1 min-w-0 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5">
-      <div className="text-[15px] font-black text-gray-900 truncate leading-tight text-center">
+      <div className="w-full text-[15px] font-black text-gray-900 truncate leading-tight text-center">
         {TEAM_NAMES[teamCode] || teamCode}
       </div>
       {/* Logo on the outer edge, number toward the middle, so the two scores
@@ -3615,58 +3551,67 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       const { onClick, disabled } = opts;
       const name = p.player_name || "";
       const parts = name.trim().split(/\s+/);
-      const displayLast = parts[0]
+      const last = parts[0]
         ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase()
         : name;
       const firstFull = parts.slice(1)
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+      // Shorten the first name when the pair would crowd the number.
+      const first = (firstFull && (firstFull.length + last.length) > 15)
+        ? firstFull.charAt(0) + "."
+        : firstFull;
       const jersey = p.jersey_number || "";
       const b = box[name] || {};
       const hot = isOnHotStreak(events, name);
-      // Thresholds worth noticing at a glance mid-game.
+      const fouls = b.foul || 0;
       const hl = (v, at) => (v || 0) >= at ? "text-gray-900 font-black" : "";
-      const line2 = [
+      const counts = [
         { v: b.reb || 0, at: 8, label: "REB" },
         { v: b.stl || 0, at: 3, label: "STL" },
         { v: b.ast || 0, at: 3, label: "AST" },
         { v: b.blk || 0, at: 2, label: "BLK" },
-        { v: b.foul || 0, at: 4, label: b.foul === 1 ? "Foul" : "Fouls" },
       ].filter(x => x.v > 0);
       return (
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
-          className="relative p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
-          <div className="flex items-start gap-2">
-            <PlayerAvatar name={name} team={p.team} size={72} square />
-            {/* Stats sit where the kit used to, and carry the weight. */}
-            <div className="flex-1 min-w-0 text-[13px] leading-snug text-gray-500 tabular-nums">
-              <div>
-                <span className={b.fga ? "text-gray-900 font-bold" : ""}>{b.fgm || 0}/{b.fga || 0}</span> FG
-                <span className="text-gray-300">, </span>
-                <span className={hl(b.pts, 15) || "text-gray-900 font-bold"}>{b.pts || 0}</span> PTS
-              </div>
-              {line2.length > 0 && (
-                <div className="mt-0.5">
-                  {line2.map((x, i) => (
-                    <span key={x.label}>
-                      {i > 0 && <span className="text-gray-300">, </span>}
-                      <span className={hl(x.v, x.at)}>{x.v}</span> {x.label}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          {/* Name with the number inline. */}
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="flex-1 min-w-0 text-[17px] text-gray-900 truncate leading-tight">
-              {firstFull && <span className="font-normal">{firstFull} </span>}
-              <span className="font-black">{displayLast}</span>
-              {jersey && <span className="font-normal text-gray-400"> #{jersey}</span>}
+          className="w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
+          <span className="flex-shrink-0 w-11 h-11 rounded-full border-2 border-gray-900 flex items-center justify-center">
+            <span className="text-[19px] text-gray-900 leading-none" style={{ fontFamily: "'Anton', system-ui, sans-serif" }}>
+              {jersey || "-"}
             </span>
-            {hot && <span className="shrink-0" title="Hot: 3 straight or 4 of 6"><FireIcon /></span>}
-          </div>
+          </span>
+          <PlayerAvatar name={name} team={p.team} size={44} square />
+          <span className="flex-1 min-w-0 text-[15px] text-gray-900 truncate leading-tight">
+            {first && <span className="font-normal">{first} </span>}
+            <span className="font-black">{last}</span>
+            {hot && <span className="ml-1 inline-block align-middle" title="Hot: 3 straight or 4 of 6"><FireIcon size={13} /></span>}
+          </span>
+          <span className="flex-shrink-0 max-w-[42%] text-[11px] leading-snug text-gray-500 tabular-nums text-right">
+            <span className="block whitespace-nowrap overflow-hidden text-ellipsis">
+              <span className={b.fga ? "text-gray-900 font-bold" : ""}>{b.fgm || 0}/{b.fga || 0}</span> FG
+              <span className="text-gray-300">, </span>
+              <span className={hl(b.pts, 15) || "text-gray-900 font-bold"}>{b.pts || 0}</span> PTS
+            </span>
+            {counts.length > 0 && (
+              <span className="block whitespace-nowrap overflow-hidden text-ellipsis">
+                {counts.map((x, i) => (
+                  <span key={x.label}>
+                    {i > 0 && <span className="text-gray-300">, </span>}
+                    <span className={hl(x.v, x.at)}>{x.v}</span> {x.label}
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
+          <span className={`flex-shrink-0 w-8 text-center rounded-lg py-1 ${
+            fouls >= 5 ? "bg-red-100" : fouls >= 4 ? "bg-amber-100" : "bg-gray-50"
+          }`}>
+            <span className={`block text-[15px] leading-none tabular-nums ${
+              fouls >= 5 ? "font-black text-red-700" : fouls >= 4 ? "font-black text-amber-800" : "font-bold text-gray-700"
+            }`}>{fouls}</span>
+            <span className="block text-[9px] font-bold text-gray-400 leading-none mt-0.5">F</span>
+          </span>
         </button>
       );
     };
@@ -3761,7 +3706,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="space-y-1.5">
                 {pfOrderedRoster.map(p => renderPlayerCard(p, {
                   onClick: () => setPickedPlayer(p),
                   showCount: true,
@@ -3822,7 +3767,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             }
             onClose={cancelPrompt}
           >
-            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => tapPlayerForStat(p) }))}
               {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
                 <div className="col-span-2 my-1 flex items-center gap-2">
@@ -3871,7 +3816,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             }
             onClose={cancelPrompt}
           >
-            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseFoulSubtypePlayer(p) }))}
               {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
                 <div className="col-span-2 my-1 flex items-center gap-2">
@@ -3971,7 +3916,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
 
         {promptMode === "rebound_own_player" && (
           <ModalShell title="Who got the rebound?" onClose={cancelPrompt}>
-            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseReboundPlayer(p) }))}
               {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
                 <div className="col-span-2 my-1 flex items-center gap-2">
@@ -3987,7 +3932,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
 
         {promptMode === "assist" && (
           <ModalShell title="Assisted by?" onClose={cancelPrompt}>
-            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat
                 .filter(p => p.player_name !== pendingStat?.shooter?.player_name)
                 .map(p => renderPlayerCard(p, { onClick: () => chooseAssist("player", p) }))}
