@@ -15,6 +15,30 @@
     <style>
       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; }
       * { -webkit-tap-highlight-color: transparent; }
+
+      /* Made-basket celebration on a player row. Tailwind is loaded from the
+         CDN build, which has no custom keyframes, so these live here. */
+      @keyframes pcal-shine {
+        from { transform: translateX(-130%) skewX(-18deg); }
+        to   { transform: translateX(240%)  skewX(-18deg); }
+      }
+      @keyframes pcal-pop {
+        0%   { transform: scale(.4) translateY(6px);  opacity: 0; }
+        30%  { transform: scale(1.18) translateY(-3px); opacity: 1; }
+        55%  { transform: scale(1) translateY(-3px);  opacity: 1; }
+        100% { transform: scale(1) translateY(-14px); opacity: 0; }
+      }
+      .pcal-shine { position: absolute; inset: 0; overflow: hidden; pointer-events: none; border-radius: inherit; }
+      .pcal-shine::after {
+        content: ""; position: absolute; top: -20%; bottom: -20%; width: 42%;
+        background: linear-gradient(100deg, transparent, rgba(255,255,255,.9), transparent);
+        animation: pcal-shine .7s cubic-bezier(.25,.8,.35,1) forwards;
+      }
+      .pcal-pop { animation: pcal-pop 1.15s cubic-bezier(.2,1.4,.4,1) forwards; }
+      @media (prefers-reduced-motion: reduce) {
+        .pcal-shine::after { animation: none; opacity: 0; }
+        .pcal-pop { animation: none; }
+      }
     </style>
   </head>
   <body>

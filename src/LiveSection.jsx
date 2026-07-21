@@ -2941,6 +2941,18 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   });
   const [pickedPlayer, setPickedPlayer] = useState(null);
   const [otherFoulOpen, setOtherFoulOpen] = useState(false);
+  // Made-basket celebration. Fired when the flow returns to the roster rather
+  // than at the moment of the tap, because a made 2 or 3 goes straight into the
+  // assist prompt and the card would be behind a modal for the whole animation.
+  const [celebrate, setCelebrate] = useState(null);
+  const celebrateRef = useRef(null);
+  useEffect(() => () => clearTimeout(celebrateRef.current), []);
+  const fireCelebrate = (playerName, pts) => {
+    if (!playerName || !pts) return;
+    clearTimeout(celebrateRef.current);
+    setCelebrate({ name: playerName, pts, key: Date.now() });
+    celebrateRef.current = setTimeout(() => setCelebrate(null), 1250);
+  };
   // Both screens must open at the top: the stat grid so all twelve buttons are
   // reachable without scrolling, and the roster so it never reopens half-way
   // down where the previous screen left it.
@@ -3246,8 +3258,11 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     if (choice === "player" && player) {
       await insertEvent("ast", player.player_name);
     }
+    const shooter = pendingStat?.shooter?.player_name;
+    const pts = pendingStat?.key === "made_3" ? 3 : pendingStat?.key === "made_2" ? 2 : 0;
     setPendingStat(null);
     setPromptMode(null);
+    fireCelebrate(shooter, pts);
   };
 
   const cancelPrompt = () => { setPendingStat(null); setPromptMode(null); };
@@ -3642,11 +3657,13 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             : fouls === 3 ? "bg-yellow-100 text-yellow-800"
               : "bg-gray-50 text-gray-700";
       const kit = kitFor(p.team);
+      const party = celebrate && celebrate.name === name ? celebrate : null;
       return (
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
-          className={`w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : "border-gray-200"}`}>
+          className={`relative overflow-hidden w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : "border-gray-200"}`}>
+          {party && <span key={party.key} className="pcal-shine" aria-hidden="true" />}
           <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden border-2"
             style={{ backgroundColor: kit.body, borderColor: kit.ring }}>
             <span className="text-[27px] leading-none"
@@ -3662,6 +3679,13 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
               {firstFull && <span className="font-normal">{firstFull} </span>}
               <span className="font-black">{last}</span>
               {hot && <span className="ml-1 inline-block align-middle" title="Hot: 3 straight or 4 of 6"><FireIcon size={13} /></span>}
+              {party && (
+                <span key={party.key}
+                  className="pcal-pop ml-1.5 inline-block align-middle rounded-full px-2 py-0.5 text-[13px] font-black text-white"
+                  style={{ backgroundColor: accentFor(p.team) }}>
+                  +{party.pts}
+                </span>
+              )}
             </span>
             <span className="block text-[11px] leading-snug text-gray-500 tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
               <span className={b.fga ? "text-gray-900 font-bold" : ""}>{b.fgm || 0}/{b.fga || 0}</span> FG
