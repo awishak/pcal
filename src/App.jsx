@@ -18,6 +18,8 @@ import {
 } from "./supabase.js";
 import LiveSection from "./LiveSection.jsx";
 import { PLAYER_MERGE } from "./playerNames.js";
+// App keeps its own TEAM_COLORS (see below); only the contrast helper is shared.
+import { textOnTeam } from "./teamColors.js";
 // Season data is derived from GAME_LOG once it loads, by rebuildDerived().
 // These start empty and are populated when installGameLog() runs on mount.
 let DATA = [];
@@ -1986,10 +1988,13 @@ function gamePath(sg) {
 }
 
 // Build the address-bar path from the current navigation state.
-function stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId, selectedGame }) {
+function stateToPath({ section, tab, selectedPlayer, franchiseTeam, teamView, liveInitialGameId, selectedGame }) {
   if (section === "stats" && tab === "gamestats" && selectedGame) return gamePath(selectedGame);
   if (section === "stats" && tab === "search" && selectedPlayer) return "/player/" + playerSlug(selectedPlayer);
-  if (section === "teams" && franchiseTeam) return "/teams/" + String(franchiseTeam).toLowerCase();
+  if (section === "teams" && franchiseTeam) {
+    const base = "/teams/" + String(franchiseTeam).toLowerCase();
+    return teamView === "history" ? base + "/history" : base;
+  }
   if (section === "live" && liveInitialGameId) return "/games/" + liveInitialGameId;
   const seg = SECTION_SEG[section] ?? "";
   if (tab && tab !== SECTION_DEFAULT_TAB[section]) return "/" + (seg ? seg + "/" : "") + tab;
@@ -2014,7 +2019,11 @@ function pathToState(pathname) {
       return { section: "stats", tab: "gamestats", selectedGame: { year, week, t1: tp[0].toUpperCase(), t2: tp[1].toUpperCase(), type } };
     }
   }
-  if (a === "teams") return b ? { section: "teams", tab: "teams", franchiseTeam: b.toUpperCase() } : { section: "teams", tab: "teams" };
+  if (a === "teams") {
+    if (!b) return { section: "teams", tab: "teams" };
+    const view = String(parts[2] || "").toLowerCase() === "history" ? "history" : "page";
+    return { section: "teams", tab: "teams", franchiseTeam: b.toUpperCase(), teamView: view };
+  }
   if (a === "games") return b ? { section: "live", tab: "live", liveInitialGameId: b } : { section: "live", tab: "live" };
   const section = SEG_SECTION[a];
   if (!section) return { section: "home", tab: "home" };
@@ -2027,6 +2036,8 @@ function AppInner() {
   const [tab, setTab] = useState(initialRoute.tab || "home");
   // Teams hub: when set, the teams tab shows that franchise's history.
   const [franchiseTeam, setFranchiseTeam] = useState(initialRoute.franchiseTeam || null);
+  // "page" is the 2026 team page, "history" is the franchise archive.
+  const [teamView, setTeamView] = useState(initialRoute.teamView || "page");
   useEffect(() => { if (tab !== "teams" && franchiseTeam) setFranchiseTeam(null); }, [tab]);
   const [search, setSearch] = useState(initialRoute.search || "");
   const [yearFilter, setYearFilter] = useState("all");
@@ -2051,11 +2062,11 @@ function AppInner() {
   // pushing a duplicate entry.
   const routeGuard = useRef(false);
   useEffect(() => {
-    const path = stateToPath({ section, tab, selectedPlayer, franchiseTeam, liveInitialGameId, selectedGame });
+    const path = stateToPath({ section, tab, selectedPlayer, franchiseTeam, teamView, liveInitialGameId, selectedGame });
     if (path === window.location.pathname) return;
     if (routeGuard.current) { routeGuard.current = false; window.history.replaceState(null, "", path); }
     else window.history.pushState(null, "", path);
-  }, [section, tab, selectedPlayer, franchiseTeam, liveInitialGameId, selectedGame]);
+  }, [section, tab, selectedPlayer, franchiseTeam, teamView, liveInitialGameId, selectedGame]);
   useEffect(() => {
     const onPop = () => {
       const s = pathToState(window.location.pathname);
@@ -2064,6 +2075,7 @@ function AppInner() {
       setTab(s.tab || "home");
       setSelectedPlayer(s.selectedPlayer || null);
       setFranchiseTeam(s.franchiseTeam || null);
+      setTeamView(s.teamView || "page");
       setLiveInitialGameId(s.liveInitialGameId || null);
       setSelectedGame(s.selectedGame || null);
       setSearch(s.search || "");
@@ -3753,17 +3765,24 @@ function AppInner() {
 
         {/* ===== TEAM HISTORIES ===== */}
         {tab === "teams" && (
-          franchiseTeam ? (
+          franchiseTeam && teamView === "history" ? (
             <div>
-              <button onClick={() => setFranchiseTeam(null)}
+              <button onClick={() => setTeamView("page")}
                 className="mb-3 flex items-center gap-1 text-xs font-bold text-gray-500 active:text-gray-900">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                Back to Teams
+                Back to {TEAM_FULL_NAMES[franchiseTeam] || TEAM_NAMES[franchiseTeam] || franchiseTeam}
               </button>
               <TeamsView data={DATA} teamSeasons={TEAM_SEASONS} goToPlayer={goToPlayer} initialTeam={franchiseTeam} />
             </div>
           ) : (
-            <TeamsHubView goToPlayer={goToPlayer} onOpenFranchise={setFranchiseTeam} isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks} rosterCols={rosterCols} setRosterCols={setRosterCols} photoVersion={photoVersion} />
+            <TeamsHubView
+              goToPlayer={goToPlayer}
+              teamPage={franchiseTeam}
+              onOpenTeam={(t) => { setTeamView("page"); setFranchiseTeam(t); }}
+              onBackToTeams={() => setFranchiseTeam(null)}
+              onOpenFranchise={(t) => { setTeamView("history"); setFranchiseTeam(t); }}
+              isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks}
+              rosterCols={rosterCols} setRosterCols={setRosterCols} photoVersion={photoVersion} />
           )
         )}
 
@@ -15991,6 +16010,8 @@ function thOrdinal(n) {
   return n + suf;
 }
 
+const EMPTY_SET_2026 = new Set();
+
 const MONTH_NAMES_2026 = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
 
@@ -16890,7 +16911,7 @@ const BibleIcon = ({ size = 11, className = "" }) => (
 // Standings mode, so both show the same numbers. Renders the tiebreaker state
 // rather than just the record: who holds the tiebreaker over whom, and once
 // expanded, why.
-function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, rosterCols = 3, setRosterCols, photoVersion = 0 }) {
+function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, teamPage = null, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, rosterCols = 3, setRosterCols, photoVersion = 0 }) {
   // Forfeits and spiritual fouls are tiebreaker steps 2 and 4. They live in
   // their own tables, so the ladder runs without them until this resolves.
   const [penalties, setPenalties] = useState({ forfeits: [], spiritual: [] });
@@ -16913,21 +16934,19 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
   // Compact strips a card back to identity and record. Expanded is the default.
   const [compact, setCompact] = useState(false);
   const recById = useMemo(() => Object.fromEntries(standings.map(r => [r.team, r])), [standings]);
-  // Roster cards follow the standings, so the order matches the table above.
-  const teamsRanked = useMemo(() => standings.map(r => r.team), [standings]);
+  // Cards follow the standings. On a single team's page the same card renders,
+  // always expanded, with only that team in the list.
+  const allRanked = useMemo(() => standings.map(r => r.team), [standings]);
+  const teamsRanked = useMemo(() => (teamPage ? allRanked.filter(t => t === teamPage) : allRanked), [allRanked, teamPage]);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
   const [dobMap, setDobMap] = useState({});
   const [cityMap, setCityMap] = useState({});
   const [caMap, setCaMap] = useState({});
-  // Roster sections start collapsed. The leaders line stays visible either
-  // way, so a closed card still says who the team is.
-  const [expanded, setExpanded] = useState(() => new Set());
-  const toggleTeam = (team) => setExpanded(prev => {
-    const next = new Set(prev);
-    if (next.has(team)) next.delete(team); else next.add(team);
-    return next;
-  });
+  // Cards no longer expand in place. The roster and schedule live on the
+  // team's own page, reached by the arrow, so this stays empty on the hub and
+  // the single card on a team page is forced open.
+  const expanded = EMPTY_SET_2026;
   const [openPlayer, setOpenPlayer] = useState(null);
   const [jerseyDrafts, setJerseyDrafts] = useState({});
   const [savingTeam, setSavingTeam] = useState(null);
@@ -17100,8 +17119,16 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
 
   return (
     <div>
+      {teamPage && (
+        <button onClick={() => onBackToTeams && onBackToTeams()}
+          className="mb-3 flex items-center gap-1 text-xs font-bold text-gray-500 active:text-gray-900">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+          All teams
+        </button>
+      )}
+
       <div className="flex items-center justify-between mb-1">
-        <p className="text-xl font-black text-gray-900">Teams</p>
+        <p className="text-xl font-black text-gray-900">{teamPage ? (TEAM_FULL_NAMES[teamPage] || TEAM_NAMES[teamPage] || teamPage) : "Teams"}</p>
         {isAdmin && (
           <button
             onClick={() => setHideCareerLinks && setHideCareerLinks(v => !v)}
@@ -17111,9 +17138,9 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
         )}
       </div>
       <p className="text-[11px] text-gray-400">All stats subject to adjustment from review.</p>
-      <p className="text-[11px] text-gray-500 mb-2">Teams are listed in standings order. Tap any player to see their 2026 season stats.</p>
+      <p className="text-[11px] text-gray-500 mb-2">{teamPage ? "Tap any player to see their 2026 season stats." : "Teams are listed in standings order. Tap a team to see its roster."}</p>
 
-      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+      <div className={`flex flex-wrap items-center gap-1.5 mb-3 ${teamPage ? "hidden" : ""}`}>
         <button
           onClick={() => setShowPlayoffInfo(v => !v)}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-bold ${showPlayoffInfo ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`}>
@@ -17158,7 +17185,9 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           const rec = recById[team] || { w: 0, l: 0 };
           const look = outlook[team] || { status: null, needsRivalForfeit: false, clinchRestsOnNoForfeit: false };
           const tbList = tbOver[team] || [];
-          const open = expanded.has(team);
+          // On a team's own page the detail is always shown; the rank number
+          // and the arrow both belong to the hub list, not to a single team.
+          const open = teamPage ? true : expanded.has(team);
           const roster = rosterByTeam[team] || [];
           const sched = schedByTeam[team] || [];
           const blocks = gameDayBlocks(team, sched);
@@ -17170,16 +17199,28 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
           return (
             <React.Fragment key={team}>
             <div className={`rounded-2xl border-2 bg-white overflow-hidden ${look.status === "clinched" ? "border-emerald-500" : look.status === "eliminated" ? "border-orange-500" : "border-gray-900"}`}>
-              <button onClick={() => toggleTeam(team)} className="w-full p-3 text-left active:bg-gray-50">
+              <div className="w-full p-3 text-left">
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full border-2 border-gray-900 text-[12px] font-black text-gray-900 tabular-nums leading-none">{ti + 1}</span>
+                  {!teamPage && (
+                    <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full border-2 border-gray-900 text-[12px] font-black text-gray-900 tabular-nums leading-none">{ti + 1}</span>
+                  )}
                   <TeamLogo team={team} size={32} />
                   <span className="flex-1 min-w-0">
                     <span className="block text-base font-bold text-gray-900 leading-tight">{TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}</span>
                     {scoreNote && <span className="block text-[11px] text-gray-500 leading-tight">{scoreNote}</span>}
                   </span>
                   <span className="text-lg font-black text-gray-900 tabular-nums leading-none">{rec.w}-{rec.l}</span>
-                  <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                  {!teamPage && (
+                    <button
+                      onClick={() => onOpenTeam && onOpenTeam(team)}
+                      aria-label={`Open ${TEAM_FULL_NAMES[team] || team}`}
+                      className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border-2 border-gray-900 active:opacity-70"
+                      style={{ backgroundColor: TEAM_COLORS[team] || "#111827" }}>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={textOnTeam(team)} strokeWidth="3.5" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
 
 
@@ -17265,7 +17306,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, regularOnly = true, isAdmin
                     )}
                   </div>
                 )}
-              </button>
+              </div>
 
               {open && (
                 <div className="px-3 pb-3">
