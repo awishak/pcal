@@ -391,7 +391,7 @@ function partitionRosterByStat(roster, box, statKey) {
 // Player avatar: photo if available via PhotosContext, otherwise a colored
 // circle with the player's initials. Team color provides the backdrop so
 // rosters stay visually cohesive.
-function PlayerAvatar({ name, team, size = 40 }) {
+function PlayerAvatar({ name, team, size = 40, square = false }) {
   const photos = usePhotos();
   // Photos are keyed upper-case ("ISHAK ANDREW"); roster names are mixed
   // case ("ISHAK Andrew"), so match case-insensitively.
@@ -402,18 +402,19 @@ function PlayerAvatar({ name, team, size = 40 }) {
   const initials = `${firstInit}${lastInit}`;
   const bg = TEAM_COLORS[team] || "#6b7280";
   const fg = textOnTeam(team);
+  const shape = square ? "" : "rounded-full";
   if (url) {
     return (
       <img src={url} alt={name}
-        style={{ width: size, height: size, objectFit: "cover" }}
-        className="rounded-full border border-gray-200 flex-shrink-0 bg-gray-100"
+        style={{ width: size, height: size, objectFit: "cover", objectPosition: "top center" }}
+        className={`${shape} border border-gray-200 flex-shrink-0 bg-gray-100`}
         onError={(e) => { e.currentTarget.style.display = "none"; }}
       />
     );
   }
   return (
     <div
-      className="rounded-full flex items-center justify-center flex-shrink-0 border border-gray-200"
+      className={`${shape} flex items-center justify-center flex-shrink-0 border border-gray-200`}
       style={{ width: size, height: size, backgroundColor: bg }}
     >
       <span style={{ fontSize: Math.max(9, size * 0.36), color: fg }} className="font-black">
@@ -3139,14 +3140,14 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       ? partitionRosterByStat(myRoster, box, partitionStatKey)
       : null;
 
-    // Renders a single player card in the box picker. Layout, top to bottom:
-    //   [avatar 36px] [milestone badge if >=10]  [stat chip top-right]
-    //   F. LastName
-    //       <BIG jersey #>
-    // Avatar is a photo if available (from PhotosContext) otherwise initials.
+    // Renders a single player card in the box picker. Layout:
+    //   [square photo 72px]  [BIG jersey #]
+    //   F. LastName                 [stat chip]
+    // Sized to be hit and read at arm's length mid-game. Avatar is a photo if
+    // available (from PhotosContext), otherwise team-coloured initials.
     // Stat chip shows labeled count ("2 fouls", "14 pts", etc). When the
-    // player crosses 10+ in the displayed stat, a small gold badge sits
-    // next to the avatar showing that count (keeps climbing past 10).
+    // player crosses 10+ in the displayed stat, a gold badge sits on the
+    // photo showing that count (keeps climbing past 10).
     const renderPlayerCard = (p, opts = {}) => {
       const { onClick, disabled, showCount = true } = opts;
       const name = p.player_name || "";
@@ -3168,34 +3169,39 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
-          className="relative py-3 px-2 rounded-xl bg-white border-2 border-gray-200 text-center active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white min-h-[112px]">
-          {/* Top-left: avatar */}
-          <div className="absolute top-2 left-2">
-            <PlayerAvatar name={name} team={p.team} size={32} />
+          className="relative p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
+          {/* Square photo on the left, jersey number filling the space beside
+              it. Both are sized to be hit and read at arm's length while
+              someone is scoring a live game. */}
+          <div className="flex items-center gap-2">
+            <div className="relative shrink-0">
+              <PlayerAvatar name={name} team={p.team} size={72} square />
+              {hasMilestone && (
+                <span
+                  className="absolute -top-1 -left-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white tabular-nums border-2 border-white"
+                  title="Double-digit!"
+                >
+                  {statInfo.count}
+                </span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0 text-center">
+              <div className="text-5xl font-black text-gray-900 leading-none tabular-nums">
+                {jersey || <span className="text-gray-200">-</span>}
+              </div>
+            </div>
           </div>
-          {/* Milestone badge: small filled chip next to the avatar */}
-          {hasMilestone && (
-            <div
-              className="absolute top-0 left-9 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums border-2 border-white"
-              title="Double-digit!"
-            >
-              {statInfo.count}
-            </div>
-          )}
-          {/* Top-right: labeled stat chip */}
-          {showCount && statInfo.label && statInfo.count > 0 && (
-            <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-black bg-gray-100 text-gray-700 tabular-nums">
-              {statInfo.label}
-            </div>
-          )}
-          {/* Body: name + big jersey number */}
-          <div className="pt-11">
-            <div className="text-xs font-black text-gray-900 truncate leading-tight">
+          {/* Name underneath, with the stat count beside it rather than
+              floating over the card, so neither can cover the other. */}
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className="flex-1 min-w-0 text-base font-black text-gray-900 truncate leading-tight">
               {displayName}
-            </div>
-            <div className="text-3xl font-black text-gray-900 leading-none mt-1 tabular-nums">
-              {jersey || <span className="text-gray-200">&mdash;</span>}
-            </div>
+            </span>
+            {showCount && statInfo.label && statInfo.count > 0 && (
+              <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black bg-gray-100 text-gray-700 tabular-nums">
+                {statInfo.label}
+              </span>
+            )}
           </div>
         </button>
       );
@@ -3274,7 +3280,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             }
             onClose={cancelPrompt}
           >
-            <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => tapPlayerForStat(p) }))}
               {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
                 <div className="col-span-2 my-1 flex items-center gap-2">
@@ -3323,7 +3329,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             }
             onClose={cancelPrompt}
           >
-            <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseFoulSubtypePlayer(p) }))}
               {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
                 <div className="col-span-2 my-1 flex items-center gap-2">
@@ -3423,7 +3429,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
 
         {promptMode === "rebound_own_player" && (
           <ModalShell title="Who got the rebound?" onClose={cancelPrompt}>
-            <div className="grid grid-cols-2 gap-1.5 max-h-96 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseReboundPlayer(p) }))}
               {partitioned?.withStat.length > 0 && partitioned?.withoutStat.length > 0 && (
                 <div className="col-span-2 my-1 flex items-center gap-2">
@@ -3439,7 +3445,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
 
         {promptMode === "assist" && (
           <ModalShell title="Assisted by?" onClose={cancelPrompt}>
-            <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat
                 .filter(p => p.player_name !== pendingStat?.shooter?.player_name)
                 .map(p => renderPlayerCard(p, { onClick: () => chooseAssist("player", p) }))}
