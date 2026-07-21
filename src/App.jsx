@@ -16093,83 +16093,27 @@ function ThAvatar({ name, size, photoUrl }) {
 
 // Compact roster grid cell. Avatar on top, jersey number badge (an editable
 // input for admins), display name, hometown, and an age / debut-year meta line.
-function RosterPlayerCard({ rosterEntry, hometown, isOpen, onToggle, isAdmin, jerseyValue, onJerseyChange, photoUrl, onEditPhoto }) {
-  const name = rosterEntry.player_name;
-  const guest = thIsGuest(name);
-  const info = useMemo(() => thSeasonInfo(name), [name]);
-  const num = rosterEntry.jersey_number || "";
-  // Roster names are "LASTNAME Firstname"; split so the last name is always
-  // shown in full (its own line, wraps if needed) and the first name sits above.
-  const parts = String(name).trim().split(/\s+/);
-  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-  const lastName = parts[0] ? cap(parts[0]) : "";
-  const firstName = parts.slice(1).map(cap).join(" ");
-
-  return (
-    <button
-      onClick={onToggle}
-      className={`relative flex flex-col items-center text-center rounded-xl border p-2 pb-3 active:bg-gray-50 transition-colors ${isOpen ? "border-gray-900 ring-1 ring-gray-900 bg-gray-50" : "border-gray-100"}`}>
-      <div className="relative">
-        {isAdmin && onEditPhoto ? (
-          <span
-            role="button"
-            tabIndex={0}
-            title="Edit photo"
-            onClick={(e) => { e.stopPropagation(); onEditPhoto(name); }}
-            className="relative block cursor-pointer">
-            <ThAvatar name={name} size={56} photoUrl={photoUrl} />
-            <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center border-2 border-white">
-              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </span>
-          </span>
-        ) : (
-          <ThAvatar name={name} size={56} photoUrl={photoUrl} />
-        )}
-        {isAdmin ? (
-          <input
-            value={jerseyValue}
-            onChange={(e) => onJerseyChange(rosterEntry.roster_id, e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
-            onClick={(e) => e.stopPropagation()}
-            inputMode="numeric"
-            placeholder="#"
-            className="absolute -bottom-1 -right-1 w-7 text-center text-[10px] font-bold text-gray-700 tabular-nums border border-gray-300 rounded bg-white py-0.5"
-          />
-        ) : num ? (
-          <span className="absolute -bottom-1 -right-1 min-w-[22px] px-1.5 text-center text-[12px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[20px]">#{num}</span>
-        ) : null}
-      </div>
-      <div className="mt-1.5 w-full leading-tight">
-        {guest ? (
-          <div className="text-[13px] font-bold text-gray-900 truncate">Guest</div>
-        ) : (
-          <>
-            {firstName && <div className="text-[13px] font-normal text-gray-600 leading-tight truncate">{firstName}</div>}
-            <div className="text-[13px] font-bold text-gray-900 leading-tight break-words">{lastName}</div>
-          </>
-        )}
-      </div>
-      <div className="w-full text-[11px] text-gray-400 truncate leading-tight">{guest ? "Guest" : (hometown || " ")}</div>
-      {!guest && (
-        <div className="w-full text-[11px] text-gray-400 leading-tight mt-0.5">
-          <div className="tabular-nums">Debut: {info.debut}</div>
-          <div className="tabular-nums">Exp: {thExpLabel(info.seasons)}</div>
-        </div>
-      )}
-      {/* Expand affordance */}
-      <svg className={`absolute bottom-1 right-1.5 w-3 h-3 text-gray-300 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-    </button>
-  );
-}
 
 // Full-width season-stats panel shown below the roster grid when a card is open.
-function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCareerLinks, photoUrl }) {
+// A player's 2026 AI Score, read off the derived DATA rows. Returns null if the
+// player has no 2026 row, which happens for anyone rostered but yet to play.
+// Note TEAM_SEASONS carries no 2026 entry, so for this season the team
+// multiplier is 1.0 and the share bonus is 0: the number is the raw rank score.
+function th2026AiScore(name) {
+  const key = thNorm(name);
+  const row = DATA.find(r => r.year === 2026 && thNorm(r.player) === key);
+  return row && typeof row.aiScore === "number" ? row.aiScore : null;
+}
+
+// One player, full width. Everything the old card and its expandable panel
+// showed, minus season totals, with AI Score in place of Game Score.
+function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCareerLinks, photoUrl,
+  isAdmin, jerseyValue, onJerseyChange, onEditPhoto }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
   const s = season.avg;
   const info = useMemo(() => thSeasonInfo(name), [name]);
+  const ai = useMemo(() => th2026AiScore(name), [name]);
   const age = thAgeFromDob(dob);
   const guest = thIsGuest(name);
   const parts = String(name).trim().split(/\s+/);
@@ -16177,82 +16121,86 @@ function PlayerStatPanel({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCar
   const lastName = parts[0] ? cap(parts[0]) : "";
   const firstName = parts.slice(1).map(cap).join(" ");
   const fromText = hometown ? `${hometown}${inCA ? ", CA" : ""}` : "-";
+  const num = rosterEntry.jersey_number || "";
 
   const Stat = ({ label, value }) => (
     <div className="rounded-lg bg-gray-50 py-1.5 text-center">
       <div className="text-sm font-black text-gray-900 tabular-nums">{value}</div>
-      <div className="text-[9px] text-gray-400">{label}</div>
+      <div className="text-[11px] font-bold text-gray-900">{label}</div>
     </div>
   );
 
   return (
-    <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3">
-      <div className="mb-4">
-        <div className="flex items-center gap-4">
-          <ThAvatar name={name} size={104} photoUrl={photoUrl} />
-          <div className="min-w-0 flex-1">
-            <div className="text-xl text-gray-900 leading-tight break-words">
-              {guest ? (
-                <span className="font-black">Guest Player</span>
-              ) : (
-                <>
-                  {firstName && <span className="font-normal">{firstName} </span>}
-                  <span className="font-black">{lastName}</span>
-                </>
-              )}
-            </div>
-            {!guest && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <TeamLogo team={rosterEntry.team} size={22} />
-                <span className="text-sm font-bold text-gray-700">{TEAM_FULL_NAMES[rosterEntry.team] || TEAM_NAMES[rosterEntry.team] || rosterEntry.team}</span>
-              </div>
+    <div className="rounded-2xl border border-gray-200 bg-white p-3">
+      <div className="flex items-center gap-3">
+        <div className="relative shrink-0">
+          {isAdmin && onEditPhoto ? (
+            <span role="button" tabIndex={0} title="Edit photo"
+              onClick={() => onEditPhoto(name)} className="relative block cursor-pointer">
+              <ThAvatar name={name} size={96} photoUrl={photoUrl} />
+              <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center border-2 border-white">
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </span>
+            </span>
+          ) : (
+            <ThAvatar name={name} size={96} photoUrl={photoUrl} />
+          )}
+          {isAdmin ? (
+            <input
+              value={jerseyValue}
+              onChange={(e) => onJerseyChange(rosterEntry.roster_id, e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+              inputMode="numeric" placeholder="#"
+              className="absolute -bottom-1 -right-1 w-8 text-center text-[11px] font-bold text-gray-900 tabular-nums border border-gray-300 rounded bg-white py-0.5" />
+          ) : num ? (
+            <span className="absolute -bottom-1 -right-1 min-w-[24px] px-1.5 text-center text-[12px] font-black text-white tabular-nums bg-gray-900 rounded-full leading-[22px]">#{num}</span>
+          ) : null}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="text-lg text-gray-900 leading-tight break-words">
+            {guest ? <span className="font-black">Guest Player</span> : (
+              <>
+                {firstName && <span className="font-normal">{firstName} </span>}
+                <span className="font-black">{lastName}</span>
+              </>
             )}
           </div>
+          {!guest && (
+            <div className="mt-1 text-[12px] text-gray-900 leading-snug space-y-0.5">
+              <div><span className="font-bold">Age</span> {age || "-"} <span className="text-gray-300">|</span> <span className="font-bold">Debut</span> <span className="tabular-nums">{info.debut}</span></div>
+              <div><span className="font-bold">Exp</span> {thExpLabel(info.seasons)}</div>
+              <div><span className="font-bold">From</span> {fromText}</div>
+            </div>
+          )}
         </div>
-        {!guest && (
-          <div className="flex items-center justify-between mt-3 text-[13px]">
-            <div className="space-y-0.5">
-              <div><span className="text-gray-400">Age:</span> <span className="font-semibold text-gray-800">{age || "-"}</span></div>
-              <div><span className="text-gray-400">Debut:</span> <span className="font-semibold text-gray-800 tabular-nums">{info.debut}</span></div>
-              <div><span className="text-gray-400">Experience:</span> <span className="font-semibold text-gray-800">{thExpLabel(info.seasons)}</span></div>
-            </div>
-            <div className="text-right">
-              <div><span className="text-gray-400">From:</span> <span className="font-semibold text-gray-800">{fromText}</span></div>
-            </div>
-          </div>
-        )}
       </div>
 
-      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Averages - {season.g} Games Played</div>
-      <div className="grid grid-cols-5 gap-1 mb-3">
+      <div className="text-[11px] font-black text-gray-900 uppercase tracking-wide mt-3 mb-1">2026 Averages, {season.g} games played</div>
+      <div className="grid grid-cols-5 gap-1 mb-2">
         <Stat label="PPG" value={th1(s.ppg)} />
         <Stat label="RPG" value={th1(s.rpg)} />
         <Stat label="APG" value={th1(s.apg)} />
         <Stat label="SPG" value={th1(s.spg)} />
         <Stat label="BPG" value={th1(s.bpg)} />
       </div>
-      <div className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">2026 Season Totals</div>
-      <div className="grid grid-cols-5 gap-1 mb-3">
-        <Stat label="PTS" value={season.totals.pts} />
-        <Stat label="REB" value={season.totals.reb} />
-        <Stat label="AST" value={season.totals.ast} />
-        <Stat label="STL" value={season.totals.stl} />
-        <Stat label="BLK" value={season.totals.blk} />
-      </div>
-      <div className="grid grid-cols-5 gap-1 mb-3">
+      <div className="grid grid-cols-5 gap-1">
         <Stat label="FG%" value={thPct(season.fg)} />
         <Stat label="3P%" value={thPct(season.tp)} />
         <Stat label="FT%" value={thPct(season.ft)} />
         <Stat label="TS%" value={thPct(season.ts)} />
-        <Stat label="GmSc" value={th1(s.gmsc)} />
+        <Stat label="AI Score" value={ai == null ? "-" : th1(ai)} />
       </div>
 
       {!guest && !hideCareerLinks && (
-        <button onClick={() => goToPlayer(thCanon(name))} className="text-[11px] font-bold text-gray-500 active:text-gray-900">View full career page →</button>
+        <button onClick={() => goToPlayer(thCanon(name))} className="mt-2 text-[11px] font-bold text-gray-900 active:opacity-60">View full career page →</button>
       )}
     </div>
   );
 }
+
 
 // ============================================================
 // SCOUTING DASHBOARD (admin only, desktop layout)
@@ -16947,12 +16895,8 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
   // team's own page, reached by the arrow, so this stays empty on the hub and
   // the single card on a team page is forced open.
   const expanded = EMPTY_SET_2026;
-  const [openPlayer, setOpenPlayer] = useState(null);
   const [jerseyDrafts, setJerseyDrafts] = useState({});
   const [savingTeam, setSavingTeam] = useState(null);
-  // Roster grid columns (1-4) come from global admin config so an admin's
-  // choice applies for everyone.
-  const cols = [1, 2, 3, 4].includes(rosterCols) ? rosterCols : 3;
   // Admin: photo editor overlay + a tick to refresh avatars after edits.
   const [photoAdminOpen, setPhotoAdminOpen] = useState(false);
   const [photoTick, setPhotoTick] = useState(0);
@@ -17191,10 +17135,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
           const sched = schedByTeam[team] || [];
           const blocks = gameDayBlocks(team, sched);
           const scoreNote = scorekeepingNote(team);
-          // Chunk the roster into rows of `cols` so an opened player's stat
-          // panel can render full-width directly below that player's row.
-          const rows = [];
-          for (let i = 0; i < roster.length; i += cols) rows.push(roster.slice(i, i + cols));
           return (
             <React.Fragment key={team}>
             <div className={`rounded-2xl border-2 bg-white overflow-hidden ${look.status === "clinched" ? "border-emerald-500" : look.status === "eliminated" ? "border-orange-500" : "border-gray-900"}`}>
@@ -17311,40 +17251,22 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
                 <div className="px-3 pb-3">
                   {roster.length === 0 && <div className="text-xs text-gray-400 py-3">No active players.</div>}
                   <div className="space-y-2 pt-1">
-                    {rows.map((rowItems, ri) => {
-                      const openEntry = rowItems.find(p => p.roster_id === openPlayer);
-                      return (
-                        <div key={ri}>
-                          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-                            {rowItems.map(p => (
-                              <RosterPlayerCard
-                                key={p.roster_id}
-                                rosterEntry={p}
-                                hometown={cityMap[thNorm(p.player_name)]}
-                                isOpen={openPlayer === p.roster_id}
-                                onToggle={() => setOpenPlayer(openPlayer === p.roster_id ? null : p.roster_id)}
-                                isAdmin={isAdmin}
-                                jerseyValue={jerseyOf(p)}
-                                onJerseyChange={onJerseyChange}
-                                photoUrl={photoFor(p.player_name)}
-                                onEditPhoto={isAdmin ? setPhotoEditName : undefined}
-                              />
-                            ))}
-                          </div>
-                          {openEntry && (
-                            <PlayerStatPanel
-                              rosterEntry={openEntry}
-                              goToPlayer={goToPlayer}
-                              dob={dobMap[thNorm(openEntry.player_name)]}
-                              hometown={cityMap[thNorm(openEntry.player_name)]}
-                              inCA={caMap[thNorm(openEntry.player_name)]}
-                              hideCareerLinks={hideCareerLinks}
-                              photoUrl={photoFor(openEntry.player_name)}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
+                    {roster.map(p => (
+                      <RosterHeroCard
+                        key={p.roster_id}
+                        rosterEntry={p}
+                        goToPlayer={goToPlayer}
+                        dob={dobMap[thNorm(p.player_name)]}
+                        hometown={cityMap[thNorm(p.player_name)]}
+                        inCA={caMap[thNorm(p.player_name)]}
+                        hideCareerLinks={hideCareerLinks}
+                        photoUrl={photoFor(p.player_name)}
+                        isAdmin={isAdmin}
+                        jerseyValue={jerseyOf(p)}
+                        onJerseyChange={onJerseyChange}
+                        onEditPhoto={isAdmin ? setPhotoEditName : undefined}
+                      />
+                    ))}
                   </div>
 
                   {isAdmin && (
@@ -17409,18 +17331,6 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
       {isAdmin && (
         <div className="mt-8 rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-3">
           <p className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Admin</p>
-          <div>
-            <p className="text-xs font-bold text-gray-700">Roster layout</p>
-            <p className="text-[10px] text-gray-400 mb-1.5">Applies to everyone.</p>
-            <div className="flex gap-1.5">
-              {[1, 2, 3, 4].map(n => (
-                <button key={n} onClick={() => setRosterCols && setRosterCols(n)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${cols === n ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
-                  {n} across
-                </button>
-              ))}
-            </div>
-          </div>
           <button onClick={() => setPhotoAdminOpen(true)}
             className="w-full py-2 rounded-xl bg-gray-900 text-white text-sm font-bold active:bg-gray-700">
             Edit player photos
