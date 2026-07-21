@@ -1,3 +1,67 @@
+    const renderPlayerCard = (p, opts = {}) => {
+      const { onClick, disabled } = opts;
+      const name = p.player_name || "";
+      const parts = name.trim().split(/\s+/);
+      const last = parts[0]
+        ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase()
+        : name;
+      const firstFull = parts.slice(1)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+      // The number has to stay prominent, so the first name gives way to an
+      // initial once the pair would be too wide for one line.
+      const first = (firstFull && (firstFull.length + last.length) > 13)
+        ? firstFull.charAt(0) + "."
+        : firstFull;
+      const jersey = p.jersey_number || "";
+      const b = box[name] || {};
+      const hot = isOnHotStreak(events, name);
+      const hl = (v, at) => (v || 0) >= at ? "text-gray-900 font-black" : "";
+      const line2 = [
+        { v: b.reb || 0, at: 8, label: "REB" },
+        { v: b.stl || 0, at: 3, label: "STL" },
+        { v: b.ast || 0, at: 3, label: "AST" },
+        { v: b.blk || 0, at: 2, label: "BLK" },
+        { v: b.foul || 0, at: 4, label: "F" },
+      ].filter(x => x.v > 0);
+      return (
+        <button key={p.roster_id}
+          onClick={onClick}
+          disabled={disabled}
+          className="relative p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
+          <div className="flex items-start gap-2">
+            <PlayerAvatar name={name} team={p.team} size={64} square />
+            {/* Stats never wrap: they shrink and clip instead, so every card
+                stays the same height however busy a player's night is. */}
+            <div className="flex-1 min-w-0 text-[11px] leading-snug text-gray-500 tabular-nums">
+              <div className="whitespace-nowrap overflow-hidden text-ellipsis">
+                <span className={b.fga ? "text-gray-900 font-bold" : ""}>{b.fgm || 0}/{b.fga || 0}</span> FG
+                <span className="text-gray-300">, </span>
+                <span className={hl(b.pts, 15) || "text-gray-900 font-bold"}>{b.pts || 0}</span> PTS
+              </div>
+              {line2.length > 0 && (
+                <div className="mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis">
+                  {line2.map((x, i) => (
+                    <span key={x.label}>
+                      {i > 0 && <span className="text-gray-300">, </span>}
+                      <span className={hl(x.v, x.at)}>{x.v}</span> {x.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            {jersey && <span className="text-[19px] font-black text-gray-900 tabular-nums leading-none flex-shrink-0">#{jersey}</span>}
+            <span className="flex-1 min-w-0 text-[15px] text-gray-900 truncate leading-tight">
+              {first && <span className="font-normal">{first} </span>}
+              <span className="font-black">{last}</span>
+            </span>
+            {hot && <span className="flex-shrink-0" title="Hot: 3 straight or 4 of 6"><FireIcon /></span>}
+          </div>
+        </button>
+      );
+    };
+
 // ============================================================
 // LiveSection.jsx
 // PCAL Live Scoring - single-file React module.
@@ -198,6 +262,91 @@ const STAT_BUTTONS = [
 // Lookup used by both flows. "ast" has no STAT_BUTTONS entry (the classic
 // grid can't record one directly), so it is added here with no follow-up
 // prompt.
+// Collapse the raw event stream into readable plays:
+//   - a made basket absorbs the assist that follows it
+//   - a run of free throws by the same player becomes one line
+//   - every scoring play carries the score, leader's code first
+// Returns newest first.
+function buildPlayLines(events, homeTeam, awayTeam) {
+  const live = (events || []).filter(e => !e.deleted);
+  let h = 0, a = 0;
+  const withScore = live.map(e => {
+    const pts = e.stat_type === "made_2" ? 2 : e.stat_type === "made_3" ? 3
+      : e.stat_type === "made_ft" ? 1 : 0;
+    if (pts) { if (e.team === homeTeam) h += pts; else if (e.team === awayTeam) a += pts; }
+    return { e, h, a, scored: pts > 0 };
+  });
+
+  const shortName = (n) => {
+    if (!n) return "";
+    const parts = String(n).trim().split(/\s+/);
+    const last = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase() : n;
+    return (parts[1] ? parts[1].charAt(0).toUpperCase() + ". " : "") + last;
+  };
+  const tag = (h2, a2) => h2 === a2
+    ? `${awayTeam} ${a2}-${h2}`
+    : h2 > a2 ? `${homeTeam} ${h2}-${a2}` : `${awayTeam} ${a2}-${h2}`;
+
+  const out = [];
+  const FT = new Set(["made_ft", "missed_ft"]);
+  for (let i = 0; i < withScore.length; i++) {
+    const { e } = withScore[i];
+
+    if (FT.has(e.stat_type)) {
+      let j = i, made = 0, total = 0, last = withScore[i];
+      while (j < withScore.length && FT.has(withScore[j].e.stat_type)
+        && withScore[j].e.player_name === e.player_name) {
+        if (withScore[j].e.stat_type === "made_ft") made += 1;
+        total += 1; last = withScore[j]; j += 1;
+      }
+      out.push({
+        id: e.event_id, team: e.team, scored: made > 0, h: last.h, a: last.a,
+        text: `${shortName(e.player_name)} made ${made} of ${total} FT`,
+        score: made > 0 ? tag(last.h, last.a) : null,
+      });
+      i = j - 1;
+      continue;
+    }
+
+    if (e.stat_type === "made_2" || e.stat_type === "made_3") {
+      const nxt = withScore[i + 1];
+      const assisted = nxt && nxt.e.stat_type === "ast" && nxt.e.team === e.team ? nxt.e : null;
+      const made = e.stat_type === "made_2" ? "made 2" : "made 3";
+      out.push({
+        id: e.event_id, team: e.team, scored: true, h: withScore[i].h, a: withScore[i].a,
+        text: `${shortName(e.player_name)} ${made}`
+          + (assisted ? ` (${shortName(assisted.player_name)} assist)` : ""),
+        score: tag(withScore[i].h, withScore[i].a),
+      });
+      if (assisted) i += 1;
+      continue;
+    }
+
+    const plain = {
+      missed_2: "missed 2", missed_3: "missed 3", reb: "rebound",
+      reb_other_team: "rebound, other team", ast: "assist", stl: "steal",
+      blk: "block", timeout: "timeout",
+    }[e.stat_type];
+    if (e.stat_type === "foul") {
+      const kind = e.foul_subtype === "technical" ? "technical foul"
+        : e.foul_subtype === "spiritual" ? "spiritual foul" : "foul";
+      out.push({ id: e.event_id, team: e.team, text: `${shortName(e.player_name)} ${kind}`, score: null });
+      continue;
+    }
+    if (e.stat_type === "period_change") {
+      out.push({ id: e.event_id, team: null, text: e.player_name === "H2" ? "End of 1st half" : `Start of ${e.player_name}`, score: null });
+      continue;
+    }
+    if (!plain) continue;
+    out.push({
+      id: e.event_id, team: e.team,
+      text: e.stat_type === "timeout" ? "timeout" : `${shortName(e.player_name)} ${plain}`,
+      score: null,
+    });
+  }
+  return out.reverse();
+}
+
 // Flame for a hot shooter. No emoji anywhere in this app, so it is drawn.
 function FireIcon({ size = 15 }) {
   return (
@@ -2597,25 +2746,27 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   // Everything a scorer needs while scoring, pinned to the top of the screen:
   // date and time beside Back, status and period and the end-half control on
   // one line, then both scores with each team's timeouts directly beneath.
-  // Back and the date scroll away; only the board itself pins. It sits at
-  // top-11 so it tucks under the app's own sticky header (App.jsx, top-0
-  // z-30) rather than fighting it for the same strip, and at a lower z so
-  // that header always wins the overlap.
+  // The board is the first thing on the page and pins immediately, so there is
+  // nothing above it to scroll. Back and the date live inside it.
   const shell = (children) => (
-    <>
-      <BackRow onBack={onBack} className="mb-2" trailing={
-        <span className="text-[11px] font-bold text-gray-500">
-          {formatGameDate(game.game_date)}
-          <span className="text-gray-300"> &middot; </span>
-          {formatGameTime(game.game_time)}
-        </span>
-      } />
-      <div className="sticky top-11 z-20 -mx-4 px-4 pt-4 pb-2 bg-white">
-        <div className="rounded-2xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
-          {children}
+    <div className="sticky top-11 z-20 -mx-4 px-4 pt-4 pb-2 bg-white">
+      <div className="rounded-2xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <button onClick={onBack} className="flex items-center gap-0.5 text-[11px] font-bold text-gray-400 active:text-gray-900 flex-shrink-0">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back
+          </button>
+          <span className="text-[11px] text-gray-400 truncate">
+            {formatGameDate(game.game_date)}
+            <span className="text-gray-300"> &middot; </span>
+            {formatGameTime(game.game_time)}
+          </span>
         </div>
+        {children}
       </div>
-    </>
+    </div>
   );
 
   // Timeouts as a vertical stack of dots down the outer edge of each score
@@ -2627,7 +2778,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   const undoable = myEvents.filter(e => !e.deleted);
   const redoable = myEvents.filter(e => e.deleted)
     .sort((a, b) => String(a.edited_at || "").localeCompare(String(b.edited_at || "")));
-  const lastPlays = undoable.slice(-10).reverse();
+  const lastPlays = buildPlayLines(events, homeTeam, awayTeam);
   const [playsOpen, setPlaysOpen] = useState(false);
 
   const setDeleted = async (ev, flag) => {
@@ -2666,16 +2817,22 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
       ) : (
         <>
           <div className="space-y-0.5">
-            {lastPlays.slice(0, playsOpen ? 10 : 3).map(e => (
-              <div key={e.event_id} className="text-[11px] text-gray-600 truncate leading-snug">
-                {formatEventText(e)}
+            {lastPlays.slice(0, playsOpen ? 10 : 3).map(pl => (
+              <div key={pl.id} className="flex items-baseline gap-1.5 text-[11px] leading-snug">
+                {pl.team
+                  ? <span className="font-black text-gray-900 w-8 flex-shrink-0">{pl.team}</span>
+                  : <span className="w-8 flex-shrink-0" />}
+                <span className="flex-1 min-w-0 text-gray-600 truncate">{pl.text}</span>
+                {pl.score && (
+                  <span className="flex-shrink-0 font-black text-gray-900 tabular-nums">{pl.score}</span>
+                )}
               </div>
             ))}
           </div>
           {lastPlays.length > 3 && (
             <button onClick={() => setPlaysOpen(v => !v)}
-              className="mt-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest active:text-gray-700">
-              {playsOpen ? "Show less" : `Last 10 plays`}
+              className="mt-1.5 w-full py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200">
+              {playsOpen ? "Show last 3 plays" : "Show last 10 plays"}
             </button>
           )}
         </>
@@ -2710,14 +2867,16 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 
   // Two grey boxes side by side, matching the box score view, so the numbers
   // sit close together instead of being pushed to opposite edges.
-  const scoreBox = (teamCode, score) => (
-    <div className="flex-1 min-w-0 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5 text-center">
-      <div className="text-[15px] font-black text-gray-900 truncate leading-tight">
+  const scoreBox = (teamCode, score, side) => (
+    <div className="flex-1 min-w-0 rounded-xl bg-gray-50 border border-gray-100 px-2 py-1.5">
+      <div className="text-[15px] font-black text-gray-900 truncate leading-tight text-center">
         {TEAM_NAMES[teamCode] || teamCode}
       </div>
-      <div className="flex items-center justify-center gap-2 mt-0.5">
+      {/* Logo on the outer edge, number toward the middle, so the two scores
+          sit next to each other and read as one line. */}
+      <div className={`flex items-center gap-2 mt-0.5 ${side === "left" ? "" : "flex-row-reverse"}`}>
         <TeamLogoLocal team={teamCode} size={30} />
-        <span className="text-4xl font-black text-gray-900 leading-none tabular-nums">{score}</span>
+        <span className="flex-1 text-4xl font-black text-gray-900 leading-none tabular-nums text-center">{score}</span>
       </div>
     </div>
   );
@@ -2771,8 +2930,8 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
           The word sits between the two groups rather than repeating codes. */}
       <div className="flex items-stretch gap-1.5">
         {renderTimeoutDots(awayTeam, awayTOUsed)}
-        {scoreBox(awayTeam, teamScore?.[awayTeam] || 0)}
-        {scoreBox(homeTeam, teamScore?.[homeTeam] || 0)}
+        {scoreBox(awayTeam, teamScore?.[awayTeam] || 0, "left")}
+        {scoreBox(homeTeam, teamScore?.[homeTeam] || 0, "right")}
         {renderTimeoutDots(homeTeam, homeTOUsed)}
       </div>
       {playsPanel}
