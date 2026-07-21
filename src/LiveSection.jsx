@@ -151,6 +151,37 @@ function formatGameDateShort(isoDate) {
 // Grid is 3x4 (rows of 3,3,4), row-major. Row 1: makes (green).
 // Row 2: misses (red). Row 3: REB/STL/BLK/FOUL (gray, 4-across).
 // ------------------------------------------------------------
+// Player-first stat grid. Same stat_type strings as STAT_BUTTONS so the
+// events are indistinguishable downstream; only the presentation differs.
+// "ast" is here but not in STAT_BUTTONS: the classic flow only reaches an
+// assist through the made-shot prompt, this one can record it directly.
+const PF_STATS = [
+  { key: "made_2", big: "+2", sub: "PT FG", tone: "made" },
+  { key: "missed_2", big: "2PT", sub: "MISS", tone: "miss" },
+  { key: "made_3", big: "+3", sub: "PT FG", tone: "made" },
+  { key: "missed_3", big: "3PT", sub: "MISS", tone: "miss" },
+  { key: "made_ft", big: "+1", sub: "FT MADE", tone: "ft" },
+  { key: "missed_ft", big: "FT", sub: "MISS", tone: "ft" },
+  { key: "reb", big: "REB", sub: "REBOUND", tone: "plain" },
+  { key: "ast", big: "AST", sub: "ASSIST", tone: "plain" },
+  { key: "stl", big: "STL", sub: "STEAL", tone: "plain" },
+  { key: "blk", big: "BLK", sub: "BLOCK", tone: "plain" },
+  { key: "foul", big: "FOUL", sub: "PERSONAL", tone: "foul" },
+];
+const PF_TONE = {
+  made: "text-green-800", miss: "text-red-800",
+  ft: "text-orange-700", foul: "text-amber-900", plain: "text-gray-900",
+};
+const FLASH_TEXT = {
+  made_2: "+2 PTS", missed_2: "MISS", made_3: "+3 PTS", missed_3: "MISS",
+  made_ft: "+1 PT", missed_ft: "FT MISS", reb: "+1 REB", ast: "+1 AST",
+  stl: "+1 STL", blk: "+1 BLK", foul: "+1 FOUL",
+};
+const FLASH_TONE = {
+  made_2: "made", made_3: "made", made_ft: "ft", missed_2: "miss",
+  missed_3: "miss", missed_ft: "ft", foul: "foul",
+};
+
 const STAT_BUTTONS = [
   { key: "made_2",   label: "Made 2",   pts: 2, prompt: "assist",  color: "bg-green-500 text-white", activeRing: "ring-green-300" },
   { key: "made_3",   label: "Made 3",   pts: 3, prompt: "assist",  color: "bg-green-500 text-white", activeRing: "ring-green-300" },
@@ -163,6 +194,14 @@ const STAT_BUTTONS = [
   { key: "blk",      label: "Block",    pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
   { key: "foul",     label: "Foul",     pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
 ];
+
+// Lookup used by both flows. "ast" has no STAT_BUTTONS entry (the classic
+// grid can't record one directly), so it is added here with no follow-up
+// prompt.
+const STAT_BY_KEY_ALL = Object.assign(
+  Object.fromEntries(STAT_BUTTONS.map(s => [s.key, s])),
+  { ast: { key: "ast", label: "Assist", pts: 0, prompt: null } }
+);
 
 // ------------------------------------------------------------
 // Helpers
@@ -2588,6 +2627,26 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   const [pendingStat, setPendingStat] = useState(null); // {stat, player}
   const [promptMode, setPromptMode] = useState(null);   // rebound | assist
   const [busy, setBusy] = useState(false);
+  // Player-first scoring: pick the player, then the stat. The classic
+  // stat-first grid stays one tap away, so a scorer can fall back mid-game
+  // rather than lose the ability to record anything.
+  const [scoreMode, setScoreMode] = useState(() => {
+    try { return localStorage.getItem("pcal_score_mode") || "player"; } catch (e) { return "player"; }
+  });
+  const [pickedPlayer, setPickedPlayer] = useState(null);
+  const [flash, setFlash] = useState(null);
+  const flashRef = useRef(null);
+  useEffect(() => () => clearTimeout(flashRef.current), []);
+  const showFlash = (text, tone) => {
+    clearTimeout(flashRef.current);
+    setFlash({ text, tone });
+    flashRef.current = setTimeout(() => setFlash(null), 650);
+  };
+  const setMode = (m) => {
+    setScoreMode(m);
+    try { localStorage.setItem("pcal_score_mode", m); } catch (e) { /* private browsing */ }
+    setPendingStat(null); setPromptMode(null); setPickedPlayer(null);
+  };
 
   const myTeamCode = myRole === "home_scorer" ? game.home_team : myRole === "away_scorer" ? game.away_team : null;
   const myRoster = myRole === "home_scorer" ? rosters.home : myRole === "away_scorer" ? rosters.away : [];
@@ -2746,8 +2805,12 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     const key = pendingStat.key;
     const meta = pendingStat.meta;
 
-    // Insert the primary event
-    await insertEvent(key, player.player_name);
+    // Insert the primary event. If the write was rejected (the 1s dedupe
+    // guard, or an in-flight insert), stop here: opening the assist prompt
+    // after a dropped basket lets an assist be recorded for a shot that was
+    // never saved.
+    const ok = await insertEvent(key, player.player_name);
+    if (!ok) { setPendingStat(null); setPromptMode(null); return; }
 
     // If this is a miss, open rebound prompt
     if (meta.prompt === "rebound") {
@@ -2769,6 +2832,41 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   // Technical / Spiritual foul: user tapped one of those buttons in the
   // foul player-picker INSTEAD of tapping a player. We drop into a second
   // prompt that collects (a) the offender and (b) an optional explanation.
+  // Player-first equivalent of tapPlayerForStat: the player is already known,
+  // so this takes the stat. Writes the same event and hands off to the same
+  // rebound / assist prompts, so the data is identical either way.
+  const tapStatForPlayer = async (statKey) => {
+    const player = pickedPlayer;
+    if (!player || !myTeamCode) return;
+    const meta = STAT_BY_KEY_ALL[statKey];
+    const ok = await insertEvent(statKey, player.player_name);
+    if (!ok) { setPickedPlayer(null); return; }
+    showFlash(FLASH_TEXT[statKey] || statKey.toUpperCase(), FLASH_TONE[statKey] || "plain");
+    if (meta && meta.prompt === "rebound") {
+      setPendingStat({ key: statKey, meta, shooter: player });
+      setPromptMode("rebound");
+      setPickedPlayer(null);
+      return;
+    }
+    if (meta && meta.prompt === "assist") {
+      setPendingStat({ key: statKey, meta, shooter: player });
+      setPromptMode("assist");
+      setPickedPlayer(null);
+      return;
+    }
+    setPickedPlayer(null);
+  };
+
+  // Technical / spiritual foul from the player-first grid. The player is
+  // already chosen, so this skips straight to the note step.
+  const foulSubtypeForPicked = (subtype) => {
+    const player = pickedPlayer;
+    if (!player) return;
+    setPendingStat({ key: "foul", meta: STAT_BY_KEY_ALL.foul, foulSubtype: subtype, foulNote: "", foulPlayer: player });
+    setPromptMode("foul_subtype_note");
+    setPickedPlayer(null);
+  };
+
   const startFoulSubtype = (subtype) => {
     setPendingStat(prev => ({ ...prev, foulSubtype: subtype, foulNote: "" }));
     setPromptMode("foul_subtype_player");
@@ -3140,6 +3238,33 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       ? partitionRosterByStat(myRoster, box, partitionStatKey)
       : null;
 
+    // Player-first roster order. Whoever is in the top block stays put no
+    // matter how much they do; a bench player recording a stat takes the slot
+    // of whoever up there has gone longest without one. Replayed from events
+    // rather than held in state, so a refresh mid-game rebuilds the same order.
+    const PF_ACTIVE = Math.min(6, myRoster.length);
+    const pfOrderedRoster = (() => {
+      const order = myRoster.map(p => p.player_name);
+      const seen = {};
+      order.forEach(n => { seen[n] = -1; });
+      let tick = 0;
+      for (const e of (events || [])) {
+        if (e.deleted || !e.player_name || e.team !== myTeamCode) continue;
+        if (!(e.player_name in seen)) continue;
+        tick += 1;
+        seen[e.player_name] = tick;
+        const i = order.indexOf(e.player_name);
+        if (i < PF_ACTIVE) continue;
+        let coldest = 0, coldestAt = Infinity;
+        for (let k = 0; k < PF_ACTIVE; k++) {
+          if (seen[order[k]] < coldestAt) { coldestAt = seen[order[k]]; coldest = k; }
+        }
+        const tmp = order[coldest]; order[coldest] = order[i]; order[i] = tmp;
+      }
+      const byName = Object.fromEntries(myRoster.map(p => [p.player_name, p]));
+      return order.map(n => byName[n]).filter(Boolean);
+    })();
+
     // Renders a single player card in the box picker. Layout:
     //   [square photo 72px]  [BIG jersey #]
     //   F. LastName                 [stat chip]
@@ -3157,8 +3282,9 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         : name;
       const firstInit = parts[1] ? parts[1].charAt(0).toUpperCase() + "." : "";
       const displayName = firstInit ? `${firstInit} ${displayLast}` : displayLast;
-      const statInfo = showCount && partitionStatKey
-        ? statLabelForPlayer(partitionStatKey, box[name])
+      const countKey = opts.countKey || partitionStatKey;
+      const statInfo = showCount && countKey
+        ? statLabelForPlayer(countKey, box[name])
         : { count: 0, label: "" };
       const jersey = p.jersey_number || "";
       // Milestone chip: show for any countable stat where they have >=10.
@@ -3224,29 +3350,98 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           </div>
         )}
 
-        {/* Stat buttons: Row 1 makes (green), Row 2 misses (red), Row 3 REB/STL/BLK/FOUL */}
+        {/* Flash confirmation for the player-first flow. */}
+        {flash && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <div className="rounded-2xl bg-gray-900 px-7 py-4 text-center shadow-xl">
+              <div className={`text-3xl font-black leading-none ${
+                flash.tone === "made" ? "text-green-400"
+                  : flash.tone === "miss" ? "text-red-400"
+                    : flash.tone === "ft" ? "text-orange-300"
+                      : flash.tone === "foul" ? "text-amber-200" : "text-white"
+              }`}>{flash.text}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Scoring UI. Player first by default; classic stat-first is one tap
+            away and writes identical events, so it is a safe fallback. */}
         {!gameIsOver && (
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
-                Tap stat &middot; {myTeamCode}
+            <div className="flex items-center justify-between mb-2 gap-2">
+              <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide truncate">
+                {scoreMode === "player"
+                  ? (pickedPlayer ? "Tap stat" : "Tap player")
+                  : "Tap stat"} &middot; {myTeamCode}
               </div>
-              <button onClick={undoLast}
-                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
-                Undo last
-              </button>
-            </div>
-            <div className="space-y-1.5">
-              <div className="grid grid-cols-3 gap-1.5">
-                {row1Keys.map(renderStatButton)}
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {row2Keys.map(renderStatButton)}
-              </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {row3Keys.map(renderStatButton)}
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button onClick={() => setMode(scoreMode === "player" ? "classic" : "player")}
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
+                  {scoreMode === "player" ? "Classic" : "Player first"}
+                </button>
+                <button onClick={undoLast}
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200">
+                  Undo last
+                </button>
               </div>
             </div>
+
+            {scoreMode === "classic" ? (
+              <div className="space-y-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {row1Keys.map(renderStatButton)}
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {row2Keys.map(renderStatButton)}
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {row3Keys.map(renderStatButton)}
+                </div>
+              </div>
+            ) : pickedPlayer ? (
+              <div>
+                <div className="flex items-center gap-2 mb-2 rounded-xl border-2 border-gray-900 bg-white p-2">
+                  <PlayerAvatar name={pickedPlayer.player_name} team={pickedPlayer.team} size={44} square />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-base font-black text-gray-900 truncate leading-tight">
+                      {formatName(pickedPlayer.player_name)}
+                    </div>
+                    <div className="text-[11px] text-gray-500">
+                      {pickedPlayer.jersey_number ? "#" + pickedPlayer.jersey_number : "no number"}
+                    </div>
+                  </div>
+                  <button onClick={() => setPickedPlayer(null)}
+                    className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200 flex-shrink-0">
+                    Cancel
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {PF_STATS.map(st => (
+                    <button key={st.key} onClick={() => tapStatForPlayer(st.key)}
+                      className={`py-3 px-2 rounded-xl bg-gray-100 active:bg-gray-200 text-center ${PF_TONE[st.tone]}`}>
+                      <div className="text-2xl font-black leading-none">{st.big}</div>
+                      <div className="text-[11px] font-bold tracking-wide mt-1 opacity-80">{st.sub}</div>
+                    </button>
+                  ))}
+                  <button onClick={() => foulSubtypeForPicked("technical")}
+                    className="py-2.5 rounded-xl bg-gray-100 active:bg-gray-200 text-[12px] font-black text-amber-900">
+                    Technical
+                  </button>
+                  <button onClick={() => foulSubtypeForPicked("spiritual")}
+                    className="py-2.5 rounded-xl bg-gray-100 active:bg-gray-200 text-[12px] font-black text-amber-900">
+                    Spiritual
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-1.5">
+                {pfOrderedRoster.map(p => renderPlayerCard(p, {
+                  onClick: () => setPickedPlayer(p),
+                  showCount: true,
+                  countKey: "made_2",
+                }))}
+              </div>
+            )}
           </div>
         )}
 
