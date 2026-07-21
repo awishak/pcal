@@ -49,7 +49,7 @@ const useLogos = () => useContext(LogosContext);
 
 // Context carries player photo URLs keyed by "LASTNAME Firstname" (matching
 // rosters.player_name). Fetched from the player_photos table in LiveGameView
-// at load time. Falls back to initials avatar when a key is missing.
+// at load time. Falls back to a grey silhouette when a key is missing.
 const PhotosContext = createContext({});
 const usePhotos = () => useContext(PhotosContext);
 
@@ -155,18 +155,26 @@ function formatGameDateShort(isoDate) {
 // events are indistinguishable downstream; only the presentation differs.
 // "ast" is here but not in STAT_BUTTONS: the classic flow only reaches an
 // assist through the made-shot prompt, this one can record it directly.
-const PF_STATS = [
-  { key: "made_2", big: "+2", sub: "PT FG", tone: "made" },
-  { key: "missed_2", big: "2PT", sub: "MISS", tone: "miss" },
-  { key: "made_3", big: "+3", sub: "PT FG", tone: "made" },
-  { key: "missed_3", big: "3PT", sub: "MISS", tone: "miss" },
-  { key: "made_ft", big: "+1", sub: "FT MADE", tone: "ft" },
-  { key: "missed_ft", big: "FT", sub: "MISS", tone: "ft" },
-  { key: "reb", big: "REB", sub: "REBOUND", tone: "plain" },
-  { key: "ast", big: "AST", sub: "ASSIST", tone: "plain" },
-  { key: "stl", big: "STL", sub: "STEAL", tone: "plain" },
-  { key: "blk", big: "BLK", sub: "BLOCK", tone: "plain" },
-  { key: "foul", big: "FOUL", sub: "PERSONAL", tone: "foul" },
+const PF_STATS = {
+  made_ft:   { big: "+1", sub: "FREE THROW", tone: "made" },
+  made_2:    { big: "+2", sub: "PT FG", tone: "made" },
+  made_3:    { big: "+3", sub: "PT FG", tone: "made" },
+  missed_ft: { big: "FT", sub: "MISS", tone: "miss" },
+  missed_2:  { big: "2PT", sub: "MISS", tone: "miss" },
+  missed_3:  { big: "3PT", sub: "MISS", tone: "miss" },
+  reb:       { big: "REB", sub: "REBOUND", tone: "plain" },
+  ast:       { big: "AST", sub: "ASSIST", tone: "plain" },
+  stl:       { big: "STL", sub: "STEAL", tone: "plain" },
+  blk:       { big: "BLK", sub: "BLOCK", tone: "plain" },
+  foul:      { big: "FOUL", sub: "PERSONAL", tone: "foul" },
+  other_foul:{ big: "OTHER", sub: "FOUL", tone: "foul" },
+};
+// Three across: makes, misses, then the counting stats.
+const PF_ROWS = [
+  ["made_ft", "made_2", "made_3"],
+  ["missed_ft", "missed_2", "missed_3"],
+  ["reb", "ast", "stl"],
+  ["blk", "foul", "other_foul"],
 ];
 const PF_TONE = {
   made: "text-green-800", miss: "text-red-800",
@@ -522,19 +530,13 @@ function partitionRosterByStat(roster, box, statKey) {
 }
 
 // Player avatar: photo if available via PhotosContext, otherwise a colored
-// circle with the player's initials. Team color provides the backdrop so
+// grey silhouette. Team color is no longer used for the fallback so
 // rosters stay visually cohesive.
 function PlayerAvatar({ name, team, size = 40, square = false }) {
   const photos = usePhotos();
   // Photos are keyed upper-case ("ISHAK ANDREW"); roster names are mixed
   // case ("ISHAK Andrew"), so match case-insensitively.
   const url = photos?.[(name || "").toUpperCase()];
-  const parts = (name || "").trim().split(/\s+/);
-  const lastInit = (parts[0]?.charAt(0) || "").toUpperCase();
-  const firstInit = (parts[1]?.charAt(0) || "").toUpperCase();
-  const initials = `${firstInit}${lastInit}`;
-  const bg = TEAM_COLORS[team] || "#6b7280";
-  const fg = textOnTeam(team);
   const shape = square ? "" : "rounded-full";
   if (url) {
     return (
@@ -545,14 +547,18 @@ function PlayerAvatar({ name, team, size = 40, square = false }) {
       />
     );
   }
+  // No photo yet: a neutral grey silhouette rather than initials, so an
+  // unphotographed player reads as "no picture" instead of as a coloured tile.
   return (
     <div
-      className={`${shape} flex items-center justify-center flex-shrink-0`}
-      style={{ width: size, height: size, backgroundColor: bg }}
+      className={`${shape} flex items-end justify-center flex-shrink-0 overflow-hidden bg-gray-200`}
+      style={{ width: size, height: size }}
+      title={name || ""}
     >
-      <span style={{ fontSize: Math.max(9, size * 0.36), color: fg }} className="font-black">
-        {initials}
-      </span>
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="8.5" r="4" fill="#9ca3af" />
+        <path d="M3.5 23c0-4.7 3.8-8 8.5-8s8.5 3.3 8.5 8Z" fill="#9ca3af" />
+      </svg>
     </div>
   );
 }
@@ -2892,6 +2898,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     try { return localStorage.getItem("pcal_score_mode") || "player"; } catch (e) { return "player"; }
   });
   const [pickedPlayer, setPickedPlayer] = useState(null);
+  const [otherFoulOpen, setOtherFoulOpen] = useState(false);
   const [flash, setFlash] = useState(null);
   const flashRef = useRef(null);
   useEffect(() => () => clearTimeout(flashRef.current), []);
@@ -2903,7 +2910,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   const setMode = (m) => {
     setScoreMode(m);
     try { localStorage.setItem("pcal_score_mode", m); } catch (e) { /* private browsing */ }
-    setPendingStat(null); setPromptMode(null); setPickedPlayer(null);
+    setPendingStat(null); setPromptMode(null); setPickedPlayer(null); setOtherFoulOpen(false);
   };
 
   const myTeamCode = myRole === "home_scorer" ? game.home_team : myRole === "away_scorer" ? game.away_team : null;
@@ -3129,6 +3136,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       return;
     }
     setPickedPlayer(null);
+    setOtherFoulOpen(false);
   };
 
   // Technical / spiritual foul from the player-first grid. The player is
@@ -3556,10 +3564,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         : name;
       const firstFull = parts.slice(1)
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-      // Shorten the first name when the pair would crowd the number.
-      const first = (firstFull && (firstFull.length + last.length) > 15)
-        ? firstFull.charAt(0) + "."
-        : firstFull;
       const jersey = p.jersey_number || "";
       const b = box[name] || {};
       const hot = isOnHotStreak(events, name);
@@ -3571,46 +3575,50 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
         { v: b.ast || 0, at: 3, label: "AST" },
         { v: b.blk || 0, at: 2, label: "BLK" },
       ].filter(x => x.v > 0);
+      // Fouls escalate through yellow to red, so trouble is visible before the
+      // disqualification modal at six.
+      const foulStyle = fouls >= 6 ? "bg-red-100 text-red-700"
+        : fouls === 5 ? "bg-orange-100 text-orange-800"
+          : fouls === 4 ? "bg-amber-100 text-amber-800"
+            : fouls === 3 ? "bg-yellow-100 text-yellow-800"
+              : "bg-gray-50 text-gray-700";
+      const kitBg = TEAM_COLORS[p.team] || "#111827";
       return (
         <button key={p.roster_id}
           onClick={onClick}
           disabled={disabled}
           className="w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 border-gray-200 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white">
-          <span className="flex-shrink-0 w-11 h-11 rounded-full border-2 border-gray-900 flex items-center justify-center">
-            <span className="text-[19px] text-gray-900 leading-none" style={{ fontFamily: "'Anton', system-ui, sans-serif" }}>
+          <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
+            style={{ backgroundColor: kitBg }}>
+            <span className="text-[27px] leading-none"
+              style={{ fontFamily: "'Anton', system-ui, sans-serif", color: textOnTeam(p.team) }}>
               {jersey || "-"}
             </span>
           </span>
           <PlayerAvatar name={name} team={p.team} size={44} square />
-          <span className="flex-1 min-w-0 text-[15px] text-gray-900 truncate leading-tight">
-            {first && <span className="font-normal">{first} </span>}
-            <span className="font-black">{last}</span>
-            {hot && <span className="ml-1 inline-block align-middle" title="Hot: 3 straight or 4 of 6"><FireIcon size={13} /></span>}
-          </span>
-          <span className="flex-shrink-0 max-w-[42%] text-[11px] leading-snug text-gray-500 tabular-nums text-right">
-            <span className="block whitespace-nowrap overflow-hidden text-ellipsis">
+          {/* Name on top, stats beneath. Stats can never crowd the name now,
+              however busy a player's night gets. */}
+          <span className="flex-1 min-w-0">
+            <span className="block text-[15px] text-gray-900 truncate leading-tight">
+              {firstFull && <span className="font-normal">{firstFull} </span>}
+              <span className="font-black">{last}</span>
+              {hot && <span className="ml-1 inline-block align-middle" title="Hot: 3 straight or 4 of 6"><FireIcon size={13} /></span>}
+            </span>
+            <span className="block text-[11px] leading-snug text-gray-500 tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
               <span className={b.fga ? "text-gray-900 font-bold" : ""}>{b.fgm || 0}/{b.fga || 0}</span> FG
               <span className="text-gray-300">, </span>
               <span className={hl(b.pts, 15) || "text-gray-900 font-bold"}>{b.pts || 0}</span> PTS
+              {counts.map(x => (
+                <span key={x.label}>
+                  <span className="text-gray-300">, </span>
+                  <span className={hl(x.v, x.at)}>{x.v}</span> {x.label}
+                </span>
+              ))}
             </span>
-            {counts.length > 0 && (
-              <span className="block whitespace-nowrap overflow-hidden text-ellipsis">
-                {counts.map((x, i) => (
-                  <span key={x.label}>
-                    {i > 0 && <span className="text-gray-300">, </span>}
-                    <span className={hl(x.v, x.at)}>{x.v}</span> {x.label}
-                  </span>
-                ))}
-              </span>
-            )}
           </span>
-          <span className={`flex-shrink-0 w-8 text-center rounded-lg py-1 ${
-            fouls >= 5 ? "bg-red-100" : fouls >= 4 ? "bg-amber-100" : "bg-gray-50"
-          }`}>
-            <span className={`block text-[15px] leading-none tabular-nums ${
-              fouls >= 5 ? "font-black text-red-700" : fouls >= 4 ? "font-black text-amber-800" : "font-bold text-gray-700"
-            }`}>{fouls}</span>
-            <span className="block text-[9px] font-bold text-gray-400 leading-none mt-0.5">F</span>
+          <span className={`flex-shrink-0 w-12 text-center rounded-lg py-1 ${foulStyle}`}>
+            <span className="block text-[15px] font-black leading-none tabular-nums">{fouls}</span>
+            <span className="block text-[11px] font-bold leading-none mt-0.5">Fouls</span>
           </span>
         </button>
       );
@@ -3682,35 +3690,54 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
                       {pickedPlayer.jersey_number ? "#" + pickedPlayer.jersey_number : "no number"}
                     </div>
                   </div>
-                  <button onClick={() => setPickedPlayer(null)}
+                  <button onClick={() => { setPickedPlayer(null); setOtherFoulOpen(false); }}
                     className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-gray-100 text-gray-700 active:bg-gray-200 flex-shrink-0">
                     Cancel
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {PF_STATS.map(st => (
-                    <button key={st.key} onClick={() => tapStatForPlayer(st.key)}
-                      className={`py-3 px-2 rounded-xl bg-gray-100 active:bg-gray-200 text-center ${PF_TONE[st.tone]}`}>
-                      <div className="text-2xl font-black leading-none">{st.big}</div>
-                      <div className="text-[11px] font-bold tracking-wide mt-1 opacity-80">{st.sub}</div>
+                {otherFoulOpen ? (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button onClick={() => { setOtherFoulOpen(false); foulSubtypeForPicked("technical"); }}
+                        className="py-3 rounded-xl bg-gray-100 active:bg-gray-200 text-center text-amber-900">
+                        <div className="text-xl font-black leading-none">TECH</div>
+                        <div className="text-[11px] font-bold tracking-wide mt-1 opacity-80">TECHNICAL</div>
+                      </button>
+                      <button onClick={() => { setOtherFoulOpen(false); foulSubtypeForPicked("spiritual"); }}
+                        className="py-3 rounded-xl bg-gray-100 active:bg-gray-200 text-center text-amber-900">
+                        <div className="text-xl font-black leading-none">SPIR</div>
+                        <div className="text-[11px] font-bold tracking-wide mt-1 opacity-80">SPIRITUAL</div>
+                      </button>
+                    </div>
+                    <button onClick={() => setOtherFoulOpen(false)}
+                      className="w-full py-2 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-700 active:bg-gray-200">
+                      Back to stats
                     </button>
+                  </div>
+                ) : (
+                <div className="space-y-1.5">
+                  {PF_ROWS.map((row, ri) => (
+                    <div key={ri} className="grid grid-cols-3 gap-1.5">
+                      {row.map(k => {
+                        const st = PF_STATS[k];
+                        return (
+                          <button key={k}
+                            onClick={() => k === "other_foul" ? setOtherFoulOpen(true) : tapStatForPlayer(k)}
+                            className={`py-3 px-2 rounded-xl bg-gray-100 active:bg-gray-200 text-center ${PF_TONE[st.tone]}`}>
+                            <div className="text-2xl font-black leading-none">{st.big}</div>
+                            <div className="text-[11px] font-bold tracking-wide mt-1 opacity-80">{st.sub}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   ))}
-                  <button onClick={() => foulSubtypeForPicked("technical")}
-                    className="py-2.5 rounded-xl bg-gray-100 active:bg-gray-200 text-[12px] font-black text-amber-900">
-                    Technical
-                  </button>
-                  <button onClick={() => foulSubtypeForPicked("spiritual")}
-                    className="py-2.5 rounded-xl bg-gray-100 active:bg-gray-200 text-[12px] font-black text-amber-900">
-                    Spiritual
-                  </button>
                 </div>
+                )}
               </div>
             ) : (
               <div className="space-y-1.5">
                 {pfOrderedRoster.map(p => renderPlayerCard(p, {
                   onClick: () => setPickedPlayer(p),
-                  showCount: true,
-                  countKey: "made_2",
                 }))}
               </div>
             )}
