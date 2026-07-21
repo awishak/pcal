@@ -446,14 +446,14 @@ function PlayerAvatar({ name, team, size = 40, square = false }) {
     return (
       <img src={url} alt={name}
         style={{ width: size, height: size, objectFit: "cover", objectPosition: "top center" }}
-        className={`${shape} border border-gray-200 flex-shrink-0 bg-gray-100`}
+        className={`${shape} flex-shrink-0 bg-gray-100`}
         onError={(e) => { e.currentTarget.style.display = "none"; }}
       />
     );
   }
   return (
     <div
-      className={`${shape} flex items-center justify-center flex-shrink-0 border border-gray-200`}
+      className={`${shape} flex items-center justify-center flex-shrink-0`}
       style={{ width: size, height: size, backgroundColor: bg }}
     >
       <span style={{ fontSize: Math.max(9, size * 0.36), color: fg }} className="font-black">
@@ -1919,19 +1919,19 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
   return (
     <PhotosContext.Provider value={playerPhotos}>
       <div>
-        <BackRow onBack={onBack} />
-
-      {/* Compact matchup header: week & location on top, date + time on one line */}
-      <div className="mb-3 text-center">
-        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">
-          Week {game.week === 0 ? "Preseason" : game.week}{game.location ? ` \u00b7 ${game.location}` : ""}
-        </div>
-        <div className="text-base font-black text-gray-900 leading-tight">
-          {formatGameDate(game.game_date)}
-          {" \u00b7 "}
-          <span className="font-bold text-gray-700">{formatGameTime(game.game_time)}</span>
-        </div>
-      </div>
+        {/* While scoring, Back and the date sit inside the sticky header so
+            nothing above the scores takes up room. */}
+        {!(mode === "score" && (myRole === "home_scorer" || myRole === "away_scorer")) && (
+          <>
+            <BackRow onBack={onBack} trailing={
+              <span className="text-[11px] font-bold text-gray-500">
+                {formatGameDate(game.game_date)}
+                <span className="text-gray-300"> &middot; </span>
+                {formatGameTime(game.game_time)}
+              </span>
+            } />
+          </>
+        )}
 
       {/* Game control bar (period + timeouts). Only shown to scorers
           and only on the Live Score Mode tab. Lives ABOVE the scoreboard
@@ -1946,11 +1946,13 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
           currentHalf={currentHalf}
           teamTimeoutsThisHalf={teamTimeoutsThisHalf}
           teamScore={teamScore}
+          onBack={onBack}
         />
       )}
 
       {/* Scoreboard */}
       <Scoreboard
+        hideTopBlock={mode === "score" && (myRole === "home_scorer" || myRole === "away_scorer")}
         game={game}
         live={live}
         teamScore={displayTeamScore}
@@ -2057,21 +2059,24 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
   );
 }
 
-function BackRow({ onBack }) {
+function BackRow({ onBack, trailing = null, className = "mb-3" }) {
   return (
-    <button onClick={onBack} className="mb-3 flex items-center gap-1 text-xs font-bold text-gray-500 active:text-gray-900">
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-      </svg>
-      Back
-    </button>
+    <div className={`flex items-center gap-2 ${className}`}>
+      <button onClick={onBack} className="flex items-center gap-1 text-xs font-bold text-gray-500 active:text-gray-900 flex-shrink-0">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+        Back
+      </button>
+      {trailing && <div className="flex-1 min-w-0 text-right">{trailing}</div>}
+    </div>
   );
 }
 
 // ============================================================
 // Scoreboard (big top display)
 // ============================================================
-function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf, topScorerByTeam, events, box = {}, rosters = {} }) {
+function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThisHalf, currentHalf, topScorerByTeam, events, box = {}, rosters = {}, hideTopBlock = false }) {
   const home = game.home_team;
   const away = game.away_team;
   const hs = teamScore[home] || 0;
@@ -2216,6 +2221,7 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
   return (
     <div className="rounded-2xl overflow-hidden mb-3 border border-gray-200 bg-white">
       <div className="p-4">
+        {!hideTopBlock && (<>
         <div className="flex items-center justify-between mb-3">
           {/* Halftime / H2 age banner on the left */}
           <div className="text-[10px] font-bold uppercase tracking-widest">
@@ -2248,6 +2254,7 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
           {scoreBlock(away, as)}
           {scoreBlock(home, hs)}
         </div>
+        </>)}
 
         {/* Top 3 performers (chosen by Game Score) below */}
         <div>
@@ -2453,7 +2460,7 @@ function TeamScorePanel({ team, score, color, fouls, topScorer }) {
 // both teams' pill states. Pills display remaining timeouts with the
 // numbers renumbered from 1 as timeouts are used.
 // ============================================================
-function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeoutsThisHalf, teamScore }) {
+function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeoutsThisHalf, teamScore, onBack }) {
   const period = live?.period || "H1";
   const homeTeam = game.home_team;
   const awayTeam = game.away_team;
@@ -2572,48 +2579,95 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
     return <div className="flex gap-1">{pills}</div>;
   };
 
+  // Friendly period label. "H1" reads as jargon at a glance mid-game.
+  const periodLabel = period === "H1" ? "1st half"
+    : period === "H2" ? "2nd half"
+      : period && period.startsWith("OT") ? period : (period || "Final");
+
+  // Everything a scorer needs while scoring, pinned to the top of the screen:
+  // date and time beside Back, status and period and the end-half control on
+  // one line, then both scores with each team's timeouts directly beneath.
+  const shell = (children) => (
+    <div className="sticky top-0 z-30 -mx-4 px-4 pt-2 pb-2 mb-3 bg-white border-b border-gray-200">
+      <BackRow onBack={onBack} className="mb-1.5" trailing={
+        <span className="text-[11px] font-bold text-gray-500">
+          {formatGameDate(game.game_date)}
+          <span className="text-gray-300"> &middot; </span>
+          {formatGameTime(game.game_time)}
+        </span>
+      } />
+      {children}
+    </div>
+  );
+
+  const scoreCol = (teamCode, score, used, align) => (
+    <div className={`flex-1 min-w-0 ${align === "right" ? "text-right" : "text-left"}`}>
+      <div className={`flex items-center gap-1.5 ${align === "right" ? "flex-row-reverse" : ""}`}>
+        <TeamLogoLocal team={teamCode} size={20} />
+        <span className="text-[12px] font-black text-gray-900 truncate">{teamCode}</span>
+      </div>
+      <div className="text-4xl font-black text-gray-900 leading-none tabular-nums mt-0.5">{score}</div>
+      <div className={`mt-1 flex ${align === "right" ? "justify-end" : "justify-start"}`}>
+        {renderTimeoutPills(teamCode, used)}
+      </div>
+    </div>
+  );
+
   if (!inRegulation || gameIsOver) {
-    // Still show a thin period indicator if the game is in a terminal state.
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white p-2 mb-3 flex items-center justify-center">
-        <span className="text-sm font-black text-gray-700">{period || "Final"}</span>
+    return shell(
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
+          {live?.status === "ended" || live?.status === "approved" ? "Final" : periodLabel}
+        </span>
+        <div className="flex items-baseline gap-2 tabular-nums">
+          <span className="text-2xl font-black text-gray-900">{teamScore?.[awayTeam] || 0}</span>
+          <span className="text-gray-300">-</span>
+          <span className="text-2xl font-black text-gray-900">{teamScore?.[homeTeam] || 0}</span>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 mb-3 space-y-1.5">
-      {/* Row 1: period (left), end-half/end-game (center-right). Tight. */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-lg font-black text-gray-900">{period}</div>
-        <div className="flex gap-1.5">
-          {period === "H1" && (
-            <button onClick={endFirstHalf}
-              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800">
-              End 1st half
-            </button>
+  return shell(
+    <>
+      {/* Status, period and the end-half control all on one line. */}
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="inline-flex items-center gap-1.5">
+          {live?.status === "live" && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+              </span>
+              Live
+            </span>
           )}
-          {(period === "H2" || period?.startsWith("OT")) && (
-            <button onClick={endGameOrStartOT}
-              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700">
-              End game
-            </button>
-          )}
-        </div>
+          <span className="text-[13px] font-black text-gray-900">{periodLabel}</span>
+        </span>
+        {period === "H1" && (
+          <button onClick={endFirstHalf}
+            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800 flex-shrink-0">
+            End 1st half
+          </button>
+        )}
+        {(period === "H2" || (period && period.startsWith("OT"))) && (
+          <button onClick={endGameOrStartOT}
+            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700 flex-shrink-0">
+            End game
+          </button>
+        )}
       </div>
-      {/* Row 2: team timeouts. Away on the left, home on the right,
-          each aligned to its side to mirror the scoreboard layout. */}
-      <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-100">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{awayTeam}</span>
-          {renderTimeoutPills(awayTeam, awayTOUsed)}
+
+      {/* Both scores, each with that team's timeouts directly beneath.
+          The word sits between the two groups rather than repeating codes. */}
+      <div className="flex items-start gap-2">
+        {scoreCol(awayTeam, teamScore?.[awayTeam] || 0, awayTOUsed, "left")}
+        <div className="flex-shrink-0 self-end pb-0.5">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">Timeouts</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          {renderTimeoutPills(homeTeam, homeTOUsed)}
-          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{homeTeam}</span>
-        </div>
+        {scoreCol(homeTeam, teamScore?.[homeTeam] || 0, homeTOUsed, "right")}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -3280,8 +3334,8 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       const displayLast = parts[0]
         ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase()
         : name;
-      const firstInit = parts[1] ? parts[1].charAt(0).toUpperCase() + "." : "";
-      const displayName = firstInit ? `${firstInit} ${displayLast}` : displayLast;
+      const firstFull = parts.slice(1)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
       const countKey = opts.countKey || partitionStatKey;
       const statInfo = showCount && countKey
         ? statLabelForPlayer(countKey, box[name])
@@ -3320,8 +3374,9 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           {/* Name underneath, with the stat count beside it rather than
               floating over the card, so neither can cover the other. */}
           <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="flex-1 min-w-0 text-base font-black text-gray-900 truncate leading-tight">
-              {displayName}
+            <span className="flex-1 min-w-0 text-base text-gray-900 truncate leading-tight">
+              {firstFull && <span className="font-normal">{firstFull} </span>}
+              <span className="font-black">{displayLast}</span>
             </span>
             {showCount && statInfo.label && statInfo.count > 0 && (
               <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black bg-gray-100 text-gray-700 tabular-nums">
