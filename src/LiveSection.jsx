@@ -306,6 +306,41 @@ function buildPlayLines(events, homeTeam, awayTeam) {
   return out.reverse();
 }
 
+// The play list, rendered once and used in both places it appears: the
+// scoring board and the scoreboard everyone else reads. They were built
+// separately and drifted apart twice, so there is now only one of them.
+// Each play sits on its team's side, home mirrored to the right, and a play
+// belonging to neither team is centred.
+function PlayLines({ plays, homeTeam }) {
+  return (
+    <div className="space-y-0.5">
+      {plays.map(pl => {
+        const right = pl.team === homeTeam;
+        if (!pl.team) {
+          return (
+            <div key={pl.id} className="text-[11px] leading-snug text-center text-gray-500">
+              {pl.text}
+            </div>
+          );
+        }
+        return (
+          <div key={pl.id}
+            className={`flex items-baseline gap-1.5 text-[11px] leading-snug ${right ? "flex-row-reverse" : ""}`}>
+            <span className="font-black text-gray-900 w-8 flex-shrink-0">{pl.team}</span>
+            <span className={`min-w-0 text-gray-600 truncate ${right ? "text-right" : ""}`}>
+              {pl.text}
+            </span>
+            {pl.score && (
+              <span className="flex-shrink-0 font-black text-gray-900 tabular-nums">{pl.score}</span>
+            )}
+            <span className="flex-1" aria-hidden="true" />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Playing kits for the number badge. Separate from TEAM_COLORS, which is the
 // brand palette used for chips and charts. Pacific play in grey with a teal
 // trim; San Jose in white, which needs a cardinal ring to be visible at all.
@@ -2356,29 +2391,11 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
   // Includes period_change and game_start so the Last line can show them too.
   // Excludes game_end and reopen. Scoring events carry running_home/running_away
   // for the inline score tag.
-  const last10 = useMemo(() => {
-    const running = { [home]: 0, [away]: 0 };
-    const out = [];
-    const NOTABLE = new Set([
-      "made_2","made_3","made_ft","missed_2","missed_3","missed_ft",
-      "reb","reb_other_team","ast","stl","blk","foul","timeout",
-      "period_change","game_start",
-    ]);
-    for (const e of events) {
-      if (e.deleted) continue;
-      if (e.team && e.stat_type === "made_2" && running[e.team] != null) running[e.team] += 2;
-      if (e.team && e.stat_type === "made_3" && running[e.team] != null) running[e.team] += 3;
-      if (e.team && e.stat_type === "made_ft" && running[e.team] != null) running[e.team] += 1;
-      if (NOTABLE.has(e.stat_type)) {
-        out.push({
-          ...e,
-          running_home: running[home],
-          running_away: running[away],
-        });
-      }
-    }
-    return out.slice(-10).reverse();
-  }, [events, home, away]);
+  // The same play lines the scoring board builds, so the two lists are the
+  // same list. This used to be a second, near-duplicate walk of the events
+  // that formatted its own text and carried its own running score.
+  const scoreboardPlays = useMemo(
+    () => buildPlayLines(events, home, away), [events, home, away]);
 
   // Quarter-scores summary. Pulls score snapshots off period_change events
   // (the insert path writes snap_home/snap_away into score_snapshot, or we
@@ -2556,51 +2573,11 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
               <span className="text-gray-400 text-[10px] ml-2">{logExpanded ? "\u25B4 hide" : "\u25BE last 10"}</span>
             </button>
             {logExpanded && (
-              <div className="mt-2 flex flex-col gap-1">
-                {last10.length === 0 ? (
+              <div className="mt-2">
+                {scoreboardPlays.length === 0 ? (
                   <div className="text-[11px] text-gray-400 text-center py-2">No plays yet.</div>
                 ) : (
-                  last10.map((e) => {
-                    // Same card row as the play-by-play tab: team logo on the
-                    // team's own side, running score in a chip at the edge.
-                    const isAway = e.team === away;
-                    const isScoring = ["made_2","made_3","made_ft"].includes(e.stat_type);
-                    const isPeriodOrStart = e.stat_type === "period_change" || e.stat_type === "game_start";
-                    const noTeam = !e.team || isPeriodOrStart;
-                    const showFire = ["made_2","made_3"].includes(e.stat_type)
-                      && isOnHotStreakAtIndex(events, e);
-                    const milestone = milestoneForEvent(events, e);
-                    return (
-                      <div
-                        key={e.event_id || Math.random()}
-                        className="flex items-center gap-2 py-1.5 px-2 rounded-lg border border-gray-100 bg-white text-[11px]"
-                      >
-                        <div className={`flex-1 min-w-0 flex items-center gap-1.5 ${
-                          noTeam ? "justify-center" : isAway ? "" : "flex-row-reverse text-right"
-                        }`}>
-                          {!noTeam && <TeamLogoLocal team={e.team} size={16} className="flex-shrink-0" />}
-                          <span className={`min-w-0 ${noTeam ? "text-gray-400 font-semibold" : "text-gray-700"}`}>
-                            {formatEventText(e)}
-                            {showFire && (
-                              <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-orange-500 text-white tracking-wider align-middle">
-                                HOT
-                              </span>
-                            )}
-                            {milestone && (
-                              <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums align-middle">
-                                {milestone.label}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        {isScoring && (
-                          <span className="flex-shrink-0 text-[11px] font-black text-gray-900 tabular-nums bg-gray-100 rounded px-1.5 py-0.5">
-                            {e.running_away}-{e.running_home}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })
+                  <PlayLines plays={scoreboardPlays.slice(0, 10)} homeTeam={home} />
                 )}
               </div>
             )}
@@ -3023,33 +3000,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
         <div className="text-[11px] text-gray-400">No plays yet.</div>
       ) : (
         <>
-          <div className="space-y-0.5">
-            {lastPlays.slice(0, playsOpen ? 10 : 3).map(pl => {
-              // Each play sits on its team's side of the board, so the code
-              // lines up under that team's score rather than always on the left.
-              const right = pl.team === homeTeam;
-              if (!pl.team) {
-                return (
-                  <div key={pl.id} className="text-[11px] leading-snug text-center text-gray-500">
-                    {pl.text}
-                  </div>
-                );
-              }
-              return (
-                <div key={pl.id}
-                  className={`flex items-baseline gap-1.5 text-[11px] leading-snug ${right ? "flex-row-reverse" : ""}`}>
-                  <span className="font-black text-gray-900 w-8 flex-shrink-0">{pl.team}</span>
-                  <span className={`min-w-0 text-gray-600 truncate ${right ? "text-right" : ""}`}>
-                    {pl.text}
-                  </span>
-                  {pl.score && (
-                    <span className="flex-shrink-0 font-black text-gray-900 tabular-nums">{pl.score}</span>
-                  )}
-                  <span className="flex-1" aria-hidden="true" />
-                </div>
-              );
-            })}
-          </div>
+          <PlayLines plays={lastPlays.slice(0, playsOpen ? 10 : 3)} homeTeam={homeTeam} />
 
         </>
       )}
