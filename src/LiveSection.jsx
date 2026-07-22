@@ -2960,58 +2960,11 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
     );
   }
 
-  return shell(
+  // Dialogs live outside the board. A sticky element with a z-index creates
+  // its own stacking context, so a modal rendered inside it can never rise
+  // above the bottom nav no matter what z-index it carries.
+  const dialogs = (
     <>
-      {/* Status, period and the end-half control all on one line. */}
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="inline-flex items-center gap-1.5">
-          {live?.status === "live" && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-              </span>
-              Live
-            </span>
-          )}
-          <span className="text-[13px] font-black text-gray-900">{periodLabel}</span>
-          {otTarget && (
-            <span className="text-[11px] font-black text-gray-900 rounded-md bg-amber-100 px-1.5 py-0.5 tabular-nums">
-              First to {otTarget} &middot; clock {otTarget}:00
-            </span>
-          )}
-        </span>
-        {period === "H1" && (
-          <button onClick={() => setConfirmHalf(true)}
-            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800 flex-shrink-0">
-            End 1st half
-          </button>
-        )}
-        {(period === "H2" || (period && period.startsWith("OT"))) && (
-          <button onClick={() => setConfirmEnd(true)}
-            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700 flex-shrink-0">
-            {period === "H2" ? "End 2nd half" : `End ${period}`}
-          </button>
-        )}
-      </div>
-
-      {/* Both scores, each with that team's timeouts directly beneath.
-          The word sits between the two groups rather than repeating codes. */}
-      <div className="flex items-stretch gap-1.5">
-        {renderTimeoutDots(awayTeam, awayTOUsed)}
-        {(() => {
-          const an = notesFor(awayTeam, homeTeam), hn = notesFor(homeTeam, awayTeam);
-          return (
-            <>
-              {scoreBox(awayTeam, teamScore?.[awayTeam] || 0, "left", an[noteTick % an.length])}
-              {scoreBox(homeTeam, teamScore?.[homeTeam] || 0, "right", hn[noteTick % hn.length])}
-            </>
-          );
-        })()}
-        {renderTimeoutDots(homeTeam, homeTOUsed)}
-      </div>
-      {playsPanel}
-
       {confirmHalf && (
         <ModalShell title="End the 1st half?" onClose={() => setConfirmHalf(false)}>
           <p className="text-sm text-gray-600 leading-snug">
@@ -3094,6 +3047,65 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
           </button>
         </ModalShell>
       )}
+    </>
+  );
+
+  return (
+    <>
+    {shell(
+    <>
+      {/* Status, period and the end-half control all on one line. */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="inline-flex items-center gap-1.5">
+          {live?.status === "live" && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+              </span>
+              Live
+            </span>
+          )}
+          <span className="text-[13px] font-black text-gray-900">{periodLabel}</span>
+          {otTarget && (
+            <span className="text-[11px] font-black text-gray-900 rounded-md bg-amber-100 px-1.5 py-0.5 tabular-nums">
+              First to {otTarget} &middot; clock {otTarget}:00
+            </span>
+          )}
+        </span>
+        {period === "H1" && (
+          <button onClick={() => setConfirmHalf(true)}
+            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800 flex-shrink-0">
+            End 1st half
+          </button>
+        )}
+        {(period === "H2" || (period && period.startsWith("OT"))) && (
+          <button onClick={() => setConfirmEnd(true)}
+            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700 flex-shrink-0">
+            {period === "H2" ? "End 2nd half" : `End ${period}`}
+          </button>
+        )}
+      </div>
+
+      {/* Both scores, each with that team's timeouts directly beneath.
+          The word sits between the two groups rather than repeating codes. */}
+      <div className="flex items-stretch gap-1.5">
+        {renderTimeoutDots(awayTeam, awayTOUsed)}
+        {(() => {
+          const an = notesFor(awayTeam, homeTeam), hn = notesFor(homeTeam, awayTeam);
+          return (
+            <>
+              {scoreBox(awayTeam, teamScore?.[awayTeam] || 0, "left", an[noteTick % an.length])}
+              {scoreBox(homeTeam, teamScore?.[homeTeam] || 0, "right", hn[noteTick % hn.length])}
+            </>
+          );
+        })()}
+        {renderTimeoutDots(homeTeam, homeTOUsed)}
+      </div>
+      {playsPanel}
+    </>
+  )}
+    {dialogs}
     </>
   );
 }
