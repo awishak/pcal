@@ -2753,10 +2753,38 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
   // say when in the half it happened.
   const [timeoutFor, setTimeoutFor] = useState(null);
   const [clk, setClk] = useState({ m: 0, s: 0, t: 0 });
+  // Best guess at what the clock reads, so the scorer usually confirms rather
+  // than scrolls. Halves are 20 minutes counting down. The first half tips five
+  // minutes after the scheduled time; the second half starts when its
+  // period_change was recorded, which is exact rather than assumed.
+  const guessClock = () => {
+    const period = live?.period || "H1";
+    let startMs = null;
+    if (period === "H1") {
+      const d = String(game.game_date || "").split("-").map(Number);
+      const t = String(game.game_time || "").split(":").map(Number);
+      if (d.length === 3 && t.length >= 2) {
+        startMs = new Date(d[0], d[1] - 1, d[2], t[0], t[1], 0).getTime() + 5 * 60000;
+      }
+    } else {
+      const pcs = (events || []).filter(e =>
+        !e.deleted && e.stat_type === "period_change" && e.player_name === period);
+      if (pcs.length && pcs[pcs.length - 1].event_ts) {
+        startMs = new Date(pcs[pcs.length - 1].event_ts).getTime();
+      }
+    }
+    if (!startMs) return { m: 20, s: 0, t: 0 };
+    const left = Math.max(0, Math.min(20 * 60000, 20 * 60000 - (Date.now() - startMs)));
+    const sec = Math.floor(left / 1000);
+    return { m: Math.floor(sec / 60), s: sec % 60, t: 0 };
+  };
+
   const askTimeout = (teamCode) => {
     const used = teamTimeoutsThisHalf?.[currentHalf]?.[teamCode] || 0;
     if (used >= 3) return;
-    setClk({ m: 0, s: 0, t: 0 });
+    // Overtime has no running clock, so there is no time to ask for.
+    if ((live?.period || "").startsWith("OT")) { recordTimeout(teamCode, null); return; }
+    setClk(guessClock());
     setTimeoutFor(teamCode);
   };
   const saveTimeout = async () => {
@@ -2768,6 +2796,10 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
     const clock = clk.m > 0
       ? `${clk.m}:${String(clk.s).padStart(2, "0")}`
       : `0:${String(clk.s).padStart(2, "0")}.${clk.t}`;
+    await recordTimeout(teamCode, clock);
+  };
+
+  const recordTimeout = async (teamCode, clock) => {
     await supabase.from("live_events").insert({
       game_id: game.game_id,
       period: live?.period || "H1",
