@@ -16301,6 +16301,36 @@ function scoutStats(agg, teamPoss) {
   };
 }
 
+// Team-level line for one team across a set of seasons. Sums every player row
+// for that team, but counts games as distinct team games (year, team, opp,
+// week, date, type) so a doubleheader is two games and not two per player.
+// Averages are per team game, which is what makes this comparable to the
+// player table sitting under it.
+function scoutTeamAggregate(team, yrSet) {
+  const t = { g: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, tpm: 0, tpa: 0, gmsc: 0 };
+  const games = new Set();
+  const players = new Set();
+  for (const r of GAME_LOG) {
+    if (r[6] !== 1 || r[1] !== team || !yrSet.has(r[20])) continue;
+    games.add(r[20] + "|" + r[1] + "|" + r[2] + "|" + r[3] + "|" + r[4] + "|" + r[5]);
+    players.add(thNorm(r[0]));
+    t.pts += r[7] || 0; t.reb += r[8] || 0; t.stl += r[9] || 0; t.ast += r[10] || 0; t.blk += r[11] || 0;
+    t.fgm += r[12] || 0; t.fga += r[13] || 0; t.ftm += r[14] || 0; t.fta += r[15] || 0;
+    t.tpm += r[16] || 0; t.tpa += r[17] || 0; t.gmsc += r[19] || 0;
+  }
+  t.g = games.size;
+  const per = (v) => t.g ? v / t.g : null;
+  const rate = (m, a) => a > 0 ? m / a : null;
+  const possTotal = scoutPossTotal(t);
+  return {
+    team, g: t.g, players: players.size, totals: t,
+    avg: { ppg: per(t.pts), rpg: per(t.reb), apg: per(t.ast), spg: per(t.stl), bpg: per(t.blk), gmsc: per(t.gmsc) },
+    fg: rate(t.fgm, t.fga), tp: rate(t.tpm, t.tpa), ft: rate(t.ftm, t.fta),
+    ts: (2 * possTotal) > 0 ? t.pts / (2 * possTotal) : null,
+    poss: per(possTotal),
+  };
+}
+
 function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion = 0 }) {
   const seasons = useMemo(
     () => [...new Set(GAME_LOG.map(g => g[20]))].filter(Boolean).sort((a, b) => b - a),
@@ -16322,6 +16352,9 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
   const [sortDir, setSortDir] = useState("desc");
   const [minAtt, setMinAtt] = useState(SCOUT_ATT_GATE);
   const [selected, setSelected] = useState(null);
+  const [teamSortKey, setTeamSortKey] = useState("ppg");
+  const [teamSortDir, setTeamSortDir] = useState("desc");
+  const [hovered, setHovered] = useState(null);
 
   const effTeams = allTeams ? seasonTeams : selTeams;
   const singleSeason = selSeasons.length === 1 ? selSeasons[0] : null;
@@ -16446,6 +16479,78 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     return rows;
   }, [selSeasons, effTeams.join(","), dataIdx, roster2026, jerseyByKey, singleSeason]);
 
+  // Team lines for whichever teams are selected, over whichever seasons are
+  // selected. Records only attach on a single-season 2026 view, since that is
+  // the only season sortStandings speaks for.
+  const teamRows = useMemo(() => {
+    const yrSet = new Set(selSeasons);
+    return effTeams.map(tm => {
+      const a = scoutTeamAggregate(tm, yrSet);
+      a.rec = singleSeason === 2026 ? (standings2026[tm] || null) : null;
+      return a;
+    });
+  }, [effTeams.join(","), selSeasons, standings2026, singleSeason]);
+
+  const TEAM_COLS = [
+    { key: "team", label: "Team", str: true },
+    { key: "g", label: "G", get: a => a.g, fmt: v => v || "—" },
+    { key: "players", label: "PLRS", get: a => a.players, fmt: v => v || "—" },
+    { key: "poss", label: "POSS", get: a => a.poss, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "ppg", label: "PPG", get: a => a.avg.ppg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "rpg", label: "RPG", get: a => a.avg.rpg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "apg", label: "APG", get: a => a.avg.apg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "spg", label: "SPG", get: a => a.avg.spg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "bpg", label: "BPG", get: a => a.avg.bpg, fmt: v => v == null ? "—" : v.toFixed(1) },
+    { key: "tfg", label: "FG%", pct: true, get: a => a.fg },
+    { key: "ttp", label: "3P%", pct: true, shoot: "tp", get: a => a.tp, att: a => a.totals.tpa, made: a => a.totals.tpm },
+    { key: "tft", label: "FT%", pct: true, shoot: "ft", get: a => a.ft, att: a => a.totals.fta, made: a => a.totals.ftm },
+    { key: "tts", label: "TS%", pct: true, get: a => a.ts },
+    { key: "pts", label: "PTS", get: a => a.totals.pts, fmt: v => v || "—" },
+  ];
+
+  const teamSorted = useMemo(() => {
+    const col = TEAM_COLS.find(c => c.key === teamSortKey) || TEAM_COLS[4];
+    return [...teamRows].sort((a, b) => {
+      if (col.str) return teamSortDir === "desc" ? b.team.localeCompare(a.team) : a.team.localeCompare(b.team);
+      const av = col.get(a), bv = col.get(b);
+      const d = (av == null ? -Infinity : av) - (bv == null ? -Infinity : bv);
+      return teamSortDir === "desc" ? -d : d;
+    });
+  }, [teamRows, teamSortKey, teamSortDir]);
+
+  const toggleTeamSort = (key, str) => {
+    if (teamSortKey === key) setTeamSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setTeamSortKey(key); setTeamSortDir(str ? "asc" : "desc"); }
+  };
+
+  // Scatter: possessions per game against points per game, marker area by
+  // total points over the selected seasons. Only players who logged a game in
+  // the span can be placed, so everyone else drops out.
+  const scatter = useMemo(() => {
+    const pts = roster
+      .filter(r => r.view.g > 0 && r.view.poss != null && r.view.avg.ppg != null)
+      .map(r => ({
+        key: r.key, name: r.name, display: r.display, team: r.view.team,
+        active26: r.active26, jersey: r.jersey,
+        x: r.view.poss, y: r.view.avg.ppg, pts: r.view.totals.pts, g: r.view.g,
+      }));
+    if (!pts.length) return null;
+    const nice = (v) => { const m = Math.max(v * 1.1, 1); const step = m > 40 ? 10 : m > 16 ? 5 : m > 8 ? 2 : 1; return Math.ceil(m / step) * step; };
+    const xMax = nice(Math.max(...pts.map(p => p.x)));
+    const yMax = nice(Math.max(...pts.map(p => p.y)));
+    const maxPts = Math.max(...pts.map(p => p.pts), 1);
+    const meanX = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const meanY = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    // Area-proportional sizing: diameter tracks the square root of points so a
+    // 200-point season does not swallow the plot, with a floor that keeps a
+    // one-bucket player readable.
+    const size = (p) => 20 + 40 * Math.sqrt(p.pts / maxPts);
+    // Big markers first so the small ones land on top and stay clickable.
+    const ordered = [...pts].sort((a, b) => b.pts - a.pts);
+    const ticks = (max) => { const n = 5; return Array.from({ length: n + 1 }, (_, i) => (max / n) * i); };
+    return { pts: ordered, xMax, yMax, meanX, meanY, size, xTicks: ticks(xMax), yTicks: ticks(yMax) };
+  }, [roster]);
+
   const pct1 = v => v == null ? "—" : (v * 100).toFixed(1);
   const COLS = [
     { key: "display", label: "Player", player: true, str: true },
@@ -16527,6 +16632,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
 
   const selRow = selected ? roster.find(r => r.key === selected) : null;
   const arrow = (key) => sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : "";
+  const teamArrow = (key) => teamSortKey === key ? (teamSortDir === "desc" ? " ↓" : " ↑") : "";
+  const hov = (scatter && hovered) ? scatter.pts.find(p => p.key === hovered) : null;
 
   return (
     <div>
@@ -16602,6 +16709,146 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           );
         })}
       </div>
+
+      {/* Team stats. Same seasons and teams as everything below it, aggregated
+          per team game so PPG is the team's scoring, not a sum of player rows. */}
+      <div className="rounded-2xl border border-gray-100 overflow-x-auto mb-5">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              {TEAM_COLS.map(c => (
+                <th key={c.key} onClick={() => toggleTeamSort(c.key, c.str)}
+                  style={c.shoot ? { width: "1%" } : undefined}
+                  className={`px-2 py-2 text-[11px] font-black uppercase tracking-wide select-none cursor-pointer ${c.str ? "text-left px-2.5" : "text-center"} ${c.shoot ? "whitespace-nowrap" : ""} ${teamSortKey === c.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
+                  {c.label}{teamArrow(c.key)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {teamSorted.map(a => {
+              const c = TEAM_COLORS[a.team] || "#9ca3af";
+              return (
+                <tr key={a.team} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
+                  {TEAM_COLS.map(col => {
+                    if (col.str) {
+                      return (
+                        <td key={col.key} className="px-2.5 py-2 text-left">
+                          <div className="flex items-center gap-2">
+                            <TeamLogo team={a.team} year={2026} size={22} />
+                            <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: c }} />
+                            <span className="font-black text-gray-900 whitespace-nowrap">{a.team}</span>
+                            {a.rec && <span className="text-[11px] font-bold text-gray-400 tabular-nums whitespace-nowrap">{a.rec.w}-{a.rec.l}</span>}
+                          </div>
+                        </td>
+                      );
+                    }
+                    if (col.shoot) {
+                      const rate = col.get(a), att = col.att(a), made = col.made(a);
+                      return (
+                        <td key={col.key} style={{ width: "1%" }} className={`px-1.5 py-2 text-center tabular-nums whitespace-nowrap ${scoutShootClass(rate, att, col.shoot, minAtt)}`}>
+                          <div className="font-bold">{att === 0 || rate == null ? "—" : (rate * 100).toFixed(1)}</div>
+                          {att > 0 && <div className="text-[11px] font-medium text-gray-400 leading-tight">{made}/{att}</div>}
+                        </td>
+                      );
+                    }
+                    const v = col.get(a);
+                    return (
+                      <td key={col.key} className="px-2 py-2 text-center tabular-nums font-bold text-gray-700">
+                        {col.pct ? pct1(v) : col.fmt(v)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {teamSorted.length === 0 && (
+              <tr><td colSpan={TEAM_COLS.length} className="px-4 py-6 text-center text-sm text-gray-400">No team games logged in {seasonLabel}.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Usage scatter. Volume on the x axis, scoring on the y, total points as
+          marker area. Reference lines sit at the selection's own means, so the
+          quadrants read against this group rather than a league-wide baseline. */}
+      {scatter && (
+        <div className="rounded-2xl border border-gray-100 p-4 mb-5">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
+            <div className="text-sm font-black text-gray-900">Scoring vs usage</div>
+            <div className="text-[11px] text-gray-500">Y: points per game · X: possessions per game (FGA + 0.44 × FTA) · marker size: total points in {seasonLabel}</div>
+          </div>
+          <div className="relative" style={{ height: 500, paddingLeft: 40, paddingRight: 28, paddingTop: 28, paddingBottom: 44 }}>
+            <div className="absolute" style={{ left: 40, right: 28, top: 28, bottom: 44 }}>
+              {/* Gridlines and axis ticks */}
+              {scatter.yTicks.map((t, i) => (
+                <div key={"y" + i} className="absolute left-0 right-0 border-t border-gray-100" style={{ top: `${(1 - t / scatter.yMax) * 100}%` }}>
+                  <span className="absolute right-full pr-2 text-[11px] text-gray-400 tabular-nums" style={{ transform: "translateY(-50%)" }}>{t.toFixed(0)}</span>
+                </div>
+              ))}
+              {scatter.xTicks.map((t, i) => (
+                <div key={"x" + i} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${(t / scatter.xMax) * 100}%` }}>
+                  <span className="absolute top-full pt-1.5 text-[11px] text-gray-400 tabular-nums" style={{ transform: "translateX(-50%)" }}>{t.toFixed(0)}</span>
+                </div>
+              ))}
+
+              {/* Means */}
+              <div className="absolute left-0 right-0 border-t border-dashed border-gray-300" style={{ top: `${(1 - scatter.meanY / scatter.yMax) * 100}%` }} />
+              <div className="absolute top-0 bottom-0 border-l border-dashed border-gray-300" style={{ left: `${(scatter.meanX / scatter.xMax) * 100}%` }} />
+
+              {/* Players */}
+              {scatter.pts.map(p => {
+                const d = scatter.size(p);
+                const col = p.active26 ? (TEAM_COLORS[p.team] || "#9ca3af") : "#d1d5db";
+                const isSel = p.key === selected, isHov = p.key === hovered;
+                return (
+                  <button key={p.key} type="button"
+                    onClick={() => setSelected(p.key === selected ? null : p.key)}
+                    onMouseEnter={() => setHovered(p.key)}
+                    onMouseLeave={() => setHovered(h => h === p.key ? null : h)}
+                    title={`${p.display} · ${p.y.toFixed(1)} PPG · ${p.x.toFixed(1)} POSS · ${p.pts} pts`}
+                    className="absolute rounded-full overflow-hidden transition-transform hover:scale-110"
+                    style={{
+                      left: `${(p.x / scatter.xMax) * 100}%`,
+                      top: `${(1 - p.y / scatter.yMax) * 100}%`,
+                      width: d, height: d, marginLeft: -d / 2, marginTop: -d / 2,
+                      boxShadow: `0 0 0 ${isSel ? 4 : 3}px ${isSel ? "#111827" : col}`,
+                      opacity: p.active26 ? 1 : 0.5,
+                      zIndex: (isSel || isHov) ? 40 : 10,
+                    }}>
+                    <ThAvatar name={p.name} size={d} photoUrl={photoFor(p.name)} />
+                  </button>
+                );
+              })}
+
+              {/* Hover card */}
+              {hov && (
+                <div className="absolute z-50 pointer-events-none rounded-lg bg-gray-900 px-2.5 py-1.5 shadow-lg"
+                  style={{
+                    left: `${(hov.x / scatter.xMax) * 100}%`,
+                    top: `${(1 - hov.y / scatter.yMax) * 100}%`,
+                    transform: `translate(-50%, calc(-100% - ${scatter.size(hov) / 2 + 8}px))`,
+                    whiteSpace: "nowrap",
+                  }}>
+                  <div className="text-[11px] font-black text-white">{hov.display}</div>
+                  <div className="text-[11px] font-medium text-gray-300 tabular-nums">
+                    {hov.team} · {hov.y.toFixed(1)} PPG · {hov.x.toFixed(1)} POSS · {hov.pts} pts · {hov.g} G
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Axis title */}
+            <div className="absolute inset-x-0 bottom-0 text-center text-[11px] font-bold uppercase tracking-wide text-gray-400">Possessions per game</div>
+            <div className="absolute left-0 top-0 text-[11px] font-bold uppercase tracking-wide text-gray-400">PPG</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500 mt-2">
+            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-0 border-t border-dashed border-gray-400" />Selection average</span>
+            <span>Ring color is the team the player logged the most games for. Faded rings did not play in 2026.</span>
+            <span>Click a player to open the deep dive below.</span>
+          </div>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500 mb-3">
