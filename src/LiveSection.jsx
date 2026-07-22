@@ -2990,7 +2990,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
         {(period === "H2" || (period && period.startsWith("OT"))) && (
           <button onClick={() => setConfirmEnd(true)}
             className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700 flex-shrink-0">
-            End game
+            {period === "H2" ? "End 2nd half" : `End ${period}`}
           </button>
         )}
       </div>
