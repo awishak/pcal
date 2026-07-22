@@ -2754,9 +2754,9 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
   const [timeoutFor, setTimeoutFor] = useState(null);
   const [clk, setClk] = useState({ m: 0, s: 0, t: 0 });
   // Best guess at what the clock reads, so the scorer usually confirms rather
-  // than scrolls. Halves are 20 minutes counting down. The first half tips five
-  // minutes after the scheduled time; the second half starts when its
-  // period_change was recorded, which is exact rather than assumed.
+  // than scrolls. Halves are 20 minutes counting down: the first tips five
+  // minutes after the scheduled time, the second 38 minutes after it. Anything
+  // before the relevant tip reads a full 20.
   const guessClock = () => {
     const period = live?.period || "H1";
     let startMs = null;
@@ -2767,10 +2767,13 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
         startMs = new Date(d[0], d[1] - 1, d[2], t[0], t[1], 0).getTime() + 5 * 60000;
       }
     } else {
-      const pcs = (events || []).filter(e =>
-        !e.deleted && e.stat_type === "period_change" && e.player_name === period);
-      if (pcs.length && pcs[pcs.length - 1].event_ts) {
-        startMs = new Date(pcs[pcs.length - 1].event_ts).getTime();
+      // 38 minutes past the scheduled start. Fixed rather than read off the
+      // period_change, because a scorer who is slow to end the half would
+      // otherwise drag the whole second half's estimate along with them.
+      const d = String(game.game_date || "").split("-").map(Number);
+      const t = String(game.game_time || "").split(":").map(Number);
+      if (d.length === 3 && t.length >= 2) {
+        startMs = new Date(d[0], d[1] - 1, d[2], t[0], t[1], 0).getTime() + 38 * 60000;
       }
     }
     if (!startMs) return { m: 20, s: 0, t: 0 };
@@ -2988,17 +2991,30 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
       ) : (
         <>
           <div className="space-y-0.5">
-            {lastPlays.slice(0, playsOpen ? 10 : 3).map(pl => (
-              <div key={pl.id} className="flex items-baseline gap-1.5 text-[11px] leading-snug">
-                {pl.team
-                  ? <span className="font-black text-gray-900 w-8 flex-shrink-0">{pl.team}</span>
-                  : <span className="w-8 flex-shrink-0" />}
-                <span className="flex-1 min-w-0 text-gray-600 truncate">{pl.text}</span>
-                {pl.score && (
-                  <span className="flex-shrink-0 font-black text-gray-900 tabular-nums">{pl.score}</span>
-                )}
-              </div>
-            ))}
+            {lastPlays.slice(0, playsOpen ? 10 : 3).map(pl => {
+              // Each play sits on its team's side of the board, so the code
+              // lines up under that team's score rather than always on the left.
+              const right = pl.team === homeTeam;
+              if (!pl.team) {
+                return (
+                  <div key={pl.id} className="text-[11px] leading-snug text-center text-gray-500">
+                    {pl.text}
+                  </div>
+                );
+              }
+              return (
+                <div key={pl.id}
+                  className={`flex items-baseline gap-1.5 text-[11px] leading-snug ${right ? "flex-row-reverse" : ""}`}>
+                  <span className="font-black text-gray-900 w-8 flex-shrink-0">{pl.team}</span>
+                  <span className={`flex-1 min-w-0 text-gray-600 truncate ${right ? "text-right" : ""}`}>
+                    {pl.text}
+                  </span>
+                  {pl.score && (
+                    <span className="flex-shrink-0 font-black text-gray-900 tabular-nums">{pl.score}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
         </>
