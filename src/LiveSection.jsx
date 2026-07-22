@@ -2928,7 +2928,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
   const notesFor = (teamCode, oppCode) => {
     const out = [];
     const tf = teamFoulsThisHalf?.[currentHalf]?.[teamCode] || 0;
-    if (tf >= 10) out.push({ text: `${tf} team fouls, all shooting`, tone: "warn" });
+    if (tf >= 10) out.push({ text: `${tf} team fouls`, tone: "warn" });
     const trouble = Object.entries(box || {})
       .filter(([, st]) => st && st.team === teamCode && (st.foul || 0) >= 4)
       .sort((x, y) => (y[1].foul || 0) - (x[1].foul || 0));
@@ -3006,12 +3006,13 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
                 <div key={pl.id}
                   className={`flex items-baseline gap-1.5 text-[11px] leading-snug ${right ? "flex-row-reverse" : ""}`}>
                   <span className="font-black text-gray-900 w-8 flex-shrink-0">{pl.team}</span>
-                  <span className={`flex-1 min-w-0 text-gray-600 truncate ${right ? "text-right" : ""}`}>
+                  <span className={`min-w-0 text-gray-600 truncate ${right ? "text-right" : ""}`}>
                     {pl.text}
                   </span>
                   {pl.score && (
                     <span className="flex-shrink-0 font-black text-gray-900 tabular-nums">{pl.score}</span>
                   )}
+                  <span className="flex-1" aria-hidden="true" />
                 </div>
               );
             })}
