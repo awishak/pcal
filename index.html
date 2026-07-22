@@ -34,17 +34,33 @@
         content: ""; position: absolute; top: -20%; bottom: -20%; width: 58%;
         background: linear-gradient(100deg,
           rgba(255,255,255,0) 0%,
-          rgba(253,224,71,.30) 28%,
-          rgba(255,255,255,.98) 50%,
-          rgba(253,224,71,.30) 72%,
+          rgba(255,255,255,.45) 22%,
+          rgba(253,224,71,.55) 40%,
+          rgba(255,255,255,1) 50%,
+          rgba(253,224,71,.55) 60%,
+          rgba(255,255,255,.45) 78%,
           rgba(255,255,255,0) 100%);
         filter: blur(.4px);
         animation: pcal-shine 1.15s cubic-bezier(.25,.8,.35,1) forwards;
       }
       .pcal-pop { animation: pcal-pop 2.9s cubic-bezier(.2,1.4,.4,1) forwards; }
+      @keyframes pcal-ripple {
+        from { transform: scale(.15); opacity: .6; }
+        to   { transform: scale(11);  opacity: 0; }
+      }
+      .pcal-ripple { position: absolute; inset: 0; overflow: hidden; pointer-events: none; border-radius: inherit; }
+      .pcal-ripple::after,
+      .pcal-ripple::before {
+        content: ""; position: absolute; left: 50%; top: 50%;
+        width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 9999px;
+        border: 3px solid var(--pcal-ripple, #111827);
+        animation: pcal-ripple 1.25s cubic-bezier(.2,.7,.3,1) forwards;
+      }
+      .pcal-ripple::before { animation-delay: .22s; opacity: 0; }
       @media (prefers-reduced-motion: reduce) {
         .pcal-shine::after { animation: none; opacity: 0; }
         .pcal-pop { animation: none; }
+        .pcal-ripple::after, .pcal-ripple::before { animation: none; opacity: 0; }
       }
     </style>
   </head>

@@ -3728,7 +3728,11 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           data-player-card={name}
           onClick={onClick}
           disabled={disabled}
-          className={`relative w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : passing ? "border-amber-400 ring-2 ring-amber-300" : "border-gray-200"}`}>
+          className={`relative w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : passing ? "border-gray-400 ring-1 ring-gray-200" : "border-gray-200"}`}>
+          {party && (
+            <span key={`r${party.key}`} className="pcal-ripple" aria-hidden="true"
+              style={{ "--pcal-ripple": accentFor(p.team) }} />
+          )}
           {party && <span key={party.key} className="pcal-shine" aria-hidden="true" />}
           <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden border-2"
             style={{ backgroundColor: kit.body, borderColor: kit.ring }}>
