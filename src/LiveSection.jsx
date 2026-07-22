@@ -287,7 +287,9 @@ function buildPlayLines(events, homeTeam, awayTeam) {
     if (!plain) continue;
     out.push({
       id: e.event_id, team: e.team,
-      text: e.stat_type === "timeout" ? "timeout" : `${shortName(e.player_name)} ${plain}`,
+      text: e.stat_type === "timeout"
+        ? (e.player_name ? `timeout at ${e.player_name}` : "timeout")
+        : `${shortName(e.player_name)} ${plain}`,
       score: null,
     });
   }
@@ -325,6 +327,67 @@ const accentAlpha = (hex, a) => {
 const kitFor = (team) => JERSEY_KIT[team] || { body: "#111827", ink: "#ffffff", ring: "transparent" };
 
 const thIsGuestName = (n) => /^GUEST\b/i.test(String(n || "").trim());
+
+const MIN_VALUES = Array.from({ length: 26 }, (_, i) => i);
+const SEC_VALUES = Array.from({ length: 60 }, (_, i) => i);
+const TENTH_VALUES = Array.from({ length: 10 }, (_, i) => i);
+
+// A scroll-snap wheel for one clock field. Snap points do the work, so there
+// is no drag physics to get wrong and it behaves like a native picker on a
+// phone. Rendered inert rather than hidden when disabled, so the layout does
+// not jump when tenths become available.
+function ClockWheel({ values, value, onChange, disabled = false, label, pad = 2 }) {
+  const ref = useRef(null);
+  const ROW = 44;
+  const settle = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const i = Math.max(0, values.indexOf(value));
+    if (Math.round(el.scrollTop / ROW) !== i) el.scrollTop = i * ROW;
+  }, [value, values]);
+
+  const onScroll = () => {
+    if (disabled) return;
+    clearTimeout(settle.current);
+    settle.current = setTimeout(() => {
+      const el = ref.current;
+      if (!el) return;
+      const i = Math.min(values.length - 1, Math.max(0, Math.round(el.scrollTop / ROW)));
+      if (values[i] !== value) onChange(values[i]);
+    }, 90);
+  };
+
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mb-1">{label}</div>
+      <div className={`relative rounded-xl ${disabled ? "bg-gray-50" : "bg-gray-100"}`} style={{ height: ROW * 3 }}>
+        {/* Selection band */}
+        <div className="pointer-events-none absolute inset-x-0 rounded-lg border-2 border-gray-900"
+          style={{ top: ROW, height: ROW }} />
+        <div
+          ref={ref}
+          onScroll={onScroll}
+          className={`h-full overflow-y-auto ${disabled ? "pointer-events-none" : ""}`}
+          style={{ scrollSnapType: "y mandatory", scrollbarWidth: "none" }}
+        >
+          <div style={{ height: ROW }} />
+          {values.map(v => (
+            <div key={v}
+              style={{ height: ROW, scrollSnapAlign: "center" }}
+              className={`flex items-center justify-center text-2xl font-black tabular-nums ${
+                disabled ? "text-gray-300" : v === value ? "text-gray-900" : "text-gray-400"
+              }`}>
+              {String(v).padStart(pad, "0")}
+            </div>
+          ))}
+          <div style={{ height: ROW }} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Ball for the assist pass animation. Drawn, not an emoji.
 function BallIcon({ size = 26 }) {
@@ -2686,14 +2749,32 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
     });
   };
 
-  const callTimeout = async (teamCode) => {
+  // A timeout asks for the clock before it is recorded, so the play log can
+  // say when in the half it happened.
+  const [timeoutFor, setTimeoutFor] = useState(null);
+  const [clk, setClk] = useState({ m: 0, s: 0, t: 0 });
+  const askTimeout = (teamCode) => {
     const used = teamTimeoutsThisHalf?.[currentHalf]?.[teamCode] || 0;
     if (used >= 3) return;
+    setClk({ m: 0, s: 0, t: 0 });
+    setTimeoutFor(teamCode);
+  };
+  const saveTimeout = async () => {
+    const teamCode = timeoutFor;
+    setTimeoutFor(null);
+    if (!teamCode) return;
+    // Tenths only count when the clock is under a minute, which is the only
+    // time they are shown on a game clock.
+    const clock = clk.m > 0
+      ? `${clk.m}:${String(clk.s).padStart(2, "0")}`
+      : `0:${String(clk.s).padStart(2, "0")}.${clk.t}`;
     await supabase.from("live_events").insert({
       game_id: game.game_id,
       period: live?.period || "H1",
       team: teamCode,
-      player_name: null,
+      // No column for a game clock, so it rides in player_name, which is null
+      // for timeouts. Same convention period_change already uses for its label.
+      player_name: clock,
       stat_type: "timeout",
       scorer_pin: me.pin,
       scorer_name: me.name,
@@ -2903,7 +2984,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
           const spent = n > left;
           return (
             <button key={n}
-              onClick={() => !spent && iCanTap && callTimeout(teamCode)}
+              onClick={() => !spent && iCanTap && askTimeout(teamCode)}
               disabled={spent || !iCanTap}
               aria-label={spent ? `Timeout ${n} used` : `Call timeout for ${teamCode}`}
               className="w-6 h-6 rounded-full border-2 text-[10px] font-black flex items-center justify-center disabled:cursor-default"
@@ -2965,6 +3046,43 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
   // above the bottom nav no matter what z-index it carries.
   const dialogs = (
     <>
+      {timeoutFor && (
+        <ModalShell title={`${TEAM_NAMES[timeoutFor] || timeoutFor} timeout`} onClose={() => setTimeoutFor(null)}>
+          <p className="text-[13px] text-gray-600 leading-snug">
+            What does the game clock read?
+          </p>
+          <div className="mt-3 flex items-end gap-2">
+            <ClockWheel label="Min" values={MIN_VALUES} value={clk.m} pad={1}
+              onChange={(m) => setClk(c => ({ ...c, m, t: m > 0 ? 0 : c.t }))} />
+            <ClockWheel label="Sec" values={SEC_VALUES} value={clk.s}
+              onChange={(sv) => setClk(c => ({ ...c, s: sv }))} />
+            <ClockWheel label="Tenths" values={TENTH_VALUES} value={clk.t} pad={1}
+              disabled={clk.m > 0}
+              onChange={(t) => setClk(c => ({ ...c, t }))} />
+          </div>
+          <div className="mt-2 text-center text-[11px] text-gray-500">
+            {clk.m > 0
+              ? "Tenths only apply under a minute."
+              : "Under a minute, so tenths count."}
+          </div>
+          <div className="mt-3 text-center text-3xl font-black text-gray-900 tabular-nums">
+            {clk.m > 0
+              ? `${clk.m}:${String(clk.s).padStart(2, "0")}`
+              : `0:${String(clk.s).padStart(2, "0")}.${clk.t}`}
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <button onClick={() => setTimeoutFor(null)}
+              className="py-2.5 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
+              Cancel
+            </button>
+            <button onClick={saveTimeout}
+              className="py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
+              Record timeout
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
       {confirmHalf && (
         <ModalShell title="End the 1st half?" onClose={() => setConfirmHalf(false)}>
           <p className="text-sm text-gray-600 leading-snug">
@@ -4687,7 +4805,7 @@ function formatEventText(e) {
     game_start: "Game started",
     game_end: "Game ended",
     reopen: "Game reopened",
-    timeout: `Timeout`,
+    timeout: e.player_name ? `Timeout at ${e.player_name}` : "Timeout",
   };
   const base = map[e.stat_type] || e.stat_type;
   // period_change and timeout already carry the team in their label (or none),
