@@ -3011,7 +3011,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     if (!playerName || !pts) return;
     clearTimeout(celebrateRef.current);
     setCelebrate({ name: playerName, pts, key: Date.now() });
-    celebrateRef.current = setTimeout(() => setCelebrate(null), 2200);
+    celebrateRef.current = setTimeout(() => setCelebrate(null), 3200);
   };
   // Both screens must open at the top: the stat grid so all twelve buttons are
   // reachable without scrolling, and the roster so it never reopens half-way
@@ -3728,7 +3728,7 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           data-player-card={name}
           onClick={onClick}
           disabled={disabled}
-          className={`relative overflow-hidden w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : passing ? "border-amber-400 ring-2 ring-amber-300" : "border-gray-200"}`}>
+          className={`relative w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : passing ? "border-amber-400 ring-2 ring-amber-300" : "border-gray-200"}`}>
           {party && <span key={party.key} className="pcal-shine" aria-hidden="true" />}
           <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden border-2"
             style={{ backgroundColor: kit.body, borderColor: kit.ring }}>
@@ -3741,13 +3741,15 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           {/* Name on top, stats beneath. Stats can never crowd the name now,
               however busy a player's night gets. */}
           <span className="flex-1 min-w-0">
-            <span className="block text-[15px] text-gray-900 truncate leading-tight">
-              {firstFull && <span className="font-normal">{firstFull} </span>}
-              <span className="font-black">{last}</span>
-              {hot && <span className="ml-1 inline-block align-middle" title="Hot: 3 straight or 4 of 6"><FireIcon size={13} /></span>}
+            <span className="flex items-center gap-1 text-[15px] text-gray-900 leading-tight">
+              <span className="min-w-0 truncate">
+                {firstFull && <span className="font-normal">{firstFull} </span>}
+                <span className="font-black">{last}</span>
+              </span>
+              {hot && <span className="flex-shrink-0" title="Hot: 3 straight or 4 of 6"><FireIcon size={13} /></span>}
               {party && (
                 <span key={party.key}
-                  className="pcal-pop ml-1.5 inline-block align-middle rounded-full px-2 py-0.5 text-[13px] font-black text-white"
+                  className="pcal-pop flex-shrink-0 rounded-full px-2 py-0.5 text-[13px] font-black text-white shadow"
                   style={{ backgroundColor: accentFor(p.team) }}>
                   +{party.pts}
                 </span>

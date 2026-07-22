@@ -24,18 +24,24 @@
       }
       @keyframes pcal-pop {
         0%   { transform: scale(.4) translateY(6px);   opacity: 0; }
-        18%  { transform: scale(1.2) translateY(-3px);  opacity: 1; }
-        32%  { transform: scale(1) translateY(-3px);    opacity: 1; }
-        75%  { transform: scale(1) translateY(-6px);    opacity: 1; }
-        100% { transform: scale(1) translateY(-18px);   opacity: 0; }
+        12%  { transform: scale(1.22) translateY(-3px); opacity: 1; }
+        22%  { transform: scale(1) translateY(-3px);    opacity: 1; }
+        82%  { transform: scale(1) translateY(-4px);    opacity: 1; }
+        100% { transform: scale(.95) translateY(-16px); opacity: 0; }
       }
       .pcal-shine { position: absolute; inset: 0; overflow: hidden; pointer-events: none; border-radius: inherit; }
       .pcal-shine::after {
-        content: ""; position: absolute; top: -20%; bottom: -20%; width: 42%;
-        background: linear-gradient(100deg, transparent, rgba(255,255,255,.9), transparent);
+        content: ""; position: absolute; top: -20%; bottom: -20%; width: 58%;
+        background: linear-gradient(100deg,
+          rgba(255,255,255,0) 0%,
+          rgba(253,224,71,.30) 28%,
+          rgba(255,255,255,.98) 50%,
+          rgba(253,224,71,.30) 72%,
+          rgba(255,255,255,0) 100%);
+        filter: blur(.4px);
         animation: pcal-shine 1.15s cubic-bezier(.25,.8,.35,1) forwards;
       }
-      .pcal-pop { animation: pcal-pop 1.9s cubic-bezier(.2,1.4,.4,1) forwards; }
+      .pcal-pop { animation: pcal-pop 2.9s cubic-bezier(.2,1.4,.4,1) forwards; }
       @media (prefers-reduced-motion: reduce) {
         .pcal-shine::after { animation: none; opacity: 0; }
         .pcal-pop { animation: none; }
