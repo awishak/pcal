@@ -2550,35 +2550,42 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
                   <div className="text-[11px] text-gray-400 text-center py-2">No plays yet.</div>
                 ) : (
                   last10.map((e) => {
+                    // Same card row as the play-by-play tab: team logo on the
+                    // team's own side, running score in a chip at the edge.
                     const isAway = e.team === away;
                     const isScoring = ["made_2","made_3","made_ft"].includes(e.stat_type);
                     const isPeriodOrStart = e.stat_type === "period_change" || e.stat_type === "game_start";
-                    const scoreTag = isScoring
-                      ? ` \u00b7 ${away} ${e.running_away} - ${e.running_home} ${home}`
-                      : "";
+                    const noTeam = !e.team || isPeriodOrStart;
                     const showFire = ["made_2","made_3"].includes(e.stat_type)
                       && isOnHotStreakAtIndex(events, e);
                     const milestone = milestoneForEvent(events, e);
                     return (
                       <div
                         key={e.event_id || Math.random()}
-                        className={`text-[11px] ${isPeriodOrStart ? "text-center text-gray-400 font-semibold" : isAway ? "text-right" : "text-left"}`}
+                        className="flex items-center gap-2 py-1.5 px-2 rounded-lg border border-gray-100 bg-white text-[11px]"
                       >
-                        <span className={`${isScoring ? "font-bold text-gray-900" : "text-gray-700"}`}>
-                          {formatEventText(e)}
-                          {showFire && (
-                            <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-orange-500 text-white tracking-wider align-middle">
-                              HOT
-                            </span>
-                          )}
-                          {milestone && (
-                            <span className="ml-1 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums align-middle">
-                              {milestone.label}
-                            </span>
-                          )}
-                        </span>
+                        <div className={`flex-1 min-w-0 flex items-center gap-1.5 ${
+                          noTeam ? "justify-center" : isAway ? "" : "flex-row-reverse text-right"
+                        }`}>
+                          {!noTeam && <TeamLogoLocal team={e.team} size={16} className="flex-shrink-0" />}
+                          <span className={`min-w-0 ${noTeam ? "text-gray-400 font-semibold" : "text-gray-700"}`}>
+                            {formatEventText(e)}
+                            {showFire && (
+                              <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-orange-500 text-white tracking-wider align-middle">
+                                HOT
+                              </span>
+                            )}
+                            {milestone && (
+                              <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white tabular-nums align-middle">
+                                {milestone.label}
+                              </span>
+                            )}
+                          </span>
+                        </div>
                         {isScoring && (
-                          <span className="text-gray-400">{scoreTag}</span>
+                          <span className="flex-shrink-0 text-[11px] font-black text-gray-900 tabular-nums bg-gray-100 rounded px-1.5 py-0.5">
+                            {e.running_away}-{e.running_home}
+                          </span>
                         )}
                       </div>
                     );
@@ -3937,7 +3944,8 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     // matter how much they do; a bench player recording a stat takes the slot
     // of whoever up there has gone longest without one. Replayed from events
     // rather than held in state, so a refresh mid-game rebuilds the same order.
-    const PF_ACTIVE = Math.min(6, myRoster.length);
+    // Five, matching the number on the floor.
+    const PF_ACTIVE = Math.min(5, myRoster.length);
     const pfOrderedRoster = (() => {
       const seed = [...myRoster].sort((x, y) => {
         const gx = thIsGuestName(x.player_name) ? 1 : 0, gy = thIsGuestName(y.player_name) ? 1 : 0;
@@ -4099,6 +4107,18 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           </div>
         )}
 
+        {/* Handing the game off used to mean scrolling past the whole grid to
+            find it, so it sits above the scoring UI now. Inline and to the
+            right to stay clear of the stat buttons, and it still confirms. */}
+        {!gameIsOver && (
+          <div className="flex justify-end">
+            <button onClick={releaseSlot}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 active:bg-gray-200">
+              Release scoring responsibility
+            </button>
+          </div>
+        )}
+
         {/* Scoring UI. Player first by default; classic stat-first is one tap
             away and writes identical events, so it is a safe fallback. */}
         {!gameIsOver && (
@@ -4181,16 +4201,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
             <button onClick={() => setMode(scoreMode === "player" ? "classic" : "player")}
               className="w-full py-2 rounded-lg text-[11px] font-bold text-gray-600 bg-gray-100 active:bg-gray-200">
               {scoreMode === "player" ? "Switch to classic scoring" : "Switch to player-first scoring"}
-            </button>
-          </div>
-        )}
-
-        {/* Release scorer button (bottom of scoring UI, subtle) */}
-        {!gameIsOver && (
-          <div className="pt-2">
-            <button onClick={releaseSlot}
-              className="w-full py-2 rounded-lg text-[11px] font-semibold text-gray-400 border border-dashed border-gray-200 active:bg-gray-50 active:text-gray-600">
-              Release scoring responsibility
             </button>
           </div>
         )}
@@ -4869,11 +4879,12 @@ function formatEventText(e) {
 
 function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
   const canEdit = myRole === "home_scorer" || myRole === "away_scorer";
-  // My team goes left, the opponent right, so two scorers reading the same log
-  // on different phones each see their own side on their own edge.
-  const myTeam = myRole === "home_scorer" ? game.home_team
-    : myRole === "away_scorer" ? game.away_team : game.away_team;
-  const otherTeam = myTeam === game.home_team ? game.away_team : game.home_team;
+  // Away left, home right, matching the scoreboard above and the box score.
+  // This used to put the reader's own team on the left, which mirrored the
+  // whole log for the home scorer against the scoreboard they were reading it
+  // under. A team keeps its side no matter who is looking.
+  const awayTeam = game.away_team;
+  const homeTeam = game.home_team;
 
   // Walk forward to attach a running score to every event that changes it,
   // then reverse for display so the newest sits on top.
@@ -4889,10 +4900,10 @@ function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
         : e.stat_type === "made_ft" ? 1 : 0;
       let scored = false;
       if (pts && e.team && run[e.team] != null) { run[e.team] += pts; scored = true; }
-      out.push({ ...e, _scored: scored, _mine: run[myTeam], _theirs: run[otherTeam] });
+      out.push({ ...e, _scored: scored, _away: run[awayTeam], _home: run[homeTeam] });
     }
     return out.reverse();
-  }, [events, game.home_team, game.away_team, myTeam, otherTeam]);
+  }, [events, game.home_team, game.away_team, awayTeam, homeTeam]);
 
   const [editing, setEditing] = useState(null); // event object
   const [showTime, setShowTime] = useState(false);
@@ -4930,13 +4941,13 @@ function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
       {visible.map(e => {
         const mine = e.scorer_pin === me?.pin;
         const milestone = milestoneForEvent(events, e);
-        const isMineTeam = e.team === myTeam;
+        const isAwayTeam = e.team === awayTeam;
         const noTeam = !e.team;
         return (
             <div key={e.event_id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg border border-gray-100 bg-white text-[11px]">
               {showTime && <span className="text-gray-400 tabular-nums w-16 flex-shrink-0">{formatTime(e.event_ts)}</span>}
               <div className={`flex-1 min-w-0 flex items-center gap-1.5 ${
-                noTeam ? "justify-center" : isMineTeam ? "" : "flex-row-reverse text-right"
+                noTeam ? "justify-center" : isAwayTeam ? "" : "flex-row-reverse text-right"
               }`}>
                 {e.team && <TeamLogoLocal team={e.team} size={16} className="flex-shrink-0" />}
                 <span className="text-gray-700 min-w-0">
@@ -4951,7 +4962,7 @@ function PlayByPlay({ events, me, myRole, game, isFinal = false }) {
               </div>
               {e._scored && (
                 <span className="flex-shrink-0 text-[11px] font-black text-gray-900 tabular-nums bg-gray-100 rounded px-1.5 py-0.5">
-                  {e._mine}-{e._theirs}
+                  {e._away}-{e._home}
                 </span>
               )}
               {canEdit && mine && (
