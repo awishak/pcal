@@ -3133,31 +3133,33 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
 
       {otBanner && (
         <ModalShell title="This game has gone to overtime" onClose={() => setOtBanner(null)}>
-          <div className="space-y-3 text-sm text-gray-700 leading-snug">
-            <p className="font-black text-gray-900">
+          <div className="space-y-3 text-[15px] text-gray-900 leading-snug">
+            <p className="font-black">
               The first team to score 7 points in overtime wins.
             </p>
             {/* A direction for whoever is running the physical scoreboard: the
                 clock has no job in a first-to-seven overtime, so it carries the
-                target score instead. Spelled out as mm:00 so it is set, not
-                interpreted. */}
+                target score instead. */}
             <div className="rounded-xl border-2 border-gray-900 bg-gray-50 py-3 px-3 text-center">
-              <div className="text-[11px] font-black uppercase tracking-widest text-gray-500">
+              <div className="text-[12px] font-black uppercase tracking-widest text-gray-900">
                 Scorer&apos;s table
               </div>
-              <div className="text-[13px] font-bold text-gray-700 mt-1">Set the game clock to</div>
-              <div className="text-4xl font-black text-gray-900 tabular-nums leading-none mt-1">
+              <div className="text-[15px] font-bold text-gray-900 mt-1">Set the game clock to</div>
+              <div className="text-5xl font-black text-gray-900 tabular-nums leading-none mt-1">
                 {otBanner.target}:00
               </div>
-              <div className="text-[11px] text-gray-500 mt-1.5">
+              <div className="text-[14px] font-bold text-gray-900 mt-2 leading-snug">
+                Leave this on the scoreboard for the rest of the game. The clock does not run.
+              </div>
+              <div className="text-[14px] text-gray-900 mt-1">
                 First team to reach {otBanner.target} wins.
               </div>
             </div>
-            <p>
+            <p className="font-semibold">
               Each team has one timeout, and the rules for free throws are the same as
               the last two minutes of the game.
             </p>
-            <p className="font-bold text-gray-900">Overtime will start with a jump ball.</p>
+            <p className="font-black">Overtime will start with a jump ball.</p>
           </div>
           <button onClick={() => setOtBanner(null)}
             className="mt-4 w-full py-3 rounded-xl bg-gray-900 text-white font-black text-sm active:bg-gray-800">
