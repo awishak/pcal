@@ -2096,8 +2096,10 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
           myRole={myRole}
           events={events}
           currentHalf={currentHalf}
+          teamFoulsThisHalf={teamFoulsThisHalf}
           teamTimeoutsThisHalf={teamTimeoutsThisHalf}
           teamScore={teamScore}
+          box={box}
           onBack={onBack}
         />
       )}
@@ -2618,7 +2620,7 @@ function TeamScorePanel({ team, score, color, fouls, topScorer }) {
 // both teams' pill states. Pills display remaining timeouts with the
 // numbers renumbered from 1 as timeouts are used.
 // ============================================================
-function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeoutsThisHalf, teamScore, onBack }) {
+function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore, box, onBack }) {
   const period = live?.period || "H1";
   const homeTeam = game.home_team;
   const awayTeam = game.away_team;
