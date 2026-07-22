@@ -2978,30 +2978,40 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     let dead = false;
     const reduce = typeof window !== "undefined"
       && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Two frames, so the roster has both rendered and settled after the modal
+    // closed and the view scrolled home before anything is measured.
+    let raf2 = 0;
     const raf = requestAnimationFrame(() => {
-      const from = cardAt(pass.from), to = cardAt(pass.to), el = ballRef.current;
-      const done = () => { if (!dead) { fireCelebrate(pass.to, pass.pts); setPass(null); } };
-      if (reduce || !from || !to || !el || !el.animate) { done(); return; }
-      const a1 = from.getBoundingClientRect(), b1 = to.getBoundingClientRect();
-      const x0 = a1.left + 34, y0 = a1.top + a1.height / 2 - 13;
-      const x1 = b1.left + 34, y1 = b1.top + b1.height / 2 - 13;
-      const arc = Math.min(y0, y1) - Math.max(46, Math.abs(y1 - y0) * 0.45);
-      const anim = el.animate([
-        { transform: `translate(${x0}px, ${y0}px) scale(.55)`, opacity: 0 },
-        { transform: `translate(${(x0 + x1) / 2}px, ${arc}px) scale(1.15)`, opacity: 1, offset: 0.5 },
-        { transform: `translate(${x1}px, ${y1}px) scale(.7)`, opacity: 0 },
-      ], { duration: 620, easing: "cubic-bezier(.3,.7,.4,1)" });
-      anim.onfinish = done;
-      anim.oncancel = done;
+      raf2 = requestAnimationFrame(() => {
+        const from = cardAt(pass.from), to = cardAt(pass.to), el = ballRef.current;
+        const done = () => { if (!dead) { fireCelebrate(pass.to, pass.pts); setPass(null); } };
+        if (reduce || !from || !to || !el || !el.animate) { done(); return; }
+        const a1 = from.getBoundingClientRect(), b1 = to.getBoundingClientRect();
+        const x0 = a1.left + 34, y0 = a1.top + a1.height / 2 - 13;
+        const x1 = b1.left + 34, y1 = b1.top + b1.height / 2 - 13;
+        const arc = Math.min(y0, y1) - Math.max(52, Math.abs(y1 - y0) * 0.45);
+        // The ball appears ON the passer and is fully visible before it moves,
+        // otherwise it fades in mid-flight and looks like it came from nowhere.
+        const anim = el.animate([
+          { transform: `translate(${x0}px, ${y0}px) scale(.5)`, opacity: 0, offset: 0 },
+          { transform: `translate(${x0}px, ${y0}px) scale(1)`, opacity: 1, offset: 0.16 },
+          { transform: `translate(${x0}px, ${y0}px) scale(1)`, opacity: 1, offset: 0.28 },
+          { transform: `translate(${(x0 + x1) / 2}px, ${arc}px) scale(1.2)`, opacity: 1, offset: 0.64 },
+          { transform: `translate(${x1}px, ${y1}px) scale(1)`, opacity: 1, offset: 0.92 },
+          { transform: `translate(${x1}px, ${y1}px) scale(.75)`, opacity: 0, offset: 1 },
+        ], { duration: 1500, easing: "cubic-bezier(.35,.15,.3,1)" });
+        anim.onfinish = done;
+        anim.oncancel = done;
+      });
     });
-    return () => { dead = true; cancelAnimationFrame(raf); };
+    return () => { dead = true; cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
   }, [pass]);
 
   const fireCelebrate = (playerName, pts) => {
     if (!playerName || !pts) return;
     clearTimeout(celebrateRef.current);
     setCelebrate({ name: playerName, pts, key: Date.now() });
-    celebrateRef.current = setTimeout(() => setCelebrate(null), 1250);
+    celebrateRef.current = setTimeout(() => setCelebrate(null), 2200);
   };
   // Both screens must open at the top: the stat grid so all twelve buttons are
   // reachable without scrolling, and the roster so it never reopens half-way
@@ -3712,12 +3722,13 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
               : "bg-gray-50 text-gray-700";
       const kit = kitFor(p.team);
       const party = celebrate && celebrate.name === name ? celebrate : null;
+      const passing = pass && pass.from === name;
       return (
         <button key={p.roster_id}
           data-player-card={name}
           onClick={onClick}
           disabled={disabled}
-          className={`relative overflow-hidden w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : "border-gray-200"}`}>
+          className={`relative overflow-hidden w-full flex items-center gap-2 p-2 rounded-xl bg-white border-2 text-left active:bg-gray-50 disabled:opacity-40 disabled:active:bg-white ${selected ? "border-gray-900 ring-2 ring-gray-900" : passing ? "border-amber-400 ring-2 ring-amber-300" : "border-gray-200"}`}>
           {party && <span key={party.key} className="pcal-shine" aria-hidden="true" />}
           <span className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden border-2"
             style={{ backgroundColor: kit.body, borderColor: kit.ring }}>
