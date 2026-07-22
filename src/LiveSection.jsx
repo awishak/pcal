@@ -206,6 +206,15 @@ const STAT_BUTTONS = [
   { key: "foul",     label: "Foul",     pts: 0, prompt: null,      color: "bg-gray-100 text-gray-700", activeRing: "ring-gray-300" },
 ];
 
+// PCAL plays one overtime and one only: it is first to seven points, so a
+// second is not reachable. Periods are stored as "OT" from now on, but games
+// scored before that stored "OT1", so both must read back the same.
+const isOtPeriod = (p) => !!p && String(p).startsWith("OT");
+// How a stored period reads to a person. "H1" is jargon at a glance mid-game.
+export const periodWords = (p) => p === "H1" ? "1st half"
+  : p === "H2" ? "2nd half"
+    : isOtPeriod(p) ? "Overtime" : (p || "Final");
+
 // Lookup used by both flows. "ast" has no STAT_BUTTONS entry (the classic
 // grid can't record one directly), so it is added here with no follow-up
 // prompt.
@@ -281,7 +290,8 @@ function buildPlayLines(events, homeTeam, awayTeam) {
       continue;
     }
     if (e.stat_type === "period_change") {
-      out.push({ id: e.event_id, team: null, text: e.player_name === "H2" ? "End of 1st half" : `Start of ${e.player_name}`, score: null });
+      out.push({ id: e.event_id, team: null, text: e.player_name === "H2" ? "End of 1st half"
+        : isOtPeriod(e.player_name) ? "Start of overtime" : `Start of ${e.player_name}`, score: null });
       continue;
     }
     if (!plain) continue;
@@ -494,7 +504,7 @@ function computeBoxScore(events) {
       if (e.player_name === "H2" || e.player_name === "Halftime") currentHalf = "H2";
       else if (e.player_name === "H1") currentHalf = "H1";
       // OT counts as its own "half" for team-foul and timeout reset
-      if (e.player_name && e.player_name.startsWith("OT")) {
+      if (isOtPeriod(e.player_name)) {
         currentHalf = e.player_name;
         teamFoulsThisHalf[currentHalf] = {};
         teamTimeoutsThisHalf[currentHalf] = {};
@@ -1378,7 +1388,7 @@ function LiveFullCard({ game, liveState, scores, events, onTap }) {
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
           </span>
           <span className="text-xs font-black uppercase tracking-widest text-red-600">Live</span>
-          <span className="text-xs text-gray-400 ml-1">{period}</span>
+          <span className="text-xs text-gray-400 ml-1">{periodWords(period)}</span>
         </div>
         <span className="text-[10px] text-gray-400">Tap to view</span>
       </div>
@@ -2164,6 +2174,7 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
           teamScore={teamScore}
           box={box}
           onBack={onBack}
+          onReload={load}
         />
       )}
 
@@ -2387,9 +2398,9 @@ function Scoreboard({ game, live, teamScore, teamFoulsThisHalf, teamTimeoutsThis
         const label = e.player_name || "";
         // The event label is the NEW period (e.g. "H2" means H1 just ended).
         // Record the snapshot under the period that just ended.
-        const endingLabel = label === "H2" ? "H1" :
-          label?.startsWith("OT") && label !== "OT1" ? `OT${parseInt(label.slice(2)) - 1}` :
-          label === "OT1" ? "H2" : label;
+        // Overtime can only follow the 2nd half, so an OT label of any
+        // vintage means H2 is the period that just ended.
+        const endingLabel = label === "H2" ? "H1" : isOtPeriod(label) ? "H2" : label;
         if (endingLabel) {
           snapshots.push({ label: endingLabel, home: running[home], away: running[away] });
         }
@@ -2690,14 +2701,14 @@ function TeamScorePanel({ team, score, color, fouls, topScorer }) {
 // both teams' pill states. Pills display remaining timeouts with the
 // numbers renumbered from 1 as timeouts are used.
 // ============================================================
-function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore, box, onBack }) {
+function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFoulsThisHalf, teamTimeoutsThisHalf, teamScore, box, onBack, onReload }) {
   const period = live?.period || "H1";
   const homeTeam = game.home_team;
   const awayTeam = game.away_team;
   const myTeamCode = myRole === "home_scorer" ? homeTeam : myRole === "away_scorer" ? awayTeam : null;
   const homeTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[homeTeam] || 0;
   const awayTOUsed = teamTimeoutsThisHalf?.[currentHalf]?.[awayTeam] || 0;
-  const inRegulation = period === "H1" || period === "H2" || period?.startsWith("OT");
+  const inRegulation = period === "H1" || period === "H2" || isOtPeriod(period);
   const gameIsOver = live?.status === "ended" || live?.status === "approved";
 
   // In-app confirmations. The browser's confirm() is a jarring system dialog
@@ -2706,11 +2717,27 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [otBanner, setOtBanner] = useState(null);
 
-  const nextOtLabel = () => {
-    const cur = live?.period || "H2";
-    if (cur.startsWith("OT")) return `OT${parseInt(cur.slice(2), 10) + 1}`;
-    return "OT1";
+  // Handing the slot back. Lives here rather than in the scoring panel so it
+  // sits beside the other game-state control, where a scorer already looks.
+  const releaseSlot = async () => {
+    if (!confirm("Release scorer slot? You won't be scoring this game anymore.")) return;
+    const col = myRole === "home_scorer" ? "home" : "away";
+    await supabase.from("live_games").update({
+      [`${col}_scorer_pin`]: null,
+      [`${col}_scorer_name`]: null,
+      updated_at: new Date().toISOString(),
+    }).eq("game_id", game.game_id);
+    await supabase.from("audit_log").insert({
+      game_id: game.game_id, actor_pin: me.pin, actor_name: me.name,
+      action: "release_scorer",
+      before_value: { team: myTeamCode, pin: me.pin, name: me.name },
+    });
+    onReload();
   };
+
+  // One overtime only, by rule: it is first to seven points, so there is never
+  // an OT2. "OT1" is still accepted wherever old rows are read back.
+  const nextOtLabel = () => "OT";
 
   const endFirstHalf = async () => {
     setConfirmHalf(false);
@@ -2793,7 +2820,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
     const used = teamTimeoutsThisHalf?.[currentHalf]?.[teamCode] || 0;
     if (used >= 3) return;
     // Overtime has no running clock, so there is no time to ask for.
-    if ((live?.period || "").startsWith("OT")) { recordTimeout(teamCode, null); return; }
+    if (isOtPeriod(live?.period)) { recordTimeout(teamCode, null); return; }
     setClk(guessClock());
     setTimeoutFor(teamCode);
   };
@@ -2823,16 +2850,15 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
     });
   };
 
-  // Friendly period label. "H1" reads as jargon at a glance mid-game.
-  const periodLabel = period === "H1" ? "1st half"
-    : period === "H2" ? "2nd half"
-      : period && period.startsWith("OT") ? period : (period || "Final");
+  const periodLabel = periodWords(period);
   // Overtime is first to seven, so the useful number is the target, not a
   // clock. Derived from the score when overtime began: the lower score plus
   // seven, since a tie is the only way to reach overtime.
   const otTarget = (() => {
-    if (!period || !period.startsWith("OT")) return null;
-    const pcs = (events || []).filter(e => !e.deleted && e.stat_type === "period_change" && e.player_name === period);
+    if (!isOtPeriod(period)) return null;
+    // Match any OT label, not this game's exact string, so a game that stored
+    // "OT1" still finds its own period change.
+    const pcs = (events || []).filter(e => !e.deleted && e.stat_type === "period_change" && isOtPeriod(e.player_name));
     const startedAt = pcs.length ? pcs[pcs.length - 1].event_ts : null;
     if (!startedAt) return null;
     let h = 0, a = 0;
@@ -3249,18 +3275,28 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
             </span>
           )}
         </span>
-        {period === "H1" && (
-          <button onClick={() => setConfirmHalf(true)}
-            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800 flex-shrink-0">
-            End 1st half
-          </button>
-        )}
-        {(period === "H2" || (period && period.startsWith("OT"))) && (
-          <button onClick={() => setConfirmEnd(true)}
-            className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700 flex-shrink-0">
-            {period === "H2" ? "End 2nd half" : `End ${period}`}
-          </button>
-        )}
+        {/* Wrapped so justify-between spreads the status cluster against the
+            buttons as a group, rather than pushing them apart from each other. */}
+        <span className="flex items-center gap-2 flex-shrink-0">
+          {!gameIsOver && myTeamCode && (
+            <button onClick={releaseSlot}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 active:bg-gray-200">
+              Release
+            </button>
+          )}
+          {period === "H1" && (
+            <button onClick={() => setConfirmHalf(true)}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800">
+              End 1st half
+            </button>
+          )}
+          {(period === "H2" || isOtPeriod(period)) && (
+            <button onClick={() => setConfirmEnd(true)}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700">
+              {period === "H2" ? "End 2nd half" : "End overtime"}
+            </button>
+          )}
+        </span>
       </div>
 
       {/* Both scores, each with that team's timeouts directly beneath.
@@ -3381,6 +3417,28 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
 
   const myTeamCode = myRole === "home_scorer" ? game.home_team : myRole === "away_scorer" ? game.away_team : null;
   const myRoster = myRole === "home_scorer" ? rosters.home : myRole === "away_scorer" ? rosters.away : [];
+  // The opposition, for the rebound prompt. Both rosters and both sets of
+  // photos are already loaded, so this costs nothing.
+  const otherTeamCode = myRole === "home_scorer" ? game.away_team : myRole === "away_scorer" ? game.home_team : null;
+  const otherRoster = myRole === "home_scorer" ? rosters.away : myRole === "away_scorer" ? rosters.home : [];
+  // Seven faces for the other-team tile. Whoever has already done something in
+  // this game leads, since those are the players actually on the floor, then
+  // the rest of the roster alphabetically to fill the row out.
+  const otherTeamFaces = useMemo(() => {
+    const played = (name) => {
+      const st = box?.[name];
+      if (!st) return false;
+      return ["pts", "reb", "ast", "stl", "blk", "foul", "fga", "fta"]
+        .some(k => (st[k] || 0) > 0);
+    };
+    return [...otherRoster]
+      .sort((a, b) => {
+        const pa = played(a.player_name) ? 0 : 1, pb = played(b.player_name) ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        return (a.player_name || "").localeCompare(b.player_name || "");
+      })
+      .slice(0, 7);
+  }, [otherRoster, box]);
   const aiScores = useAiScores();
 
   // Six fouls is a disqualification, which a scorer must not miss. Fires once
@@ -3751,24 +3809,8 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
     });
   };
 
-  // ---- Release scoring slot ----
-  // Scorer voluntarily relinquishes their slot. Someone else can then
-  // claim without the admin-takeover flow. Logs an audit entry.
-  const releaseSlot = async () => {
-    if (!confirm("Release scorer slot? You won't be scoring this game anymore.")) return;
-    const col = myRole === "home_scorer" ? "home" : "away";
-    await supabase.from("live_games").update({
-      [`${col}_scorer_pin`]: null,
-      [`${col}_scorer_name`]: null,
-      updated_at: new Date().toISOString(),
-    }).eq("game_id", game.game_id);
-    await supabase.from("audit_log").insert({
-      game_id: game.game_id, actor_pin: me.pin, actor_name: me.name,
-      action: "release_scorer",
-      before_value: { team: myTeamCode, pin: me.pin, name: me.name },
-    });
-    onReload();
-  };
+  // Releasing the scorer slot now lives in GameControlBar, beside the
+  // end-of-half control.
 
   const reopenGame = async () => {
     if (!confirm("Reopen this game for edits? Requires admin password next.")) return;
@@ -4107,18 +4149,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           </div>
         )}
 
-        {/* Handing the game off used to mean scrolling past the whole grid to
-            find it, so it sits above the scoring UI now. Inline and to the
-            right to stay clear of the stat buttons, and it still confirms. */}
-        {!gameIsOver && (
-          <div className="flex justify-end">
-            <button onClick={releaseSlot}
-              className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 active:bg-gray-200">
-              Release scoring responsibility
-            </button>
-          </div>
-        )}
-
         {/* Scoring UI. Player first by default; classic stat-first is one tap
             away and writes identical events, so it is a safe fallback. */}
         {!gameIsOver && (
@@ -4343,17 +4373,35 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
           <ModalShell title="Who got the rebound?" onClose={cancelPrompt}>
             {/* Other team and no rebound lead, since they are the two answers that
                 are not a teammate, then the roster in the same order and the
-                same cards as everywhere else. */}
-            <div className="grid grid-cols-2 gap-1.5 mb-2">
-              <button onClick={() => chooseRebound("other_team")}
-                className="py-3 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
-                Other team
-              </button>
-              <button onClick={() => chooseRebound("none")}
-                className="py-3 rounded-xl bg-gray-50 text-gray-500 font-bold text-sm active:bg-gray-100 border border-gray-200">
-                No rebound
-              </button>
-            </div>
+                same cards as everywhere else. The other team reads as that
+                team rather than as the words "other team": its colour, its
+                logo, and the faces the scorer is watching on the floor. */}
+            <button onClick={() => chooseRebound("other_team")}
+              className="w-full mb-1.5 p-2.5 rounded-xl border-2 flex items-center gap-2.5 active:opacity-80"
+              style={{
+                borderColor: accentFor(otherTeamCode),
+                backgroundColor: accentAlpha(accentFor(otherTeamCode), 0.08),
+              }}>
+              <TeamLogoLocal team={otherTeamCode} size={30} className="flex-shrink-0" />
+              <span className="text-base font-black flex-shrink-0" style={{ color: accentFor(otherTeamCode) }}>
+                {otherTeamCode}
+              </span>
+              {otherTeamFaces.length > 0 && (
+                <span className="flex items-center flex-1 justify-end">
+                  {otherTeamFaces.map((p, i) => (
+                    <span key={p.roster_id || p.player_name}
+                      className="rounded-full ring-2 ring-white"
+                      style={{ marginLeft: i === 0 ? 0 : -8, zIndex: otherTeamFaces.length - i }}>
+                      <PlayerAvatar name={p.player_name} team={otherTeamCode} size={24} />
+                    </span>
+                  ))}
+                </span>
+              )}
+            </button>
+            <button onClick={() => chooseRebound("none")}
+              className="w-full mb-2 py-2 rounded-xl bg-gray-50 text-gray-500 font-bold text-[11px] active:bg-gray-100 border border-gray-200">
+              No rebound
+            </button>
             <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
               {partitioned?.withStat.map(p => renderPlayerCard(p, { onClick: () => chooseReboundPlayer(p) }))}
               {partitioned?.withStat.length > 0 && (
@@ -4462,7 +4510,7 @@ function GameFlowChart({ events, homeTeam, awayTeam }) {
       if (e.stat_type !== "period_change") continue;
       const n = e.player_name || "";
       if (n === "H2" || n === "Halftime") markers.push({ t: mins(e), label: "HALF" });
-      else if (n.startsWith("OT")) markers.push({ t: mins(e), label: n });
+      else if (isOtPeriod(n)) markers.push({ t: mins(e), label: "OT" });
     }
 
     let h = 0, a = 0, leadChanges = 0, homeBest = 0, awayBest = 0;
@@ -4845,9 +4893,8 @@ function formatEventText(e) {
       ? `${name} spiritual foul`
       : `${name} foul`;
   const periodLabel = e.player_name === "H2" ? "End of 1st half"
-    : e.player_name === "OT1" ? "Start of OT"
     : e.player_name === "Halftime" ? "Halftime"
-    : e.player_name?.startsWith("OT") ? `Start of ${e.player_name}`
+    : isOtPeriod(e.player_name) ? "Start of overtime"
     : `${e.player_name}`;
   const map = {
     made_2: `${name} made 2`,

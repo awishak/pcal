@@ -16,7 +16,7 @@ import {
   onAuthStateChange, loadCurrentUserRoles, verifyCommissionerPassword,
   fetchTeamPenalties,
 } from "./supabase.js";
-import LiveSection from "./LiveSection.jsx";
+import LiveSection, { periodWords } from "./LiveSection.jsx";
 import { PLAYER_MERGE } from "./playerNames.js";
 // App keeps its own TEAM_COLORS (see below); only the contrast helper is shared.
 import { textOnTeam } from "./teamColors.js";
@@ -1880,7 +1880,7 @@ function WatchPage({ streams = [], isAdmin = false, setStreams, onOpenGame }) {
               <div key={g.game_id} className="rounded-2xl border border-gray-100 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${live ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
-                    {g.status === "live" ? "LIVE" : g.status === "halftime" ? "HALF" : "FINAL"}{live && g.period ? ` · ${g.period}` : ""}
+                    {g.status === "live" ? "LIVE" : g.status === "halftime" ? "HALF" : "FINAL"}{live && g.period ? ` · ${periodWords(g.period)}` : ""}
                   </span>
                 </div>
                 <div className="flex items-end justify-center gap-5 mb-3">
@@ -4719,7 +4719,7 @@ function LiveGameFullCard({ game, liveState, scores, onTap }) {
             <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
           </span>
           <span className="text-[10px] font-black uppercase tracking-widest text-red-600">Live</span>
-          <span className="text-[10px] text-gray-400 ml-1">{period}</span>
+          <span className="text-[10px] text-gray-400 ml-1">{periodWords(period)}</span>
         </div>
         <span className="text-[10px] text-gray-400">Tap to view</span>
       </div>
