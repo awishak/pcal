@@ -2630,8 +2630,20 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
   const inRegulation = period === "H1" || period === "H2" || period?.startsWith("OT");
   const gameIsOver = live?.status === "ended" || live?.status === "approved";
 
+  // In-app confirmations. The browser's confirm() is a jarring system dialog
+  // mid-game and cannot be styled or dismissed by tapping away.
+  const [confirmHalf, setConfirmHalf] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [otBanner, setOtBanner] = useState(null);
+
+  const nextOtLabel = () => {
+    const cur = live?.period || "H2";
+    if (cur.startsWith("OT")) return `OT${parseInt(cur.slice(2), 10) + 1}`;
+    return "OT1";
+  };
+
   const endFirstHalf = async () => {
-    if (!confirm("End 1st half and begin 2nd half?")) return;
+    setConfirmHalf(false);
     await supabase.from("live_games").update({
       period: "H2", status: "live",
       home_timeouts_remaining: 3, away_timeouts_remaining: 3,
@@ -2643,35 +2655,35 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
     });
   };
 
-  const endGameOrStartOT = async () => {
-    const homeScore = teamScore?.[homeTeam] || 0;
-    const awayScore = teamScore?.[awayTeam] || 0;
-    if (homeScore === awayScore) {
-      if (!confirm("Scores are tied. Start overtime?")) return;
-      const curPeriod = live?.period || "H2";
-      const nextOT = curPeriod === "H2" ? "OT1" :
-        curPeriod.startsWith("OT") ? `OT${parseInt(curPeriod.slice(2)) + 1}` : "OT1";
-      await supabase.from("live_games").update({
-        period: nextOT, status: "live",
-        home_timeouts_remaining: 1, away_timeouts_remaining: 1,
-        updated_at: new Date().toISOString(),
-      }).eq("game_id", game.game_id);
-      await supabase.from("live_events").insert({
-        game_id: game.game_id, period: nextOT, stat_type: "period_change",
-        player_name: nextOT, scorer_pin: me.pin, scorer_name: me.name,
-      });
-    } else {
-      if (!confirm(`End game? Final: ${awayTeam} ${awayScore} - ${homeTeam} ${homeScore}`)) return;
-      await supabase.from("live_games").update({
-        status: "ended", period: "Final",
-        ended_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-      }).eq("game_id", game.game_id);
-      await supabase.from("schedule").update({ status: "ended" }).eq("game_id", game.game_id);
-      await supabase.from("live_events").insert({
-        game_id: game.game_id, period: "Final", stat_type: "game_end",
-        scorer_pin: me.pin, scorer_name: me.name,
-      });
-    }
+  // Overtime is first to seven, so the target is whatever is on the board now
+  // plus seven. Both teams reset to a single timeout.
+  const startOvertime = async () => {
+    const label = nextOtLabel();
+    const hs = teamScore?.[homeTeam] || 0, as = teamScore?.[awayTeam] || 0;
+    setConfirmEnd(false);
+    await supabase.from("live_games").update({
+      period: label, status: "live",
+      home_timeouts_remaining: 1, away_timeouts_remaining: 1,
+      updated_at: new Date().toISOString(),
+    }).eq("game_id", game.game_id);
+    await supabase.from("live_events").insert({
+      game_id: game.game_id, period: label, stat_type: "period_change",
+      player_name: label, scorer_pin: me.pin, scorer_name: me.name,
+    });
+    setOtBanner({ target: Math.max(hs, as) + 7 });
+  };
+
+  const endGame = async () => {
+    setConfirmEnd(false);
+    await supabase.from("live_games").update({
+      status: "ended", period: "Final",
+      ended_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("game_id", game.game_id);
+    await supabase.from("schedule").update({ status: "ended" }).eq("game_id", game.game_id);
+    await supabase.from("live_events").insert({
+      game_id: game.game_id, period: "Final", stat_type: "game_end",
+      scorer_pin: me.pin, scorer_name: me.name,
+    });
   };
 
   const callTimeout = async (teamCode) => {
@@ -2692,6 +2704,23 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
   const periodLabel = period === "H1" ? "1st half"
     : period === "H2" ? "2nd half"
       : period && period.startsWith("OT") ? period : (period || "Final");
+  // Overtime is first to seven, so the useful number is the target, not a
+  // clock. Derived from the score when overtime began: the lower score plus
+  // seven, since a tie is the only way to reach overtime.
+  const otTarget = (() => {
+    if (!period || !period.startsWith("OT")) return null;
+    const pcs = (events || []).filter(e => !e.deleted && e.stat_type === "period_change" && e.player_name === period);
+    const startedAt = pcs.length ? pcs[pcs.length - 1].event_ts : null;
+    if (!startedAt) return null;
+    let h = 0, a = 0;
+    for (const e of events) {
+      if (e.deleted || !e.event_ts || new Date(e.event_ts) > new Date(startedAt)) continue;
+      const pts = e.stat_type === "made_2" ? 2 : e.stat_type === "made_3" ? 3 : e.stat_type === "made_ft" ? 1 : 0;
+      if (!pts) continue;
+      if (e.team === homeTeam) h += pts; else if (e.team === awayTeam) a += pts;
+    }
+    return Math.max(h, a) + 7;
+  })();
 
   // Everything a scorer needs while scoring, pinned to the top of the screen:
   // date and time beside Back, status and period and the end-half control on
@@ -2946,15 +2975,20 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
             </span>
           )}
           <span className="text-[13px] font-black text-gray-900">{periodLabel}</span>
+          {otTarget && (
+            <span className="text-[11px] font-black text-gray-900 rounded-md bg-amber-100 px-1.5 py-0.5 tabular-nums">
+              First to {otTarget}
+            </span>
+          )}
         </span>
         {period === "H1" && (
-          <button onClick={endFirstHalf}
+          <button onClick={() => setConfirmHalf(true)}
             className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white active:bg-gray-800 flex-shrink-0">
             End 1st half
           </button>
         )}
         {(period === "H2" || (period && period.startsWith("OT"))) && (
-          <button onClick={endGameOrStartOT}
+          <button onClick={() => setConfirmEnd(true)}
             className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white active:bg-red-700 flex-shrink-0">
             End game
           </button>
@@ -2977,6 +3011,77 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
         {renderTimeoutDots(homeTeam, homeTOUsed)}
       </div>
       {playsPanel}
+
+      {confirmHalf && (
+        <ModalShell title="End the 1st half?" onClose={() => setConfirmHalf(false)}>
+          <p className="text-sm text-gray-600 leading-snug">
+            The 2nd half begins and both teams get three timeouts back.
+          </p>
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <button onClick={() => setConfirmHalf(false)}
+              className="py-2.5 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
+              Cancel
+            </button>
+            <button onClick={endFirstHalf}
+              className="py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm active:bg-gray-800">
+              End 1st half
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
+      {confirmEnd && (
+        <ModalShell title="End of the 2nd half" onClose={() => setConfirmEnd(false)}>
+          <div className="text-center">
+            <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Score</div>
+            <div className="text-2xl font-black text-gray-900 tabular-nums mt-0.5">
+              {awayTeam} {teamScore?.[awayTeam] || 0}
+              <span className="text-gray-300"> - </span>
+              {teamScore?.[homeTeam] || 0} {homeTeam}
+            </div>
+            {(teamScore?.[awayTeam] || 0) === (teamScore?.[homeTeam] || 0) && (
+              <div className="mt-1 text-[12px] font-bold text-amber-700">Scores are tied.</div>
+            )}
+          </div>
+          <div className="mt-4 space-y-2">
+            <button onClick={startOvertime}
+              className="w-full py-3 rounded-xl bg-gray-900 text-white font-black text-sm active:bg-gray-800">
+              Go to overtime
+            </button>
+            <button onClick={endGame}
+              className="w-full py-3 rounded-xl bg-red-600 text-white font-black text-sm active:bg-red-700">
+              End the game
+            </button>
+            <button onClick={() => setConfirmEnd(false)}
+              className="w-full py-2.5 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
+              Keep playing
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
+      {otBanner && (
+        <ModalShell title="This game has gone to overtime" onClose={() => setOtBanner(null)}>
+          <div className="space-y-3 text-sm text-gray-700 leading-snug">
+            <p className="font-black text-gray-900">
+              The first team to score 7 points in overtime wins.
+            </p>
+            <div className="rounded-xl bg-gray-50 py-3 text-center">
+              <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400">First to</div>
+              <div className="text-4xl font-black text-gray-900 tabular-nums leading-none mt-1">{otBanner.target}</div>
+            </div>
+            <p>
+              Each team has one timeout, and the rules for free throws are the same as
+              the last two minutes of the game.
+            </p>
+            <p className="font-bold text-gray-900">Overtime will start with a jump ball.</p>
+          </div>
+          <button onClick={() => setOtBanner(null)}
+            className="mt-4 w-full py-3 rounded-xl bg-gray-900 text-white font-black text-sm active:bg-gray-800">
+            Got it
+          </button>
+        </ModalShell>
+      )}
     </>
   );
 }
@@ -3463,63 +3568,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
       before_value: { team: myTeamCode, pin: me.pin, name: me.name },
     });
     onReload();
-  };
-
-  // ---- Period/state controls ----
-  // End of first half jumps straight to H2 (no halftime intermission).
-  const endFirstHalf = async () => {
-    if (!confirm("End 1st half and begin 2nd half?")) return;
-    await supabase.from("live_games").update({
-      period: "H2", status: "live",
-      home_timeouts_remaining: 3, away_timeouts_remaining: 3,
-      updated_at: new Date().toISOString(),
-    }).eq("game_id", game.game_id);
-    await supabase.from("live_events").insert({
-      game_id: game.game_id, period: "H2", stat_type: "period_change",
-      player_name: "H2", scorer_pin: me.pin, scorer_name: me.name,
-    });
-  };
-
-  // ---- Timeout ----
-  // Any scorer can record a timeout for either playing team. Timeouts are
-  // tracked per half via live_events (stat_type='timeout'), computed from
-  // teamTimeoutsThisHalf in computeBoxScore. Resets automatically on H2/OT.
-  const callTimeout = async (teamCode) => {
-    if (!me) return;
-    const used = teamTimeoutsThisHalf?.[currentHalf]?.[teamCode] || 0;
-    if (used >= 3) return;
-    await supabase.from("live_events").insert({
-      game_id: game.game_id,
-      period: live?.period || "H1",
-      team: teamCode,
-      player_name: null,
-      stat_type: "timeout",
-      scorer_pin: me.pin,
-      scorer_name: me.name,
-    });
-  };
-
-  const endGameOrStartOT = async () => {
-    // Use live teamScore already computed from events (single source of truth)
-    const homeScore = teamScore?.[game.home_team] || 0;
-    const awayScore = teamScore?.[game.away_team] || 0;
-    if (homeScore === awayScore) {
-      if (!confirm("Scores are tied. Start overtime?")) return;
-      const curPeriod = live?.period || "H2";
-      const nextOT = curPeriod === "H2" || curPeriod === "Halftime" ? "OT1" :
-        curPeriod.startsWith("OT") ? `OT${parseInt(curPeriod.slice(2)) + 1}` : "OT1";
-      await supabase.from("live_games").update({
-        period: nextOT, status: "live",
-        home_timeouts_remaining: 1, away_timeouts_remaining: 1,
-        updated_at: new Date().toISOString(),
-      }).eq("game_id", game.game_id);
-      await supabase.from("live_events").insert({ game_id: game.game_id, period: nextOT, stat_type: "period_change", player_name: nextOT, scorer_pin: me.pin, scorer_name: me.name });
-    } else {
-      if (!confirm(`End game? Final: ${game.away_team} ${awayScore} - ${game.home_team} ${homeScore}`)) return;
-      await supabase.from("live_games").update({ status: "ended", period: "Final", ended_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("game_id", game.game_id);
-      await supabase.from("schedule").update({ status: "ended" }).eq("game_id", game.game_id);
-      await supabase.from("live_events").insert({ game_id: game.game_id, period: "Final", stat_type: "game_end", scorer_pin: me.pin, scorer_name: me.name });
-    }
   };
 
   const reopenGame = async () => {
