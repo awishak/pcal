@@ -2688,52 +2688,6 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
     });
   };
 
-  // Render 3 numbered rectangles. Used slots are X'ed out and gray on the
-  // LEFT. Remaining green pills renumber from 1 on the right so the scorer
-  // can easily tell how many timeouts remain. When all 3 are used, a red
-  // message renders below instead of any pills.
-  const renderTimeoutPills = (teamCode, usedCount) => {
-    const iCanTap = teamCode === myTeamCode && inRegulation && !gameIsOver;
-    if (usedCount >= 3) {
-      return (
-        <span className="text-[10px] font-bold text-red-600">
-          No TO left
-        </span>
-      );
-    }
-    const remaining = 3 - usedCount;
-    const pills = [];
-    // Used pills on the left
-    for (let i = 0; i < usedCount; i++) {
-      pills.push(
-        <div key={`u${i}`}
-          className="relative w-6 h-6 rounded-md bg-gray-200 border border-gray-300 flex items-center justify-center flex-shrink-0"
-          title="Used"
-        >
-          <svg viewBox="0 0 20 20" className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <line x1="5" y1="5" x2="15" y2="15" />
-            <line x1="15" y1="5" x2="5" y2="15" />
-          </svg>
-        </div>
-      );
-    }
-    // Remaining pills, renumbered 1..remaining. All look the same and any of
-    // them spends one, so there is no odd highlighted-but-identical pill.
-    for (let i = 0; i < remaining; i++) {
-      pills.push(
-        <button key={`r${i}`}
-          onClick={() => iCanTap && callTimeout(teamCode)}
-          disabled={!iCanTap}
-          className="w-6 h-6 rounded-md text-[10px] font-black flex items-center justify-center flex-shrink-0 bg-green-100 text-green-700 border border-green-200 active:bg-green-200 disabled:cursor-default"
-          title={iCanTap ? `Call timeout for ${teamCode}` : ""}
-        >
-          {i + 1}
-        </button>
-      );
-    }
-    return <div className="flex gap-1">{pills}</div>;
-  };
-
   // Friendly period label. "H1" reads as jargon at a glance mid-game.
   const periodLabel = period === "H1" ? "1st half"
     : period === "H2" ? "2nd half"
@@ -4219,40 +4173,6 @@ function ScorerControls({ game, live, events, rosters, me, onLogin, myRole, onRe
   return (
     <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
       <div className="text-sm text-gray-700">Game ended. See box score or play-by-play.</div>
-    </div>
-  );
-}
-
-// Collapsible panel showing the scorer's last 3 events, with a per-item
-// undo X. Included because "Undo last" alone forces scorers to undo good
-// entries just to reach a bad one.
-function LastThreePanel({ events, onUndo }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50">
-      <button onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-left">
-        <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">
-          My last {events.length}
-        </span>
-        <span className="text-[10px] text-gray-400">{open ? "\u25B4 hide" : "\u25BE show"}</span>
-      </button>
-      {open && (
-        <div className="px-3 pb-2 space-y-1">
-          {events.map(e => (
-            <div key={e.event_id || Math.random()}
-              className="flex items-center justify-between gap-2 py-1.5 border-t border-gray-100">
-              <span className="text-[11px] text-gray-700 flex-1 truncate">
-                {formatEventText(e)}
-              </span>
-              <button onClick={() => onUndo(e)}
-                className="text-[10px] font-bold text-red-600 px-2 py-1 rounded bg-red-50 active:bg-red-100 border border-red-200">
-                Undo
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

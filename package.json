@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "eslint src && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -16,6 +17,10 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
     "vite": "^5.4.8"
   }
 }
