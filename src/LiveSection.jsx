@@ -2860,11 +2860,8 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   // Two grey boxes side by side, matching the box score view, so the numbers
   // sit close together instead of being pushed to opposite edges.
   const scoreBox = (teamCode, score, side) => (
-    <div className="flex-1 min-w-0 rounded-xl border px-2 py-1.5"
-      style={{
-        backgroundColor: accentAlpha(accentFor(teamCode), 0.10),
-        borderColor: accentAlpha(accentFor(teamCode), 0.30),
-      }}>
+    <div className="flex-1 min-w-0 rounded-xl px-2 py-1.5"
+      style={{ backgroundColor: accentAlpha(accentFor(teamCode), 0.10) }}>
       <div className="w-full text-[15px] font-black text-gray-900 truncate leading-tight text-center">
         {TEAM_NAMES[teamCode] || teamCode}
       </div>
