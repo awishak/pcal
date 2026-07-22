@@ -2977,7 +2977,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
           <span className="text-[13px] font-black text-gray-900">{periodLabel}</span>
           {otTarget && (
             <span className="text-[11px] font-black text-gray-900 rounded-md bg-amber-100 px-1.5 py-0.5 tabular-nums">
-              First to {otTarget}
+              First to {otTarget} &middot; clock {otTarget}:00
             </span>
           )}
         </span>
@@ -3066,9 +3066,21 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamFouls
             <p className="font-black text-gray-900">
               The first team to score 7 points in overtime wins.
             </p>
-            <div className="rounded-xl bg-gray-50 py-3 text-center">
-              <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400">First to</div>
-              <div className="text-4xl font-black text-gray-900 tabular-nums leading-none mt-1">{otBanner.target}</div>
+            {/* A direction for whoever is running the physical scoreboard: the
+                clock has no job in a first-to-seven overtime, so it carries the
+                target score instead. Spelled out as mm:00 so it is set, not
+                interpreted. */}
+            <div className="rounded-xl border-2 border-gray-900 bg-gray-50 py-3 px-3 text-center">
+              <div className="text-[11px] font-black uppercase tracking-widest text-gray-500">
+                Scorer&apos;s table
+              </div>
+              <div className="text-[13px] font-bold text-gray-700 mt-1">Set the game clock to</div>
+              <div className="text-4xl font-black text-gray-900 tabular-nums leading-none mt-1">
+                {otBanner.target}:00
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1.5">
+                First team to reach {otBanner.target} wins.
+              </div>
             </div>
             <p>
               Each team has one timeout, and the rules for free throws are the same as
