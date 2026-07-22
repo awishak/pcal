@@ -2775,6 +2775,81 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
   const lastPlays = buildPlayLines(events, homeTeam, awayTeam);
   const [playsOpen, setPlaysOpen] = useState(false);
 
+  // A single line under each score, rotating through whatever currently
+  // applies. Rotating rather than ranking means the bonus state does not
+  // monopolise the line for a whole half once a team hits ten fouls.
+  const [noteTick, setNoteTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNoteTick(n => n + 1), 4000);
+    return () => clearInterval(t);
+  }, []);
+
+  const shortPlayer = (n) => {
+    const parts = String(n || "").trim().split(/\s+/);
+    const surname = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase() : String(n || "");
+    return (parts[1] ? parts[1].charAt(0).toUpperCase() + ". " : "") + surname;
+  };
+
+  // The best qualifying run still running: 6-0, 8-2 or 12-4 and better. Walks
+  // back from now and keeps expanding while the opponent stays under five.
+  const runFor = (teamCode, oppCode) => {
+    let us = 0, them = 0, best = null;
+    for (let i = (events || []).length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.deleted) continue;
+      const pts = e.stat_type === "made_2" ? 2 : e.stat_type === "made_3" ? 3
+        : e.stat_type === "made_ft" ? 1 : 0;
+      if (!pts) continue;
+      if (e.team === teamCode) us += pts;
+      else if (e.team === oppCode) them += pts;
+      else continue;
+      if (them > 4) break;
+      if ((them === 0 && us >= 6) || (them <= 2 && us >= 8) || (them <= 4 && us >= 12)) {
+        best = { us, them };
+      }
+    }
+    return best;
+  };
+
+  const largestLeadFor = (teamCode, oppCode) => {
+    let a2 = 0, b2 = 0, best = 0;
+    for (const e of (events || [])) {
+      if (e.deleted) continue;
+      const pts = e.stat_type === "made_2" ? 2 : e.stat_type === "made_3" ? 3
+        : e.stat_type === "made_ft" ? 1 : 0;
+      if (!pts) continue;
+      if (e.team === teamCode) a2 += pts; else if (e.team === oppCode) b2 += pts; else continue;
+      if (a2 - b2 > best) best = a2 - b2;
+    }
+    return best;
+  };
+
+  const notesFor = (teamCode, oppCode) => {
+    const out = [];
+    const tf = teamFoulsThisHalf?.[currentHalf]?.[teamCode] || 0;
+    if (tf >= 10) out.push({ text: `${tf} team fouls, all shooting`, tone: "warn" });
+    const trouble = Object.entries(box || {})
+      .filter(([, st]) => st && st.team === teamCode && (st.foul || 0) >= 4)
+      .sort((x, y) => (y[1].foul || 0) - (x[1].foul || 0));
+    for (const [pn, st] of trouble.slice(0, 2)) {
+      out.push({ text: `${shortPlayer(pn)} ${st.foul} fouls`, tone: st.foul >= 5 ? "warn" : "note" });
+    }
+    if ((3 - (teamTimeoutsThisHalf?.[currentHalf]?.[teamCode] || 0)) <= 0) {
+      out.push({ text: "No timeouts left", tone: "warn" });
+    }
+    const run = runFor(teamCode, oppCode);
+    if (run) out.push({ text: `${run.us}-${run.them} run`, tone: "good" });
+    const led = largestLeadFor(teamCode, oppCode);
+    if (led >= 6) out.push({ text: `Led by ${led}`, tone: "note" });
+    let fgm = 0, fga = 0, tpm = 0, tpa = 0;
+    for (const st of Object.values(box || {})) {
+      if (!st || st.team !== teamCode) continue;
+      fgm += st.fgm || 0; fga += st.fga || 0; tpm += st.tpm || 0; tpa += st.tpa || 0;
+    }
+    out.push({ text: `${fgm}/${fga} FG, ${tpm}/${tpa} 3PT`, tone: "note" });
+    return out;
+  };
+
   const setDeleted = async (ev, flag) => {
     if (!ev) return;
     const { error } = await supabase.from("live_events").update({
@@ -2859,7 +2934,7 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
 
   // Two grey boxes side by side, matching the box score view, so the numbers
   // sit close together instead of being pushed to opposite edges.
-  const scoreBox = (teamCode, score, side) => (
+  const scoreBox = (teamCode, score, side, note) => (
     <div className="flex-1 min-w-0 rounded-xl px-2 py-1.5"
       style={{ backgroundColor: accentAlpha(accentFor(teamCode), 0.10) }}>
       <div className="w-full text-[15px] font-black text-gray-900 truncate leading-tight text-center">
@@ -2874,6 +2949,14 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
             directly under the team name. */}
         <span className="w-[30px] flex-shrink-0" aria-hidden="true" />
       </div>
+      {note && (
+        <div className={`mt-1 text-center text-[11px] font-bold leading-tight truncate ${
+          note.tone === "warn" ? "text-red-700"
+            : note.tone === "good" ? "text-emerald-700" : "text-gray-500"
+        }`}>
+          {note.text}
+        </div>
+      )}
     </div>
   );
 
@@ -2926,8 +3009,15 @@ function GameControlBar({ game, live, me, myRole, events, currentHalf, teamTimeo
           The word sits between the two groups rather than repeating codes. */}
       <div className="flex items-stretch gap-1.5">
         {renderTimeoutDots(awayTeam, awayTOUsed)}
-        {scoreBox(awayTeam, teamScore?.[awayTeam] || 0, "left")}
-        {scoreBox(homeTeam, teamScore?.[homeTeam] || 0, "right")}
+        {(() => {
+          const an = notesFor(awayTeam, homeTeam), hn = notesFor(homeTeam, awayTeam);
+          return (
+            <>
+              {scoreBox(awayTeam, teamScore?.[awayTeam] || 0, "left", an[noteTick % an.length])}
+              {scoreBox(homeTeam, teamScore?.[homeTeam] || 0, "right", hn[noteTick % hn.length])}
+            </>
+          );
+        })()}
         {renderTimeoutDots(homeTeam, homeTOUsed)}
       </div>
       {playsPanel}
