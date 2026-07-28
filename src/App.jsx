@@ -2256,6 +2256,7 @@ function AppInner() {
     stickyLinks: "visible",
     quickLinks: "visible",
     liveGames: "visible",
+    playoffOdds: "visible",
     commissionerMessages: "visible",
     registrationAnnouncements: "visible",
     weekOneSchedule: "visible",
@@ -3792,6 +3793,7 @@ function AppInner() {
               teamPage={franchiseTeam}
               onOpenTeam={(t) => { setTeamView("page"); setFranchiseTeam(t); }}
               onBackToTeams={() => setFranchiseTeam(null)}
+              onOpenOdds={() => switchSection("home")}
               onOpenFranchise={(t) => { setTeamView("history"); setFranchiseTeam(t); }}
               isAdmin={isAdminView} hideCareerLinks={hideCareerLinks} setHideCareerLinks={setHideCareerLinks}
               rosterCols={rosterCols} setRosterCols={setRosterCols} photoVersion={photoVersion} />
@@ -5049,6 +5051,263 @@ function RulesView() {
   );
 }
 
+// ============================================================
+// Playoff Odds card (home)
+// ============================================================
+// Seed probabilities for the 2026 season, rebuilt from GAME_LOG plus whatever
+// is happening on the floor right now. Renders nothing once the regular season
+// is over, since with no games left every number is a 0 or a 100.
+//
+// A game that has gone final in live_games but has not yet been committed to
+// game_log is counted as a result here, which is the whole point on a Sunday:
+// the card moves when the buzzer goes, not when the box score is entered.
+const oddsPctLabel2026 = (x) => (x <= 0 ? "-" : x < 0.005 ? "<1%" : `${Math.round(x * 100)}%`);
+
+// Everything the odds need beyond GAME_LOG: the penalty counts that are
+// tiebreaker steps 2 and 4, and the state of any game already underway.
+// Shared by the home card and the Teams hub strip so the two can never show
+// different numbers for the same moment.
+function useSeedOdds2026() {
+  const [penalties, setPenalties] = useState({ forfeits: [], spiritual: [] });
+  // pairKey -> { status, period, scores } for any game already underway.
+  const [liveByPair, setLiveByPair] = useState({});
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const p = await fetchTeamPenalties(2026);
+      if (alive) setPenalties(p);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Live games are matched to remaining meetings by team pair, never by date.
+  // remainingPairs2026 already works in pairs, and no two teams meet twice in
+  // one week, so this sidesteps the game_log to schedule date-format matching
+  // that the rest of the 2026 code deliberately avoids. It also makes double
+  // counting impossible: once a game lands in game_log its pair is no longer
+  // remaining, so there is nothing left for a live row to attach to.
+  const loadLive = useCallback(async () => {
+    const { data: sched } = await supabase
+      .from("schedule").select("game_id, home_team, away_team").eq("season", 2026);
+    const games = sched || [];
+    if (games.length === 0) { setLiveByPair({}); return; }
+    const { data: lg } = await supabase
+      .from("live_games").select("game_id, status, period").in("game_id", games.map(g => g.game_id));
+    const states = {};
+    (lg || []).forEach(r => { states[r.game_id] = r; });
+    const ids = games.map(g => g.game_id).filter(id => states[id]);
+    if (ids.length === 0) { setLiveByPair({}); return; }
+
+    // PostgREST caps a page at 1000 rows and a full season of events runs past
+    // that, so paginate with event_id as the stable tiebreaker.
+    const evs = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: page } = await supabase
+        .from("live_events").select("game_id, team, stat_type, deleted")
+        .in("game_id", ids)
+        .order("event_ts", { ascending: true }).order("event_id", { ascending: true })
+        .range(from, from + 999);
+      if (!page || page.length === 0) break;
+      evs.push(...page);
+      if (page.length < 1000) break;
+    }
+    const scoreByGame = {};
+    for (const ev of evs) {
+      if (ev.deleted || !ev.team) continue;
+      const pts = ev.stat_type === "made_3" ? 3 : ev.stat_type === "made_2" ? 2 : ev.stat_type === "made_ft" ? 1 : 0;
+      if (!pts) continue;
+      if (!scoreByGame[ev.game_id]) scoreByGame[ev.game_id] = {};
+      scoreByGame[ev.game_id][ev.team] = (scoreByGame[ev.game_id][ev.team] || 0) + pts;
+    }
+    const out = {};
+    for (const g of games) {
+      const st = states[g.game_id];
+      if (!st || !g.home_team || !g.away_team) continue;
+      out[pairKey2026(g.home_team, g.away_team)] = {
+        status: st.status, period: st.period, scores: scoreByGame[g.game_id] || {},
+      };
+    }
+    setLiveByPair(out);
+  }, []);
+
+  useEffect(() => { loadLive(); }, [loadLive]);
+
+  // Any change to a game or an event reruns the load. The card is cheap and
+  // this stays far simpler than merging payloads by hand.
+  useEffect(() => {
+    const channel = supabase
+      .channel("playoff_odds_live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_games" }, () => loadLive())
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_events" }, () => loadLive())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadLive]);
+
+  const ctx = useMemo(() => build2026Context(penalties, true), [penalties]);
+  const standings = useMemo(() => standingsFromContext2026(ctx), [ctx]);
+  const form = useMemo(() => formRatings2026(true), []);
+  const odds = useMemo(() => seedOdds2026(ctx, (a, b) => {
+    const live = liveByPair[pairKey2026(a, b)];
+    return liveProb2026(a, b, form, live);
+  }), [ctx, form, liveByPair]);
+
+  const foldedIn = useMemo(() => {
+    if (!odds) return [];
+    const rem = new Set(remainingPairs2026(ctx).map(p => pairKey2026(p[0], p[1])));
+    return Object.entries(liveByPair)
+      .filter(([k, v]) => rem.has(k) && v.status && v.status !== "scheduled")
+      .map(([k, v]) => ({ key: k, ...v }));
+  }, [odds, ctx, liveByPair]);
+
+  return { ctx, standings, form, odds, foldedIn };
+}
+
+function PlayoffOddsCard({ onOpenTeams = null }) {
+  const [showHow, setShowHow] = useState(false);
+  const { standings, form, odds, foldedIn } = useSeedOdds2026();
+
+  // Nothing left to play, nothing to forecast.
+  if (!odds) return null;
+
+  const contenders = standings.filter(r => odds.seeds[r.team].slice(0, PLAYOFF_SPOTS_2026).some(x => x > 0));
+  const out = standings.filter(r => !contenders.includes(r));
+  const pivotName = odds.pivot
+    ? odds.pivot.pair.map(t => TEAM_NAMES[t] || t).join(" vs ")
+    : null;
+  // The complement of the trivia chance, which counts a stuck ladder anywhere
+  // in the table rather than only at the top.
+  const settled = 1 - odds.trivia;
+
+  return (
+    <div className="rounded-2xl border border-gray-100 p-4 bg-white">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div>
+          <p className="text-[11px] uppercase tracking-widest text-gray-500 font-bold">Playoff Picture</p>
+          <h3 className="text-lg font-black text-gray-900 mt-0.5">Seed Odds</h3>
+        </div>
+        {foldedIn.length > 0 && (
+          <span className="text-[11px] font-black px-2 py-0.5 rounded bg-red-100 text-red-700 flex-shrink-0">LIVE</span>
+        )}
+      </div>
+      <p className="text-[11px] text-gray-500 leading-relaxed mb-3">
+        Every remaining game played out and run through the real tiebreaker ladder.
+        {" "}{countWord2026(odds.remaining).charAt(0).toUpperCase() + countWord2026(odds.remaining).slice(1)} game{odds.remaining === 1 ? "" : "s"} left.
+      </p>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[11px] font-black text-gray-900 border-b border-gray-100">
+              <th className="text-left pb-1.5">Team</th>
+              <th className="text-right pb-1.5 w-12">1st</th>
+              <th className="text-right pb-1.5 w-12">2nd</th>
+              <th className="text-right pb-1.5 w-12">3rd</th>
+              <th className="text-right pb-1.5 w-12">4th</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contenders.map(r => (
+              <tr key={r.team} className="border-b border-gray-50 last:border-0">
+                <td className="py-1.5 font-bold text-gray-900">
+                  {TEAM_NAMES[r.team] || r.team}
+                  <span className="text-[11px] font-medium text-gray-400 ml-1.5">{r.w}-{r.l}</span>
+                </td>
+                {[0, 1, 2, 3].map(i => {
+                  const v = odds.seeds[r.team][i];
+                  return (
+                    <td key={i} className={`py-1.5 text-right tabular-nums ${v >= 0.5 ? "font-black text-gray-900" : v > 0 ? "text-gray-600" : "text-gray-300"}`}>
+                      {oddsPctLabel2026(v)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {out.length > 0 && (
+        <p className="text-[11px] text-gray-500 mt-2">
+          <span className="font-bold text-gray-900">Out:</span>{" "}
+          {joinList2026(out.map(r => `${TEAM_NAMES[r.team] || r.team} (${r.w}-${r.l})`))}
+        </p>
+      )}
+
+      <div className="mt-3 space-y-1.5">
+        {odds.trivia > 0.005 && (
+          <p className="text-[11px] text-gray-600 leading-relaxed">
+            <span className="font-black text-gray-900">{Math.round(odds.trivia * 100)}%</span> chance the ladder runs
+            out and a seed comes down to bible trivia. {Math.round(settled * 100)}% chance every seed is settled on the floor.
+          </p>
+        )}
+        {pivotName && (
+          <p className="text-[11px] text-gray-600 leading-relaxed">
+            <span className="font-black text-gray-900">{pivotName}</span> swings the top seed more than any other game left.
+          </p>
+        )}
+      </div>
+
+      <button onClick={() => setShowHow(v => !v)}
+        className="mt-3 text-[11px] font-bold text-gray-600 hover:text-gray-900">
+        {showHow ? "Hide the method" : "How this is calculated"}
+      </button>
+      {showHow && (
+        <div className="mt-2 space-y-2 text-[11px] text-gray-500 leading-relaxed">
+          <p>
+            Each team carries a strength rating: its average scoring margin, adjusted for who it played, so
+            beating a good team by five is worth more than beating a bad one by five. The gap between two
+            ratings becomes a win probability using the spread of a typical game, currently{" "}
+            {form.spread.toFixed(1)} points across {form.games} games.
+          </p>
+          <p>
+            Every combination of remaining results is played out and sorted by the actual 2026 ladder, so a
+            seed decided on Strength of Wins counts as such. When the ladder cannot separate a group at all,
+            bible trivia settles it in person, and those teams split the positions evenly here.
+          </p>
+          <p>
+            A game already underway is locked in once it is final. From halftime on, the margin on the board
+            is added to the rating gap. During the first half it is left alone, because a lead six minutes in
+            says little and would only make these numbers lurch.
+          </p>
+          <p>
+            Match results are the only thing varied. Forfeit and spiritual foul counts are held where they
+            are today, so every number here assumes those do not change. All tiebreakers are subject to change.
+          </p>
+        </div>
+      )}
+
+      {onOpenTeams && (
+        <button onClick={onOpenTeams}
+          className="mt-3 w-full py-2 rounded-xl bg-gray-100 text-gray-600 text-[11px] font-bold hover:bg-gray-200">
+          See the full standings
+        </button>
+      )}
+    </div>
+  );
+}
+
+// One line version for the top of the Teams hub, pointing back at the full
+// card on the home page. Reads the same hook, so the number here and the
+// number there are always the same number.
+function SeedOddsStrip({ onOpen }) {
+  const { odds, foldedIn } = useSeedOdds2026();
+  if (!odds) return null;
+
+  return (
+    <button onClick={onOpen}
+      className="w-full mb-3 flex items-center gap-2 rounded-2xl border border-gray-100 px-3 py-2.5 text-left active:bg-gray-50">
+      {foldedIn.length > 0 && (
+        <span className="text-[11px] font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex-shrink-0">LIVE</span>
+      )}
+      <p className="flex-1 min-w-0 text-[13px] font-black text-gray-900">See playoff seeding odds</p>
+      <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+      </svg>
+    </button>
+  );
+}
+
 function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrls, photoCards,
                    homeCardVisibility, tileStates, DISPLAY_GROUPS, switchSection, openLiveGame, isAdminView, onOpenRules }) {
   const [nowMs, setNowMs] = useState(Date.now());
@@ -5324,6 +5583,11 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
       {/* Live games card */}
       {isVisible("liveGames") && (
         <LiveHomeCard openLiveGame={openLiveGame} />
+      )}
+
+      {/* Playoff seed odds. Hides itself once the regular season is done. */}
+      {isVisible("playoffOdds") && (
+        <PlayoffOddsCard onOpenTeams={() => switchSection("teams")} />
       )}
 
       {/* Registration deadline card */}
@@ -13480,6 +13744,7 @@ function HomeAdminPanel({ commissionerMessages, setCommissionerMessages, stickyL
             { key: "registration", label: "Registration Deadline Card" },
             { key: "stickyLinks", label: "Sticky Links Bar (top)" },
             { key: "quickLinks", label: "Quick Links Row" },
+            { key: "playoffOdds", label: "Playoff Seed Odds" },
             { key: "commissionerMessages", label: "Commissioner Messages" },
             { key: "registrationAnnouncements", label: "Registration Updates" },
             { key: "weekOneSchedule", label: "Week 1 Schedule" },
@@ -15878,6 +16143,224 @@ function playoffOutlook2026(ctx) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// SEED ODDS
+// ---------------------------------------------------------------------------
+// Where each team is likely to finish, given the games still to be played.
+// Every scenario runs through the real ladder in resolveGroup2026, so a seed
+// that comes down to Strength of Wins, or one the ladder cannot settle at all,
+// is counted the way the standings would actually land.
+//
+// Like the clinch scan, this varies match results only. Forfeit and spiritual
+// foul counts are held where they are today, so every number below is
+// conditional on those not changing.
+
+// Completed 2026 games with both scores, as unordered pairs. compute2026Standings
+// throws the scores away once it has a winner, and the strength ratings need
+// the margin, so this walks GAME_LOG the same way and keeps them.
+function completedGames2026(regularOnly = true) {
+  const teamGame = {};
+  for (const r of GAME_LOG) {
+    if (r[20] !== 2026) continue;
+    if (r[6] !== 1) continue;
+    if (regularOnly && r[5] !== "R") continue;
+    const team = r[1], opp = r[2], date = r[4];
+    if (!team || !opp || !date) continue;
+    const key = date + "|" + team + "|" + opp;
+    teamGame[key] = (teamGame[key] || 0) + (r[7] || 0);
+  }
+  const out = [], seen = new Set();
+  for (const key of Object.keys(teamGame)) {
+    const [date, team, opp] = key.split("|");
+    const mirror = date + "|" + opp + "|" + team;
+    if (!(mirror in teamGame)) continue;
+    const dedupe = [date, ...[team, opp].sort()].join("|");
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    out.push({ a: team, b: opp, pa: teamGame[key], pb: teamGame[mirror] });
+  }
+  return out;
+}
+
+// Team strength as an opponent-adjusted average scoring margin, in points.
+// One adjustment pass: take each team's raw margin per game, then re-credit
+// every game with the opponent's raw margin, so beating Sacramento by five is
+// worth more than beating Hayward by five.
+//
+// `spread` is the typical miss of that model on a single game. It is what
+// turns a rating gap into a win probability, and it is deliberately the
+// degrees-of-freedom corrected version: the ratings are fit on the same games
+// they are then scored against, so the raw residual runs low and would make
+// the forecast more confident than the record supports.
+function formRatings2026(regularOnly = true) {
+  const games = completedGames2026(regularOnly);
+  const rating = {}, spread = 12;
+  for (const t of TEAMS_2026) rating[t] = 0;
+  if (games.length === 0) return { rating, spread, games: 0 };
+
+  const raw = {}, gp = {};
+  for (const t of TEAMS_2026) { raw[t] = 0; gp[t] = 0; }
+  for (const g of games) {
+    if (!(g.a in raw) || !(g.b in raw)) continue;
+    raw[g.a] += g.pa - g.pb; gp[g.a]++;
+    raw[g.b] += g.pb - g.pa; gp[g.b]++;
+  }
+  const base = {};
+  for (const t of TEAMS_2026) base[t] = gp[t] ? raw[t] / gp[t] : 0;
+
+  for (const t of TEAMS_2026) {
+    let sum = 0, n = 0;
+    for (const g of games) {
+      if (g.a === t) { sum += (g.pa - g.pb) + base[g.b]; n++; }
+      else if (g.b === t) { sum += (g.pb - g.pa) + base[g.a]; n++; }
+    }
+    rating[t] = n ? sum / n : 0;
+  }
+
+  // Five free parameters: six ratings, but only their differences matter.
+  let ss = 0, n = 0;
+  for (const g of games) {
+    if (!(g.a in rating) || !(g.b in rating)) continue;
+    ss += Math.pow((g.pa - g.pb) - (rating[g.a] - rating[g.b]), 2);
+    n++;
+  }
+  const df = Math.max(1, n - (TEAMS_2026.length - 1));
+  const sd = n ? Math.sqrt(ss / df) : 12;
+  return { rating, spread: Math.max(6, sd), games: games.length };
+}
+
+// Standard normal CDF, Abramowitz and Stegun 26.2.17. Accurate to about seven
+// decimals, which is far past what a basketball forecast can justify, and it
+// keeps this file free of a stats dependency.
+function normCdf2026(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp(-x * x / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return x > 0 ? 1 - p : p;
+}
+
+// Probability `a` beats `b` from the ratings alone, before anything that is
+// happening on the floor right now.
+function pregameProb2026(a, b, form) {
+  if (!form || !form.games) return 0.5;
+  return normCdf2026(((form.rating[a] || 0) - (form.rating[b] || 0)) / form.spread);
+}
+
+// A game already underway, folded into its own probability.
+//
+//   ended / approved   settled. The result is locked in at 1.
+//   halftime / H2      the margin on the board is added to the rating gap.
+//   first half         left alone. A five point lead six minutes in says
+//                      little, and letting it move the card would have the
+//                      odds lurching on every basket.
+//
+// live_events carries wall clock rather than game clock, so the period is the
+// only progress signal available. Halftime is the one honest threshold in it.
+function liveProb2026(a, b, form, live) {
+  if (!live) return pregameProb2026(a, b, form);
+  const pa = live.scores[a] || 0, pb = live.scores[b] || 0;
+  if (live.status === "ended" || live.status === "approved") {
+    return pa === pb ? 0.5 : (pa > pb ? 1 : 0);
+  }
+  const inSecondHalf = live.status === "halftime" || live.period === "H2" || live.period === "OT";
+  if (live.status !== "live" && live.status !== "halftime") return pregameProb2026(a, b, form);
+  if (!inSecondHalf) return pregameProb2026(a, b, form);
+  const gap = ((form.rating[a] || 0) - (form.rating[b] || 0)) + (pa - pb);
+  return normCdf2026(gap / form.spread);
+}
+
+// Seed probabilities for every team.
+//
+// A bible trivia group is a tie the ladder could not settle, so it is split
+// evenly across the positions it spans: three teams level for seeds 1, 2 and 3
+// each take a third of each seat. Returns null when there is nothing left to
+// enumerate, or when the remaining schedule is too large to scan, matching the
+// clinch badge's behaviour rather than showing something half computed.
+function seedOdds2026(ctx, winProb) {
+  const rem = remainingPairs2026(ctx);
+  if (rem.length === 0) return null;
+  const total = 1 << rem.length;
+  if (rem.length > 30 || total > CLINCH_MAX_SCENARIOS_2026) return null;
+
+  const seeds = {};
+  for (const t of TEAMS_2026) seeds[t] = new Array(TEAMS_2026.length).fill(0);
+  // How the top seed gets settled, keyed by a label, so the card can say how
+  // often it is decided on the floor and how often it goes to trivia.
+  const topWays = new Map();
+  // Per remaining game, the seed-1 spread conditional on each side winning.
+  // The pivot is whichever game moves it most.
+  const cond = rem.map(() => [Object.create(null), Object.create(null)]);
+  const condMass = rem.map(() => [0, 0]);
+  let triviaAny = 0, mass = 0;
+
+  for (let mask = 0; mask < total; mask++) {
+    const results = rem.map(([a, b], i) => (mask & (1 << i)) ? [a, b] : [b, a]);
+    let p = 1;
+    for (const [w, l] of results) p *= winProb(w, l);
+    if (p <= 0) continue;
+    mass += p;
+
+    const order = resolveGroup2026([...TEAMS_2026], withResults2026(ctx, results), 0);
+    let sawTrivia = false;
+    for (let i = 0; i < order.length;) {
+      if (!order[i].trivia) {
+        seeds[order[i].team][i] += p;
+        i++;
+        continue;
+      }
+      sawTrivia = true;
+      const key = order[i].triviaKey;
+      let j = i;
+      while (j < order.length && order[j].trivia && order[j].triviaKey === key) j++;
+      const share = p / (j - i);
+      for (let k = i; k < j; k++) for (let s = i; s < j; s++) seeds[order[k].team][s] += share;
+      i = j;
+    }
+    if (sawTrivia) triviaAny += p;
+
+    const head = order[0];
+    const label = head.trivia
+      ? "trivia:" + order.filter(o => o.triviaKey === head.triviaKey).map(o => o.team).join("/")
+      : "outright:" + head.team;
+    topWays.set(label, (topWays.get(label) || 0) + p);
+
+    // Credit the top seat to whoever holds it, splitting a trivia group.
+    const firstBlock = head.trivia
+      ? order.filter(o => o.triviaKey === head.triviaKey).map(o => o.team)
+      : [head.team];
+    for (let i = 0; i < rem.length; i++) {
+      const side = (mask & (1 << i)) ? 0 : 1;
+      condMass[i][side] += p;
+      for (const t of firstBlock) {
+        cond[i][side][t] = (cond[i][side][t] || 0) + p / firstBlock.length;
+      }
+    }
+  }
+
+  if (mass <= 0) return null;
+  for (const t of TEAMS_2026) for (let i = 0; i < seeds[t].length; i++) seeds[t][i] /= mass;
+
+  // Pivot game: the one whose two outcomes pull the top seed furthest apart.
+  let pivot = null;
+  for (let i = 0; i < rem.length; i++) {
+    if (condMass[i][0] <= 0 || condMass[i][1] <= 0) continue;
+    let swing = 0;
+    for (const t of TEAMS_2026) {
+      const x = (cond[i][0][t] || 0) / condMass[i][0];
+      const y = (cond[i][1][t] || 0) / condMass[i][1];
+      swing += Math.abs(x - y);
+    }
+    swing /= 2;
+    if (!pivot || swing > pivot.swing) pivot = { pair: rem[i], swing };
+  }
+
+  const ways = [...topWays.entries()]
+    .map(([label, p]) => ({ label, p: p / mass }))
+    .sort((a, b) => b.p - a.p);
+
+  return { seeds, trivia: triviaAny / mass, ways, pivot, remaining: rem.length };
+}
+
 const COUNT_WORDS_2026 = ["zero", "one", "two", "three", "four", "five"];
 const countWord2026 = (n) => COUNT_WORDS_2026[n] || String(n);
 
@@ -17168,7 +17651,7 @@ const BibleIcon = ({ size = 11, className = "" }) => (
 // Standings mode, so both show the same numbers. Renders the tiebreaker state
 // rather than just the record: who holds the tiebreaker over whom, and once
 // expanded, why.
-function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, teamPage = null, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, rosterCols = 3, setRosterCols, photoVersion = 0 }) {
+function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, onOpenOdds = null, teamPage = null, regularOnly = true, isAdmin = false, hideCareerLinks = false, setHideCareerLinks, rosterCols = 3, setRosterCols, photoVersion = 0 }) {
   // Forfeits and spiritual fouls are tiebreaker steps 2 and 4. They live in
   // their own tables, so the ladder runs without them until this resolves.
   const [penalties, setPenalties] = useState({ forfeits: [], spiritual: [] });
@@ -17390,6 +17873,8 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
 
   return (
     <div>
+      {!teamPage && onOpenOdds && <SeedOddsStrip onOpen={onOpenOdds} />}
+
       {teamPage && (
         <button onClick={() => onBackToTeams && onBackToTeams()}
           className="mb-3 flex items-center gap-1 text-xs font-bold text-gray-500 active:text-gray-900">
