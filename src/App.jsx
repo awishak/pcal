@@ -5213,40 +5213,40 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
     <div className="rounded-2xl border border-gray-100 p-4 bg-white">
       <div className="flex items-start justify-between gap-3 mb-1">
         <div>
-          <p className="text-[11px] uppercase tracking-widest text-gray-500 font-bold">Playoff Picture</p>
-          <h3 className="text-lg font-black text-gray-900 mt-0.5">Seed Odds</h3>
+          <p className="text-xs uppercase tracking-widest text-gray-500 font-bold">Playoff Picture</p>
+          <h3 className="text-xl font-black text-gray-900 mt-0.5">Seed Odds</h3>
         </div>
         {foldedIn.length > 0 && (
-          <span className="text-[11px] font-black px-2 py-0.5 rounded bg-red-100 text-red-700 flex-shrink-0">LIVE</span>
+          <span className="text-xs font-black px-2 py-1 rounded bg-red-100 text-red-700 flex-shrink-0">LIVE</span>
         )}
       </div>
-      <p className="text-[11px] text-gray-500 leading-relaxed mb-3">
+      <p className="text-sm text-gray-500 leading-relaxed mb-3">
         Every remaining game played out and run through the real tiebreaker ladder.
         {" "}{countWord2026(odds.remaining).charAt(0).toUpperCase() + countWord2026(odds.remaining).slice(1)} game{odds.remaining === 1 ? "" : "s"} left.
       </p>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-base">
           <thead>
-            <tr className="text-[11px] font-black text-gray-900 border-b border-gray-100">
-              <th className="text-left pb-1.5">Team</th>
-              <th className="text-right pb-1.5 w-12">1st</th>
-              <th className="text-right pb-1.5 w-12">2nd</th>
-              <th className="text-right pb-1.5 w-12">3rd</th>
-              <th className="text-right pb-1.5 w-12">4th</th>
+            <tr className="text-sm font-black text-gray-900 border-b border-gray-100">
+              <th className="text-left pb-2">Team</th>
+              <th className="text-right pb-2 w-14">1st</th>
+              <th className="text-right pb-2 w-14">2nd</th>
+              <th className="text-right pb-2 w-14">3rd</th>
+              <th className="text-right pb-2 w-14">4th</th>
             </tr>
           </thead>
           <tbody>
             {contenders.map(r => (
               <tr key={r.team} className="border-b border-gray-50 last:border-0">
-                <td className="py-1.5 font-bold text-gray-900">
+                <td className="py-2 pr-2 font-bold text-gray-900 whitespace-nowrap">
                   {TEAM_NAMES[r.team] || r.team}
-                  <span className="text-[11px] font-medium text-gray-400 ml-1.5">{r.w}-{r.l}</span>
+                  <span className="text-sm font-medium text-gray-400 ml-1.5">{r.w}-{r.l}</span>
                 </td>
                 {[0, 1, 2, 3].map(i => {
                   const v = odds.seeds[r.team][i];
                   return (
-                    <td key={i} className={`py-1.5 text-right tabular-nums ${v >= 0.5 ? "font-black text-gray-900" : v > 0 ? "text-gray-600" : "text-gray-300"}`}>
+                    <td key={i} className={`py-2 text-right tabular-nums ${v >= 0.5 ? "font-black text-gray-900" : v > 0 ? "text-gray-600" : "text-gray-300"}`}>
                       {oddsPctLabel2026(v)}
                     </td>
                   );
@@ -5258,32 +5258,70 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
       </div>
 
       {out.length > 0 && (
-        <p className="text-[11px] text-gray-500 mt-2">
+        <p className="text-sm text-gray-500 mt-2">
           <span className="font-bold text-gray-900">Out:</span>{" "}
           {joinList2026(out.map(r => `${TEAM_NAMES[r.team] || r.team} (${r.w}-${r.l})`))}
         </p>
       )}
 
-      <div className="mt-3 space-y-1.5">
+      {/* How each team reaches the 1 seed. Requirements are the games that come
+          out the same way in every one of that team's outright paths, so a game
+          that is missing from a line genuinely does not matter to it. */}
+      {odds.firstSeed.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <p className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">How each team gets the 1 seed</p>
+          <div className="space-y-3">
+            {odds.firstSeed.map(row => (
+              <div key={row.team}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-base font-black text-gray-900">{TEAM_NAMES[row.team] || row.team}</p>
+                  <p className="text-base font-black text-gray-900 tabular-nums">{oddsPctLabel2026(row.total)}</p>
+                </div>
+                {row.outright > 0 ? (
+                  <p className="text-sm text-gray-600 leading-relaxed mt-0.5">
+                    {row.needs.length === 0
+                      ? "Already there on results."
+                      : joinList2026(row.needs.map(n => `${TEAM_NAMES[n.winner] || n.winner} beats ${TEAM_NAMES[n.loser] || n.loser}`)) + "."}
+                    {row.needs.length > 0 && row.needs.length < odds.remaining && " Nothing else matters."}
+                    <span className="text-gray-400"> ({oddsPctLabel2026(row.outright)})</span>
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-600 leading-relaxed mt-0.5">
+                    No path on the floor. Its ceiling ties the lead rather than beating it.
+                  </p>
+                )}
+                {row.trivia > 0.005 && (
+                  <p className="text-sm text-gray-600 leading-relaxed mt-0.5">
+                    {row.outright > 0 ? "Or win" : "Only by winning"} bible trivia.
+                    <span className="text-gray-400"> ({oddsPctLabel2026(row.trivia)})</span>
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
         {odds.trivia > 0.005 && (
-          <p className="text-[11px] text-gray-600 leading-relaxed">
+          <p className="text-sm text-gray-600 leading-relaxed">
             <span className="font-black text-gray-900">{Math.round(odds.trivia * 100)}%</span> chance the ladder runs
             out and a seed comes down to bible trivia. {Math.round(settled * 100)}% chance every seed is settled on the floor.
           </p>
         )}
         {pivotName && (
-          <p className="text-[11px] text-gray-600 leading-relaxed">
+          <p className="text-sm text-gray-600 leading-relaxed">
             <span className="font-black text-gray-900">{pivotName}</span> swings the top seed more than any other game left.
           </p>
         )}
       </div>
 
       <button onClick={() => setShowHow(v => !v)}
-        className="mt-3 text-[11px] font-bold text-gray-600 hover:text-gray-900">
+        className="mt-4 text-sm font-bold text-gray-600 hover:text-gray-900">
         {showHow ? "Hide the method" : "How this is calculated"}
       </button>
       {showHow && (
-        <div className="mt-2 space-y-2 text-[11px] text-gray-500 leading-relaxed">
+        <div className="mt-2 space-y-2 text-sm text-gray-500 leading-relaxed">
           <p>
             Each team carries a strength rating: its average scoring margin, adjusted for who it played, so
             beating a good team by five is worth more than beating a bad one by five. The gap between two
@@ -5309,7 +5347,7 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
 
       {onOpenTeams && (
         <button onClick={onOpenTeams}
-          className="mt-3 w-full py-2 rounded-xl bg-gray-100 text-gray-600 text-[11px] font-bold hover:bg-gray-200">
+          className="mt-4 w-full py-2.5 rounded-xl bg-gray-100 text-gray-600 text-sm font-bold hover:bg-gray-200">
           See the full standings
         </button>
       )}
@@ -5326,11 +5364,11 @@ function SeedOddsStrip({ onOpen }) {
 
   return (
     <button onClick={onOpen}
-      className="w-full mb-3 flex items-center gap-2 rounded-2xl border border-gray-100 px-3 py-2.5 text-left active:bg-gray-50">
+      className="w-full mb-3 flex items-center gap-2 rounded-2xl border border-gray-100 px-3.5 py-3 text-left active:bg-gray-50">
       {foldedIn.length > 0 && (
-        <span className="text-[11px] font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex-shrink-0">LIVE</span>
+        <span className="text-xs font-black px-2 py-1 rounded bg-red-100 text-red-700 flex-shrink-0">LIVE</span>
       )}
-      <p className="flex-1 min-w-0 text-[13px] font-black text-gray-900">See playoff seeding odds</p>
+      <p className="flex-1 min-w-0 text-base font-black text-gray-900">See playoff seeding odds</p>
       <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
       </svg>
@@ -16332,6 +16370,13 @@ function seedOdds2026(ctx, winProb) {
   // How the top seed gets settled, keyed by a label, so the card can say how
   // often it is decided on the floor and how often it goes to trivia.
   const topWays = new Map();
+  // How each team reaches the 1 seed. `outright` is finishing first alone,
+  // `trivia` is being left in a tie the ladder could not break. `needs` is the
+  // intersection of every outright path: a game whose winner is the same in
+  // all of them is a requirement, and one that varies is left out because it
+  // genuinely does not matter. Undefined means no outright path has been seen.
+  const paths = {};
+  for (const t of TEAMS_2026) paths[t] = { outright: 0, trivia: 0, needs: undefined };
   // Per remaining game, the seed-1 spread conditional on each side winning.
   // The pivot is whichever game moves it most.
   const cond = rem.map(() => [Object.create(null), Object.create(null)]);
@@ -16373,6 +16418,16 @@ function seedOdds2026(ctx, winProb) {
     const firstBlock = head.trivia
       ? order.filter(o => o.triviaKey === head.triviaKey).map(o => o.team)
       : [head.team];
+
+    if (head.trivia) {
+      for (const t of firstBlock) paths[t].trivia += p / firstBlock.length;
+    } else {
+      const me = paths[head.team];
+      me.outright += p;
+      const winners = results.map(([w]) => w);
+      if (me.needs === undefined) me.needs = winners;
+      else me.needs = me.needs.map((w, i) => (w === winners[i] ? w : null));
+    }
     for (let i = 0; i < rem.length; i++) {
       const side = (mask & (1 << i)) ? 0 : 1;
       condMass[i][side] += p;
@@ -16403,7 +16458,20 @@ function seedOdds2026(ctx, winProb) {
     .map(([label, p]) => ({ label, p: p / mass }))
     .sort((a, b) => b.p - a.p);
 
-  return { seeds, trivia: triviaAny / mass, ways, pivot, remaining: rem.length };
+  // Normalise, and turn the surviving requirements into readable pairs. A team
+  // with no outright path gets an empty list and an outright of 0, which is the
+  // signal that bible trivia is the only way in.
+  const firstSeed = TEAMS_2026.map(t => ({
+    team: t,
+    outright: paths[t].outright / mass,
+    trivia: paths[t].trivia / mass,
+    total: (paths[t].outright + paths[t].trivia) / mass,
+    needs: (paths[t].needs || [])
+      .map((w, i) => (w ? { winner: w, loser: rem[i][0] === w ? rem[i][1] : rem[i][0] } : null))
+      .filter(Boolean),
+  })).filter(r => r.total > 0).sort((a, b) => b.total - a.total);
+
+  return { seeds, trivia: triviaAny / mass, ways, pivot, firstSeed, remaining: rem.length };
 }
 
 const COUNT_WORDS_2026 = ["zero", "one", "two", "three", "four", "five"];
