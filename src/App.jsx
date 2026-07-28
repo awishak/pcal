@@ -5070,9 +5070,10 @@ function RulesView() {
 // the ones already in game_log and everything after is what is still to come.
 const oddsPctLabel2026 = (x) => (x <= 0 ? "-" : x < 0.005 ? "<1%" : `${Math.round(x * 100)}%`);
 
-// Team name as a colored chip, so a dense requirement sentence can be scanned
-// by color instead of read word by word. PLE's yellow takes black text, which
-// is what textOnTeam is for.
+// Team name as a colored chip. Used for headings and the table only. Chips
+// inside a running sentence were tried and are unreadable: a requirement line
+// carries up to five of them and the color blocks swamp the words between.
+// PLE's yellow takes black text, which is what textOnTeam is for.
 function TeamChip2026({ team }) {
   return (
     <span className="inline-block px-1.5 py-px rounded font-bold whitespace-nowrap"
@@ -5082,37 +5083,21 @@ function TeamChip2026({ team }) {
   );
 }
 
-// Join React nodes the way joinList2026 joins strings. `last` is separate so a
-// list inside a clause can end in " and " while the clauses themselves end in
-// ", and ".
-function joinNodes2026(nodes, last = " and ", sep = ", ") {
-  if (nodes.length === 0) return null;
-  const out = [];
-  nodes.forEach((n, i) => {
-    if (i > 0) out.push(<React.Fragment key={`s${i}`}>{i === nodes.length - 1 ? last : sep}</React.Fragment>);
-    out.push(<React.Fragment key={`n${i}`}>{n}</React.Fragment>);
-  });
-  return out;
-}
-
 // A list of required results as one sentence, collapsing repeats of the same
 // winner so it reads "San Jose beats Pacific and Sacramento" rather than
 // naming San Jose twice. Clauses are comma separated even when there are only
 // two of them, since a clause can already contain its own "and" and
 // "Sacramento beats Modesto and San Jose beats Pacific" would read as one team
 // beating two.
-function needsNodes2026(needs) {
+function needsSentence2026(needs) {
   const order = [], byWinner = new Map();
   for (const n of needs) {
     if (!byWinner.has(n.winner)) { byWinner.set(n.winner, []); order.push(n.winner); }
-    byWinner.get(n.winner).push(n.loser);
+    byWinner.get(n.winner).push(TEAM_NAMES[n.loser] || n.loser);
   }
-  const clauses = order.map(w => (
-    <>
-      <TeamChip2026 team={w} /> beats {joinNodes2026(byWinner.get(w).map(l => <TeamChip2026 key={l} team={l} />))}
-    </>
-  ));
-  return joinNodes2026(clauses, clauses.length > 2 ? ", and " : ", and ");
+  const clauses = order.map(w => `${TEAM_NAMES[w] || w} beats ${joinList2026(byWinner.get(w))}`);
+  if (clauses.length <= 1) return clauses[0] || "";
+  return `${clauses.slice(0, -1).join(", ")}, and ${clauses[clauses.length - 1]}`;
 }
 
 // Everything the odds need beyond GAME_LOG: the penalty counts that are
@@ -5247,6 +5232,9 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
 
   const contenders = standings.filter(r => odds.seeds[r.team].slice(0, PLAYOFF_SPOTS_2026).some(x => x > 0));
   const out = standings.filter(r => !contenders.includes(r));
+  const pivotName = odds.pivot
+    ? odds.pivot.pair.map(t => TEAM_NAMES[t] || t).join(" vs ")
+    : null;
   // The complement of the trivia chance, which counts a stuck ladder anywhere
   // in the table rather than only at the top.
   const settled = 1 - odds.trivia;
@@ -5286,8 +5274,8 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
           <tbody>
             {contenders.map(r => (
               <tr key={r.team} className="border-b border-gray-50 last:border-0">
-                <td className="py-2 pr-2 font-bold text-gray-900 whitespace-nowrap">
-                  {TEAM_NAMES[r.team] || r.team}
+                <td className="py-2 pr-2 whitespace-nowrap">
+                  <TeamChip2026 team={r.team} />
                   <span className="text-sm font-medium text-gray-400 ml-1.5">{r.w}-{r.l}</span>
                 </td>
                 {[0, 1, 2, 3].map(i => {
@@ -5326,24 +5314,22 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
                 </div>
                 {row.outright > 0 && (
                   <p className="text-sm text-gray-600 leading-relaxed mt-1">
-                    {row.needs.length === 0 ? "Already there on results." : <>{needsNodes2026(row.needs)}.</>}
+                    {row.needs.length === 0
+                      ? "Already there on results."
+                      : `${needsSentence2026(row.needs)}.`}
                     <span className="text-gray-400"> ({oddsPctLabel2026(row.outright)})</span>
                   </p>
                 )}
                 {row.triviaRoutes.filter(rt => rt.p > 0.005).map((rt, i) => {
-                  const rivals = rt.group.filter(t => t !== row.team);
+                  const me = TEAM_NAMES[row.team] || row.team;
+                  const rivals = rt.group.filter(t => t !== row.team).map(t => TEAM_NAMES[t] || t);
                   const lead = (row.outright > 0 || i > 0) ? "Or " : "";
-                  const win = (
-                    <>
-                      <TeamChip2026 team={row.team} /> wins bible trivia against{" "}
-                      {joinNodes2026(rivals.map(t => <TeamChip2026 key={t} team={t} />))}
-                    </>
-                  );
+                  const win = `${me} wins bible trivia against ${joinList2026(rivals)}`;
                   return (
                     <p key={rt.group.join("-")} className="text-sm text-gray-600 leading-relaxed mt-1">
-                      {lead}
-                      {rt.needs.length > 0 && <>{needsNodes2026(rt.needs)}, then </>}
-                      {win}.
+                      {rt.needs.length === 0
+                        ? `${lead}${win}.`
+                        : `${lead}${needsSentence2026(rt.needs)}, then ${win}.`}
                       <span className="text-gray-400"> ({oddsPctLabel2026(rt.p)})</span>
                     </p>
                   );
@@ -5361,10 +5347,9 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
             out and a seed comes down to bible trivia. {Math.round(settled * 100)}% chance every seed is settled on the floor.
           </p>
         )}
-        {odds.pivot && (
+        {pivotName && (
           <p className="text-sm text-gray-600 leading-relaxed">
-            <TeamChip2026 team={odds.pivot.pair[0]} /> vs <TeamChip2026 team={odds.pivot.pair[1]} />
-            {" "}swings the top seed more than any other game left.
+            <span className="font-black text-gray-900">{pivotName}</span> swings the top seed more than any other game left.
           </p>
         )}
       </div>
