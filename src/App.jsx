@@ -5061,6 +5061,13 @@ function RulesView() {
 // A game that has gone final in live_games but has not yet been committed to
 // game_log is counted as a result here, which is the whole point on a Sunday:
 // the card moves when the buzzer goes, not when the box score is entered.
+//
+// Matching those rows to the games still to be played takes care. The season
+// is a double round robin, so a pair with a game left has almost always played
+// each other already, and keying on the pair alone happily hands the upcoming
+// game the result of the earlier one. The fix is positional: a pair's games,
+// in date order, line up with its meetings, so the first met[a][b] of them are
+// the ones already in game_log and everything after is what is still to come.
 const oddsPctLabel2026 = (x) => (x <= 0 ? "-" : x < 0.005 ? "<1%" : `${Math.round(x * 100)}%`);
 
 // Everything the odds need beyond GAME_LOG: the penalty counts that are
@@ -5081,15 +5088,15 @@ function useSeedOdds2026() {
     return () => { alive = false; };
   }, []);
 
-  // Live games are matched to remaining meetings by team pair, never by date.
-  // remainingPairs2026 already works in pairs, and no two teams meet twice in
-  // one week, so this sidesteps the game_log to schedule date-format matching
-  // that the rest of the 2026 code deliberately avoids. It also makes double
-  // counting impossible: once a game lands in game_log its pair is no longer
-  // remaining, so there is nothing left for a live row to attach to.
+  // Every scheduled 2026 game, grouped by pair and kept in date order, each
+  // carrying whatever live_games and live_events currently say about it.
+  // Which of them are still to be played is decided later, against the
+  // meeting counts in the context, since only that knows what game_log holds.
   const loadLive = useCallback(async () => {
     const { data: sched } = await supabase
-      .from("schedule").select("game_id, home_team, away_team").eq("season", 2026);
+      .from("schedule").select("game_id, home_team, away_team, game_date, game_time")
+      .eq("season", 2026)
+      .order("game_date", { ascending: true }).order("game_time", { ascending: true });
     const games = sched || [];
     if (games.length === 0) { setLiveByPair({}); return; }
     const { data: lg } = await supabase
@@ -5097,12 +5104,11 @@ function useSeedOdds2026() {
     const states = {};
     (lg || []).forEach(r => { states[r.game_id] = r; });
     const ids = games.map(g => g.game_id).filter(id => states[id]);
-    if (ids.length === 0) { setLiveByPair({}); return; }
 
     // PostgREST caps a page at 1000 rows and a full season of events runs past
     // that, so paginate with event_id as the stable tiebreaker.
     const evs = [];
-    for (let from = 0; ; from += 1000) {
+    for (let from = 0; ids.length > 0; from += 1000) {
       const { data: page } = await supabase
         .from("live_events").select("game_id, team, stat_type, deleted")
         .in("game_id", ids)
@@ -5120,13 +5126,17 @@ function useSeedOdds2026() {
       if (!scoreByGame[ev.game_id]) scoreByGame[ev.game_id] = {};
       scoreByGame[ev.game_id][ev.team] = (scoreByGame[ev.game_id][ev.team] || 0) + pts;
     }
+    // Every scheduled game for the pair, played or not, in date order. The
+    // slot a game sits in is what later lines it up with a specific meeting,
+    // so games without a live row still have to occupy their place.
     const out = {};
     for (const g of games) {
+      if (!g.home_team || !g.away_team) continue;
+      const key = pairKey2026(g.home_team, g.away_team);
       const st = states[g.game_id];
-      if (!st || !g.home_team || !g.away_team) continue;
-      out[pairKey2026(g.home_team, g.away_team)] = {
-        status: st.status, period: st.period, scores: scoreByGame[g.game_id] || {},
-      };
+      (out[key] = out[key] || []).push(st
+        ? { status: st.status, period: st.period, scores: scoreByGame[g.game_id] || {} }
+        : null);
     }
     setLiveByPair(out);
   }, []);
@@ -5147,18 +5157,38 @@ function useSeedOdds2026() {
   const ctx = useMemo(() => build2026Context(penalties, true), [penalties]);
   const standings = useMemo(() => standingsFromContext2026(ctx), [ctx]);
   const form = useMemo(() => formRatings2026(true), []);
-  const odds = useMemo(() => seedOdds2026(ctx, (a, b) => {
-    const live = liveByPair[pairKey2026(a, b)];
-    return liveProb2026(a, b, form, live);
-  }), [ctx, form, liveByPair]);
+
+  // The live rows for the games a pair has NOT played yet. game_log holds the
+  // first met[a][b] of that pair's scheduled games, so dropping exactly that
+  // many off the front leaves the ones still to come, in the order the
+  // remaining meetings will be enumerated.
+  const liveUpcoming = useMemo(() => {
+    const out = {};
+    for (const [key, list] of Object.entries(liveByPair)) {
+      const [a, b] = key.split("-");
+      const played = (ctx.met[a] && ctx.met[a][b]) || 0;
+      out[key] = list.slice(played);
+    }
+    return out;
+  }, [liveByPair, ctx]);
+
+  const odds = useMemo(() => seedOdds2026(ctx, (a, b, nth) => {
+    const list = liveUpcoming[pairKey2026(a, b)];
+    return liveProb2026(a, b, form, (list && list[nth]) || null);
+  }), [ctx, form, liveUpcoming]);
 
   const foldedIn = useMemo(() => {
     if (!odds) return [];
-    const rem = new Set(remainingPairs2026(ctx).map(p => pairKey2026(p[0], p[1])));
-    return Object.entries(liveByPair)
-      .filter(([k, v]) => rem.has(k) && v.status && v.status !== "scheduled")
-      .map(([k, v]) => ({ key: k, ...v }));
-  }, [odds, ctx, liveByPair]);
+    const out = [], nth = {};
+    for (const [a, b] of remainingPairs2026(ctx)) {
+      const key = pairKey2026(a, b);
+      const i = nth[key] || 0;
+      nth[key] = i + 1;
+      const live = (liveUpcoming[key] || [])[i];
+      if (live && live.status && live.status !== "scheduled") out.push({ key, ...live });
+    }
+    return out;
+  }, [odds, ctx, liveUpcoming]);
 
   return { ctx, standings, form, odds, foldedIn };
 }
@@ -16276,11 +16306,26 @@ function liveProb2026(a, b, form, live) {
 // each take a third of each seat. Returns null when there is nothing left to
 // enumerate, or when the remaining schedule is too large to scan, matching the
 // clinch badge's behaviour rather than showing something half computed.
+//
+// winProb is called once per remaining game as (a, b, nth), where nth counts
+// that pair's remaining meetings from 0. Two teams can have both their games
+// left, and those are separate games that may be in different states, so the
+// pair on its own does not identify one.
 function seedOdds2026(ctx, winProb) {
   const rem = remainingPairs2026(ctx);
   if (rem.length === 0) return null;
   const total = 1 << rem.length;
   if (rem.length > 30 || total > CLINCH_MAX_SCENARIOS_2026) return null;
+
+  // Resolved once up front rather than inside the scenario loop, which asked
+  // for the same probability 2^n times.
+  const nth = {};
+  const pHome = rem.map(([a, b]) => {
+    const key = pairKey2026(a, b);
+    const i = nth[key] || 0;
+    nth[key] = i + 1;
+    return winProb(a, b, i);
+  });
 
   const seeds = {};
   for (const t of TEAMS_2026) seeds[t] = new Array(TEAMS_2026.length).fill(0);
@@ -16296,7 +16341,7 @@ function seedOdds2026(ctx, winProb) {
   for (let mask = 0; mask < total; mask++) {
     const results = rem.map(([a, b], i) => (mask & (1 << i)) ? [a, b] : [b, a]);
     let p = 1;
-    for (const [w, l] of results) p *= winProb(w, l);
+    for (let i = 0; i < rem.length; i++) p *= (mask & (1 << i)) ? pHome[i] : 1 - pHome[i];
     if (p <= 0) continue;
     mass += p;
 
