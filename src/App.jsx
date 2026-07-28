@@ -5070,6 +5070,19 @@ function RulesView() {
 // the ones already in game_log and everything after is what is still to come.
 const oddsPctLabel2026 = (x) => (x <= 0 ? "-" : x < 0.005 ? "<1%" : `${Math.round(x * 100)}%`);
 
+// A list of required results as one sentence, collapsing repeats of the same
+// winner so it reads "San Jose beats Pacific and Sacramento" rather than
+// naming San Jose twice.
+function needsSentence2026(needs) {
+  const order = [], byWinner = new Map();
+  for (const n of needs) {
+    if (!byWinner.has(n.winner)) { byWinner.set(n.winner, []); order.push(n.winner); }
+    byWinner.get(n.winner).push(TEAM_NAMES[n.loser] || n.loser);
+  }
+  return joinList2026(order.map(w =>
+    `${TEAM_NAMES[w] || w} beats ${joinList2026(byWinner.get(w))}`));
+}
+
 // Everything the odds need beyond GAME_LOG: the penalty counts that are
 // tiebreaker steps 2 and 4, and the state of any game already underway.
 // Shared by the home card and the Teams hub strip so the two can never show
@@ -5277,23 +5290,26 @@ function PlayoffOddsCard({ onOpenTeams = null }) {
                   <p className="text-base font-black text-gray-900">{TEAM_NAMES[row.team] || row.team}</p>
                   <p className="text-base font-black text-gray-900 tabular-nums">{oddsPctLabel2026(row.total)}</p>
                 </div>
-                {row.outright > 0 ? (
+                {row.outright > 0 && (
                   <p className="text-sm text-gray-600 leading-relaxed mt-0.5">
                     {row.needs.length === 0
                       ? "Already there on results."
-                      : joinList2026(row.needs.map(n => `${TEAM_NAMES[n.winner] || n.winner} beats ${TEAM_NAMES[n.loser] || n.loser}`)) + "."}
+                      : `${needsSentence2026(row.needs)}.`}
                     {row.needs.length > 0 && row.needs.length < odds.remaining && " Nothing else matters."}
                     <span className="text-gray-400"> ({oddsPctLabel2026(row.outright)})</span>
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-600 leading-relaxed mt-0.5">
-                    No path on the floor. Its ceiling ties the lead rather than beating it.
                   </p>
                 )}
                 {row.trivia > 0.005 && (
                   <p className="text-sm text-gray-600 leading-relaxed mt-0.5">
-                    {row.outright > 0 ? "Or win" : "Only by winning"} bible trivia.
+                    {row.triviaNeeds.length === 0
+                      ? `${row.outright > 0 ? "Or win" : "Win"} bible trivia.`
+                      : `${row.outright > 0 ? "Or " : ""}${needsSentence2026(row.triviaNeeds)}, then win bible trivia.`}
                     <span className="text-gray-400"> ({oddsPctLabel2026(row.trivia)})</span>
+                  </p>
+                )}
+                {row.outright === 0 && (
+                  <p className="text-sm text-gray-400 leading-relaxed mt-0.5">
+                    It cannot finish first on results. Its ceiling ties the lead rather than clearing it.
                   </p>
                 )}
               </div>
@@ -16371,12 +16387,17 @@ function seedOdds2026(ctx, winProb) {
   // often it is decided on the floor and how often it goes to trivia.
   const topWays = new Map();
   // How each team reaches the 1 seed. `outright` is finishing first alone,
-  // `trivia` is being left in a tie the ladder could not break. `needs` is the
-  // intersection of every outright path: a game whose winner is the same in
-  // all of them is a requirement, and one that varies is left out because it
-  // genuinely does not matter. Undefined means no outright path has been seen.
+  // `trivia` is being left in a tie for the top that the ladder could not
+  // break. Each carries its own requirements, held as the intersection of
+  // every path of that kind: a game whose winner is the same in all of them is
+  // a requirement, and one that varies is left out because it genuinely does
+  // not matter. Trivia needs its own set because reaching the tie is itself
+  // something a team has to play for. San Jose cannot simply win trivia; it
+  // has to beat Pacific and Sacramento first to be in the tie at all.
   const paths = {};
-  for (const t of TEAMS_2026) paths[t] = { outright: 0, trivia: 0, needs: undefined };
+  for (const t of TEAMS_2026) paths[t] = { outright: 0, trivia: 0, outNeeds: undefined, trivNeeds: undefined };
+  const narrow = (prev, winners) =>
+    prev === undefined ? winners : prev.map((w, i) => (w === winners[i] ? w : null));
   // Per remaining game, the seed-1 spread conditional on each side winning.
   // The pivot is whichever game moves it most.
   const cond = rem.map(() => [Object.create(null), Object.create(null)]);
@@ -16419,14 +16440,15 @@ function seedOdds2026(ctx, winProb) {
       ? order.filter(o => o.triviaKey === head.triviaKey).map(o => o.team)
       : [head.team];
 
+    const winners = results.map(([w]) => w);
     if (head.trivia) {
-      for (const t of firstBlock) paths[t].trivia += p / firstBlock.length;
+      for (const t of firstBlock) {
+        paths[t].trivia += p / firstBlock.length;
+        paths[t].trivNeeds = narrow(paths[t].trivNeeds, winners);
+      }
     } else {
-      const me = paths[head.team];
-      me.outright += p;
-      const winners = results.map(([w]) => w);
-      if (me.needs === undefined) me.needs = winners;
-      else me.needs = me.needs.map((w, i) => (w === winners[i] ? w : null));
+      paths[head.team].outright += p;
+      paths[head.team].outNeeds = narrow(paths[head.team].outNeeds, winners);
     }
     for (let i = 0; i < rem.length; i++) {
       const side = (mask & (1 << i)) ? 0 : 1;
@@ -16459,16 +16481,19 @@ function seedOdds2026(ctx, winProb) {
     .sort((a, b) => b.p - a.p);
 
   // Normalise, and turn the surviving requirements into readable pairs. A team
-  // with no outright path gets an empty list and an outright of 0, which is the
-  // signal that bible trivia is the only way in.
+  // with no outright path gets an outright of 0, which is the signal that
+  // bible trivia is the only way in, but it still carries the games it has to
+  // win to get as far as the tie.
+  const asPairs = (list) => (list || [])
+    .map((w, i) => (w ? { winner: w, loser: rem[i][0] === w ? rem[i][1] : rem[i][0] } : null))
+    .filter(Boolean);
   const firstSeed = TEAMS_2026.map(t => ({
     team: t,
     outright: paths[t].outright / mass,
     trivia: paths[t].trivia / mass,
     total: (paths[t].outright + paths[t].trivia) / mass,
-    needs: (paths[t].needs || [])
-      .map((w, i) => (w ? { winner: w, loser: rem[i][0] === w ? rem[i][1] : rem[i][0] } : null))
-      .filter(Boolean),
+    needs: asPairs(paths[t].outNeeds),
+    triviaNeeds: asPairs(paths[t].trivNeeds),
   })).filter(r => r.total > 0).sort((a, b) => b.total - a.total);
 
   return { seeds, trivia: triviaAny / mass, ways, pivot, firstSeed, remaining: rem.length };
