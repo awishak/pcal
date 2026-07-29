@@ -8697,21 +8697,21 @@ function BestAtAgeView({ goToPlayer }) {
             so this is where you find out who the other top dots are. */}
         {leaders.length > 0 && (
           <div className="border-t border-gray-100 px-3 py-2.5">
-            <p className="text-[11px] font-black text-gray-900 mb-1.5">Best at each age</p>
+            <p className="text-sm font-black text-gray-900 mb-1.5">Best at each age</p>
             <div className="divide-y divide-gray-50">
               {leaderRows.map(r => (
-                <div key={r.player} className="flex items-center gap-2 py-1.5">
+                <div key={r.player} className="flex items-center gap-2.5 py-2">
                   <div className="rounded-full flex flex-shrink-0" style={{ boxShadow: `0 0 0 2px ${colorOf[r.player]}` }}>
-                    <ThAvatar name={r.player} size={26} photoUrl={avatarUrl(r.player)} />
+                    <ThAvatar name={r.player} size={34} photoUrl={avatarUrl(r.player)} />
                   </div>
-                  <span className="text-[11px] font-bold text-gray-900 flex-1 min-w-0 truncate cursor-pointer active:opacity-70"
+                  <span className="text-[15px] font-bold text-gray-900 flex-1 min-w-0 truncate cursor-pointer active:opacity-70"
                     onClick={() => goToPlayer(r.player)}>{formatName(r.player)}</span>
                   <div className="flex gap-1 flex-shrink-0">
                     {r.ages.map(a => {
                       const isSel = sel && sel.age === a && sel.rank === 0;
                       return (
                         <button key={a} onClick={() => setSel(isSel ? null : { age: a, rank: 0 })}
-                          className={`px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums transition-colors ${isSel ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>
+                          className={`px-2 py-1 rounded-md text-[13px] font-bold tabular-nums transition-colors ${isSel ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>
                           {a}
                         </button>
                       );
