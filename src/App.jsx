@@ -3274,7 +3274,7 @@ function AppInner() {
       { key: "potw_stats", label: "Player of the Week", desc: "All-time POTW wins & nominations" },
       { key: "nbacomps", label: "NBA Comps", desc: "PCAL–NBA player comparisons" },
       { key: "crossera", label: "Cross-Era Comps", desc: "Modern stars vs. classic era matches" },
-      { key: "bestage", label: "Best at Every Age", desc: "Top seasons from age 14 to 54" },
+      { key: "bestage", label: "Every Age", desc: "Top two at every age, any stat" },
       { key: "hof", label: "Hall of Fame", desc: "All-time greatness index" },
     ]},
     { title: "Player Tools", cards: [
@@ -8425,166 +8425,224 @@ function HallOfFameView({ goToPlayer }) {
 }
 
 
+// ===== Every Age =====
+// For each age from 14 to 52, the two best qualifying player-seasons at that
+// age for the selected stat, plotted with the players' faces. Qualification
+// matches LEADERS_BY_YEAR: 5 games played, plus 15 attempts for the shooting
+// percentages, so a two-shot season can't own an age.
+const AGE_CURVE_STATS = [
+  { key: "ppg", label: "PPG", group: "Per game", full: "Points per game" },
+  { key: "rpg", label: "RPG", group: "Per game", full: "Rebounds per game" },
+  { key: "apg", label: "APG", group: "Per game", full: "Assists per game" },
+  { key: "spg", label: "SPG", group: "Per game", full: "Steals per game" },
+  { key: "bpg", label: "BPG", group: "Per game", full: "Blocks per game" },
+  { key: "avgGmSc", label: "GmSc", group: "Per game", full: "Game Score per game" },
+  { key: "aiScore", label: "AI Score", group: "Per game", full: "AI Score" },
+  { key: "fgPct", label: "FG%", group: "Shooting", full: "Field goal percentage", pct: true, att: "fga", made: "fgm" },
+  { key: "tpPct", label: "3P%", group: "Shooting", full: "Three point percentage", pct: true, att: "tpa", made: "tpm" },
+  { key: "ftPct", label: "FT%", group: "Shooting", full: "Free throw percentage", pct: true, att: "fta", made: "ftm" },
+  { key: "ts", label: "TS%", group: "Shooting", full: "True shooting percentage", pct: true, att: "fga" },
+];
+const AGE_CURVE_GROUPS = ["Per game", "Shooting"];
+
+const AGE_LO = 14, AGE_HI = 52;
+const AGE_COL = 40;        // px per year of age
+const AGE_CHART_H = 300;   // plot body height
+const AGE_LABEL_H = 22;    // strip under the plot for the age labels
+const AGE_PAD_T = 20, AGE_PAD_B = 12;
+const AGE_DOT = 26;        // avatar diameter
+const AGE_NUDGE = 8;       // horizontal split so the pair never fully overlaps
+const AGE_GUTTER = 42;     // pinned y axis width
+
 function BestAtAgeView({ goToPlayer }) {
-  const [expanded, setExpanded] = useState(null);
+  const [statKey, setStatKey] = useState("ppg");
+  const [sel, setSel] = useState(null);
+  const scrollRef = useRef(null);
 
-  const ageData = useMemo(() => {
-    const eligible = DATA.filter(r => r.g >= 3 && r.age > 0);
-    const ages = [...new Set(eligible.map(r => r.age))].sort((a, b) => a - b);
-
-    // Build age lookup for game log
-    const ageLookup = {};
-    DATA.forEach(r => { if (r.age > 0) ageLookup[r.player + "-" + r.year] = r.age; });
-
-    // Top games by age
-    const played = GAME_LOG.filter(g => g[6] === 1);
-
-    return ages.map(age => {
-      const atAge = eligible.filter(r => r.age === age).sort((a, b) => b.aiScore - a.aiScore);
-      const top5 = atAge.slice(0, 5);
-      const best = top5[0];
-
-      // Scoring leader
-      const scoringLeader = [...atAge].sort((a, b) => b.ppg - a.ppg)[0];
-
-      // Championships at this age
-      const champs = atAge.filter(p => {
-        const ts = TEAM_SEASONS[p.team + "-" + p.year];
-        return ts && ts.final === "Champ";
-      });
-
-      // Top game at this age
-      const gamesAtAge = played.filter(g => ageLookup[g[0] + "-" + g[20]] === age)
-        .sort((a, b) => b[19] - a[19]);
-      const topGame = gamesAtAge[0];
-      const topGame2 = gamesAtAge[1];
-
-      // Awards at this age
-      const mvps = atAge.filter(p => p.award === "MVP");
-      const allPcal = atAge.filter(p => p.award === "All-PCAL");
-
-      // Build story
-      let story = "";
-      const bestName = formatName(best.player);
-
-      if (best.aiScore >= 18) {
-        story += bestName + " dominated age " + age + " with " + best.ppg + " PPG, " + best.rpg + " RPG, and " + best.apg + " APG for " + best.team + " in " + best.year + ". ";
-      } else if (best.aiScore >= 12) {
-        story += bestName + " led all " + age + "-year-olds with " + best.ppg + " PPG and " + best.aiScore.toFixed(1) + " AI Score for " + best.team + " in " + best.year + ". ";
-      } else {
-        story += bestName + " was the top performer at age " + age + " with " + best.ppg + " PPG for " + best.team + " in " + best.year + ". ";
-      }
-
-      if (scoringLeader.player !== best.player) {
-        story += formatName(scoringLeader.player) + " actually led in raw scoring with " + scoringLeader.ppg + " PPG. ";
-      }
-
-      if (mvps.length > 0) {
-        story += mvps.map(p => formatName(p.player)).join(" and ") + " won MVP at this age. ";
-      }
-
-      if (champs.length > 0 && champs.length <= 4) {
-        story += champs.map(p => formatName(p.player) + " (" + p.team + " " + p.year + ")").join(", ") + " won championship" + (champs.length > 1 ? "s" : "") + " at age " + age + ". ";
-      } else if (champs.length > 4) {
-        story += champs.length + " players won championships at this age, including " + champs.slice(0, 3).map(p => formatName(p.player) + " (" + p.team + " " + p.year + ")").join(", ") + ". ";
-      }
-
-      if (topGame) {
-        const tg = topGame;
-        story += "The best single game at age " + age + " was " + formatName(tg[0]) + "'s " + tg[7] + "-point, " + tg[8] + "-rebound";
-        if (tg[10] > 0) story += ", " + tg[10] + "-assist";
-        story += " game (" + tg[19].toFixed(1) + " GmSc) against " + tg[2] + " in " + tg[20] + ".";
-      }
-
-      return { age, best, top5, totalPlayers: atAge.length, scoringLeader, champs, topGame, topGame2, mvps, allPcal, story };
-    });
+  const stat = AGE_CURVE_STATS.find(s => s.key === statKey) || AGE_CURVE_STATS[0];
+  const ages = useMemo(() => {
+    const out = [];
+    for (let a = AGE_LO; a <= AGE_HI; a++) out.push(a);
+    return out;
   }, []);
+
+  // Top two qualifying seasons at each age, best first.
+  const byAge = useMemo(() => {
+    const buckets = {};
+    DATA.forEach(r => {
+      if (!(r.age >= AGE_LO && r.age <= AGE_HI)) return;
+      if (r.g < 5) return;
+      if (stat.att && (r[stat.att] || 0) < 15) return;
+      const v = r[stat.key];
+      if (typeof v !== "number" || !isFinite(v) || v <= 0) return;
+      (buckets[r.age] = buckets[r.age] || []).push({ row: r, value: v });
+    });
+    const out = {};
+    Object.keys(buckets).forEach(a => {
+      out[a] = buckets[a]
+        .sort((x, y) => (y.value - x.value) || (y.row.aiScore - x.row.aiScore))
+        .slice(0, 2);
+    });
+    return out;
+  }, [statKey]);
+
+  const flat = useMemo(
+    () => ages.flatMap(a => (byAge[a] || []).map((p, rank) => ({ ...p, age: a, rank }))),
+    [byAge, ages]
+  );
+
+  // Percentages cluster high, so a zero baseline wastes most of the plot.
+  // Drop the floor only when the spread is narrow relative to the top.
+  const [yMin, yMax] = useMemo(() => {
+    if (!flat.length) return [0, 1];
+    const vals = flat.map(p => p.value);
+    const hi = Math.max(...vals), lo = Math.min(...vals);
+    const floor = lo / hi > 0.4 ? Math.max(0, lo - (hi - lo) * 0.25) : 0;
+    return [floor, hi + (hi - floor) * 0.06];
+  }, [flat]);
+
+  const fmtAxis = v => stat.pct ? Math.round(v * 100) + "%" : (v >= 10 ? v.toFixed(0) : v.toFixed(1));
+  const fmtValue = v => stat.pct ? (v * 100).toFixed(1) + "%" : v.toFixed(1);
+
+  const plotW = ages.length * AGE_COL;
+  const bodyH = AGE_CHART_H - AGE_PAD_T - AGE_PAD_B;
+  const xOf = age => (age - AGE_LO) * AGE_COL + AGE_COL / 2;
+  const yOf = v => AGE_PAD_T + (1 - (v - yMin) / (yMax - yMin || 1)) * bodyH;
+  const ticks = useMemo(() => [0, 1, 2, 3, 4].map(i => yMin + (yMax - yMin) * i / 4), [yMin, yMax]);
+
+  // Line through the leaders, broken wherever an age has nobody.
+  const leaderPath = useMemo(() => {
+    let d = "", open = false;
+    ages.forEach(a => {
+      const top = (byAge[a] || [])[0];
+      if (!top) { open = false; return; }
+      const x = xOf(a) - AGE_NUDGE, y = yOf(top.value);
+      d += (open ? " L" : " M") + x.toFixed(1) + "," + y.toFixed(1);
+      open = true;
+    });
+    return d.trim();
+  }, [byAge, ages, yMin, yMax]);
+
+  // Park the view on the first age that has anyone, since the teens are thin.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const first = ages.find(a => byAge[a]);
+    el.scrollLeft = first ? Math.max(0, (first - AGE_LO) * AGE_COL - AGE_COL) : 0;
+  }, [byAge, ages]);
+
+  const selPoint = sel ? (byAge[sel.age] || [])[sel.rank] : null;
+  const selRow = selPoint && selPoint.row;
 
   return (
     <div>
-      <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-1">Best Season at Every Age</p>
-      <p className="text-[10px] text-gray-400 mb-3">The highest AI Score at each age (min 3 GP) — from 14-year-old rookies to 54-year-old legends</p>
-      <div className="space-y-1.5">
-        {ageData.map((a, i) => {
-          const b = a.best;
-          const isOpen = expanded === i;
-          const isElite = true;
-          const isCurrent = b.year === currentYear();
-          return (
-          <div key={a.age} className={`rounded-xl px-3 py-2.5 cursor-pointer active:opacity-70 ${isCurrent ? `${CURRENT_ROW_BG} border border-blue-200` : "bg-white border border-gray-100"}`}
-            onClick={() => setExpanded(isOpen ? null : i)}>
-            <div className="flex items-center gap-2">
-              <div className="flex-shrink-0 w-12 text-center">
-                <div className={`text-xl font-black ${isElite ? "text-gray-900" : "text-gray-300"}`}>{a.age}</div>
-                <div className="text-[8px] text-gray-300">yrs old</div>
+      <p className="text-sm font-black text-gray-900 mb-1">Every Age</p>
+      <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+        The two best seasons at every age from 14 to 52. Minimum 5 games, and 15 attempts for the shooting percentages. Tap a face for the season behind it.
+      </p>
+
+      {AGE_CURVE_GROUPS.map(group => (
+        <div key={group} className="flex items-center gap-1.5 mb-1.5">
+          <span className="text-[11px] font-black text-gray-900 w-16 flex-shrink-0">{group}</span>
+          <div className="flex gap-1 flex-wrap">
+            {AGE_CURVE_STATS.filter(s => s.group === group).map(s => (
+              <button key={s.key} onClick={() => { setStatKey(s.key); setSel(null); }}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors ${statKey === s.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <div className="mt-3 rounded-2xl border border-gray-100 bg-white overflow-hidden">
+        <div className="px-3 pt-3 pb-1 flex items-baseline justify-between">
+          <span className="text-[11px] font-black text-gray-900">{stat.full} by age</span>
+          <span className="text-[11px] text-gray-400">{flat.length} seasons plotted</span>
+        </div>
+
+        {flat.length === 0 ? (
+          <div className="px-3 py-10 text-center text-[11px] text-gray-400">Nobody qualifies for this stat yet.</div>
+        ) : (
+          <div className="flex">
+            {/* Pinned y axis */}
+            <div className="flex-shrink-0" style={{ width: AGE_GUTTER, height: AGE_CHART_H + AGE_LABEL_H }}>
+              <svg width={AGE_GUTTER} height={AGE_CHART_H + AGE_LABEL_H}>
+                {ticks.map((v, i) => (
+                  <text key={i} x={AGE_GUTTER - 6} y={yOf(v) + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{fmtAxis(v)}</text>
+                ))}
+              </svg>
+            </div>
+
+            {/* Scrollable plot */}
+            <div ref={scrollRef} className="overflow-x-auto flex-1">
+              <div className="relative" style={{ width: plotW, height: AGE_CHART_H + AGE_LABEL_H }}>
+                <svg width={plotW} height={AGE_CHART_H + AGE_LABEL_H} className="absolute inset-0">
+                  {ticks.map((v, i) => (
+                    <line key={i} x1="0" x2={plotW} y1={yOf(v)} y2={yOf(v)} stroke="#f3f4f6" strokeWidth="1" />
+                  ))}
+                  {leaderPath && <path d={leaderPath} fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />}
+                  {ages.map(a => {
+                    const pair = byAge[a];
+                    if (!pair || pair.length < 2) return null;
+                    return <line key={a} x1={xOf(a) - AGE_NUDGE} y1={yOf(pair[0].value)} x2={xOf(a) + AGE_NUDGE} y2={yOf(pair[1].value)} stroke="#e5e7eb" strokeWidth="1" />;
+                  })}
+                  {ages.map(a => (
+                    <text key={a} x={xOf(a)} y={AGE_CHART_H + 14} textAnchor="middle" fontSize="11"
+                      fill={byAge[a] ? "#374151" : "#e5e7eb"} fontWeight={byAge[a] ? "700" : "400"}>{a}</text>
+                  ))}
+                </svg>
+
+                {flat.map(p => {
+                  const isSel = sel && sel.age === p.age && sel.rank === p.rank;
+                  const ring = isSel ? "0 0 0 2.5px #2563eb" : p.rank === 0 ? "0 0 0 2px #111827" : "0 0 0 1.5px #d1d5db";
+                  return (
+                    <button key={p.age + "-" + p.rank}
+                      onClick={() => setSel(isSel ? null : { age: p.age, rank: p.rank })}
+                      className="absolute rounded-full active:opacity-70"
+                      style={{
+                        left: xOf(p.age) + (p.rank === 0 ? -AGE_NUDGE : AGE_NUDGE) - AGE_DOT / 2,
+                        top: yOf(p.value) - AGE_DOT / 2,
+                        width: AGE_DOT, height: AGE_DOT,
+                        boxShadow: ring, zIndex: isSel ? 30 : p.rank === 0 ? 20 : 10,
+                      }}>
+                      <ThAvatar name={p.row.player} size={AGE_DOT} photoUrl={avatarUrl(p.row.player)} />
+                    </button>
+                  );
+                })}
               </div>
-              <ThAvatar name={b.player} size={28} photoUrl={avatarUrl(b.player)} />
+            </div>
+          </div>
+        )}
+
+        {/* Selected season */}
+        <div className="border-t border-gray-100 px-3 py-2.5">
+          {!selRow ? (
+            <p className="text-[11px] text-gray-400">Dark ring is the best at that age, light ring is second. Tap either one.</p>
+          ) : (
+            <div className="flex items-center gap-2.5 cursor-pointer active:opacity-70" onClick={() => goToPlayer(selRow.player)}>
+              <ThAvatar name={selRow.player} size={38} photoUrl={avatarUrl(selRow.player)} />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-bold text-gray-900 cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(b.player); }}>{formatName(b.player)}</span>
-                  <span className="text-[10px] text-gray-400">{b.team} <span className={isCurrent ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{b.year}</span></span>
-                  {b.award && <span className="font-black uppercase text-white rounded inline-block" style={{ fontSize: 6, padding: "1px 4px", backgroundColor: b.award === "MVP" ? "#f59e0b" : "#3b82f6" }}>{b.award}</span>}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-black text-gray-900">{formatName(selRow.player)}</span>
+                  <span className="text-[11px] text-gray-400">{selRow.team} <span className={selRow.year === currentYear() ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{selRow.year}</span></span>
+                  <span className="text-[11px] text-gray-400">age {selRow.age}</span>
                 </div>
-                <div className="flex flex-wrap gap-x-3 mt-0.5 text-[10px]">
-                  <span><span className="text-gray-800">{b.ppg}</span> <span className="text-gray-400">PPG</span></span>
-                  <span><span className="text-gray-800">{b.rpg}</span> <span className="text-gray-400">RPG</span></span>
-                  <span><span className="text-gray-800">{b.apg}</span> <span className="text-gray-400">APG</span></span>
-                  <span><span className="text-gray-800">{b.spg}</span> <span className="text-gray-400">SPG</span></span>
-                  {b.bpg > 0.3 && <span><span className="text-gray-800">{b.bpg}</span> <span className="text-gray-400">BPG</span></span>}
+                <div className="text-[11px] text-gray-500 mt-0.5">
+                  {selRow.g} GP
+                  {stat.pct
+                    ? (stat.made ? " · " + selRow[stat.made] + "-" + selRow[stat.att] : " · " + selRow.pts + " PTS on " + selRow.fga + " FGA")
+                    : " · " + selRow.ppg + " PPG · " + selRow.rpg + " RPG · " + selRow.apg + " APG"}
+                  {" · "}{selRow.aiScore.toFixed(1)} AI Score
                 </div>
               </div>
               <div className="text-right flex-shrink-0">
-                <div className={`text-base font-black ${isElite ? "text-gray-900" : "text-gray-400"}`}>{b.aiScore.toFixed(1)}</div>
-                <div className="text-[9px] text-gray-400">AI Score</div>
+                <div className="text-base font-black text-gray-900">{fmtValue(selPoint.value)}</div>
+                <div className="text-[11px] text-gray-400">{stat.label}</div>
               </div>
             </div>
-
-            {isOpen && (
-              <div className="mt-2 pt-2 border-t border-gray-50">
-                {/* Story */}
-                <p className="text-[11px] text-gray-600 leading-relaxed mb-2">{a.story}</p>
-
-                {/* Highlights row */}
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {a.mvps.length > 0 && <span className="font-black uppercase text-white bg-amber-500 rounded" style={{ fontSize: 7, padding: "2px 5px" }}>MVP: {a.mvps.map(p => formatName(p.player)).join(", ")}</span>}
-                  {a.champs.length > 0 && <span className="font-black uppercase text-yellow-800 bg-yellow-100 border border-yellow-300 rounded" style={{ fontSize: 7, padding: "2px 5px" }}>{a.champs.length} CHAMPION{a.champs.length > 1 ? "S" : ""}</span>}
-                  {a.topGame && <div className="text-[10px] text-gray-500 mt-1">Best game: <span className="text-gray-700 font-bold cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(a.topGame[0]); }}>{formatName(a.topGame[0])}</span> — {a.topGame[7]}p/{a.topGame[8]}r/{a.topGame[10]}a ({a.topGame[19].toFixed(1)} GmSc) vs {a.topGame[2]}, {a.topGame[20]}</div>}
-                </div>
-
-                {/* Top 5 */}
-                <p className="text-[9px] text-gray-400 font-medium mb-1">Top 5 at age {a.age} <span className="text-gray-300">({a.totalPlayers} player-seasons)</span></p>
-                {a.top5.map((r, ri) => (
-                  <div key={ri} className="flex items-center gap-2 py-1 cursor-pointer active:opacity-70" onClick={e => { e.stopPropagation(); goToPlayer(r.player); }}>
-                    <span className={`w-5 text-right text-[10px] ${ri === 0 ? "font-black text-amber-600" : "text-gray-400"}`}>{ri + 1}</span>
-                    <ThAvatar name={r.player} size={24} photoUrl={avatarUrl(r.player)} />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[11px] font-bold text-gray-900">{formatName(r.player)}</span>
-                      <span className="text-[9px] text-gray-400 ml-1">{r.team} <span className={r.year === currentYear() ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{r.year}</span></span>
-                      {r.award && <span className="font-black uppercase text-white rounded ml-1 inline-block align-middle" style={{ fontSize: 5, padding: "0px 3px", backgroundColor: r.award === "MVP" ? "#f59e0b" : "#3b82f6" }}>{r.award}</span>}
-                    </div>
-                    <div className="text-right text-[10px] flex-shrink-0">
-                      <span className="text-gray-800">{r.ppg}</span><span className="text-gray-400">/</span>
-                      <span className="text-gray-800">{r.rpg}</span><span className="text-gray-400">/</span>
-                      <span className="text-gray-800">{r.apg}</span>
-                      <span className="text-gray-300 mx-1">·</span>
-                      <span className="text-gray-800">{r.aiScore.toFixed(1)}</span> <span className="text-gray-400">AI Score</span>
-                      <span className="text-gray-300 mx-1">·</span>
-                      <span className="text-gray-800">{r.g}</span> <span className="text-gray-400">GP</span>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Scoring leader if different */}
-                {a.scoringLeader.player !== a.best.player && (
-                  <div className="mt-1 pt-1 border-t border-gray-50 text-[10px] text-gray-500">
-                    Scoring leader: <span className="text-gray-700 font-bold cursor-pointer" onClick={e => { e.stopPropagation(); goToPlayer(a.scoringLeader.player); }}>{formatName(a.scoringLeader.player)}</span> {a.scoringLeader.ppg} PPG ({a.scoringLeader.team} {a.scoringLeader.year})
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          );
-        })}
+          )}
+        </div>
       </div>
     </div>
   );
