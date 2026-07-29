@@ -8427,8 +8427,8 @@ function HallOfFameView({ goToPlayer }) {
 
 // ===== Every Age =====
 // For each age from 14 to 52, the two best qualifying player-seasons at that
-// age for the selected stat, plotted with the players' faces. Qualification
-// matches LEADERS_BY_YEAR: 5 games played, plus 15 attempts for the shooting
+// age for the selected stat, as a dot each. Qualification matches
+// LEADERS_BY_YEAR: 5 games played, plus 15 attempts for the shooting
 // percentages, so a two-shot season can't own an age.
 const AGE_CURVE_STATS = [
   { key: "ppg", label: "PPG", group: "Per game", full: "Points per game" },
@@ -8445,19 +8445,30 @@ const AGE_CURVE_STATS = [
 ];
 const AGE_CURVE_GROUPS = ["Per game", "Shooting"];
 
+// Repeat names get a color and a label, everyone else stays gray, so the
+// players who own the curve stand out without 78 labels fighting each other.
+const AGE_CURVE_COLORS = ["#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c", "#0891b2", "#be185d", "#4d7c0f"];
+const AGE_CURVE_GRAY = "#cbd5e1";
+
 const AGE_LO = 14, AGE_HI = 52;
-const AGE_COL = 40;        // px per year of age
-const AGE_CHART_H = 300;   // plot body height
-const AGE_LABEL_H = 22;    // strip under the plot for the age labels
-const AGE_PAD_T = 20, AGE_PAD_B = 12;
-const AGE_DOT = 26;        // avatar diameter
-const AGE_NUDGE = 8;       // horizontal split so the pair never fully overlaps
-const AGE_GUTTER = 42;     // pinned y axis width
+// Chart coordinates are viewBox units, scaled to whatever width the card gets.
+const AGE_VB_W = 440, AGE_VB_H = 320;
+const AGE_PAD_L = 36, AGE_PAD_R = 10, AGE_PAD_T = 24, AGE_PAD_B = 24;
+const AGE_PLOT_W = AGE_VB_W - AGE_PAD_L - AGE_PAD_R;
+const AGE_PLOT_H = AGE_VB_H - AGE_PAD_T - AGE_PAD_B;
+const AGE_DOT_R = 3.6;
+
+// "ABDELMALAK SIMON" -> "S. Abdelmalak"
+function ageCurveShortName(raw) {
+  const parts = String(raw).trim().split(/\s+/);
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  if (parts.length < 2) return raw;
+  return parts[1].charAt(0).toUpperCase() + ". " + cap(parts[0]);
+}
 
 function BestAtAgeView({ goToPlayer }) {
   const [statKey, setStatKey] = useState("ppg");
   const [sel, setSel] = useState(null);
-  const scrollRef = useRef(null);
 
   const stat = AGE_CURVE_STATS.find(s => s.key === statKey) || AGE_CURVE_STATS[0];
   const ages = useMemo(() => {
@@ -8498,38 +8509,61 @@ function BestAtAgeView({ goToPlayer }) {
     const vals = flat.map(p => p.value);
     const hi = Math.max(...vals), lo = Math.min(...vals);
     const floor = lo / hi > 0.4 ? Math.max(0, lo - (hi - lo) * 0.25) : 0;
-    return [floor, hi + (hi - floor) * 0.06];
+    return [floor, hi + (hi - floor) * 0.08];
   }, [flat]);
 
   const fmtAxis = v => stat.pct ? Math.round(v * 100) + "%" : (v >= 10 ? v.toFixed(0) : v.toFixed(1));
   const fmtValue = v => stat.pct ? (v * 100).toFixed(1) + "%" : v.toFixed(1);
 
-  const plotW = ages.length * AGE_COL;
-  const bodyH = AGE_CHART_H - AGE_PAD_T - AGE_PAD_B;
-  const xOf = age => (age - AGE_LO) * AGE_COL + AGE_COL / 2;
-  const yOf = v => AGE_PAD_T + (1 - (v - yMin) / (yMax - yMin || 1)) * bodyH;
+  const xOf = age => AGE_PAD_L + ((age - AGE_LO) / (AGE_HI - AGE_LO)) * AGE_PLOT_W;
+  const yOf = v => AGE_PAD_T + (1 - (v - yMin) / (yMax - yMin || 1)) * AGE_PLOT_H;
   const ticks = useMemo(() => [0, 1, 2, 3, 4].map(i => yMin + (yMax - yMin) * i / 4), [yMin, yMax]);
 
-  // Line through the leaders, broken wherever an age has nobody.
-  const leaderPath = useMemo(() => {
-    let d = "", open = false;
-    ages.forEach(a => {
-      const top = (byAge[a] || [])[0];
-      if (!top) { open = false; return; }
-      const x = xOf(a) - AGE_NUDGE, y = yOf(top.value);
-      d += (open ? " L" : " M") + x.toFixed(1) + "," + y.toFixed(1);
-      open = true;
-    });
-    return d.trim();
-  }, [byAge, ages, yMin, yMax]);
+  // Anyone holding two or more of the plotted spots earns a color, most spots
+  // first, up to the size of the palette.
+  const colorOf = useMemo(() => {
+    const counts = {};
+    flat.forEach(p => { counts[p.row.player] = (counts[p.row.player] || 0) + 1; });
+    const ranked = Object.keys(counts)
+      .filter(n => counts[n] >= 2)
+      .sort((a, b) => counts[b] - counts[a] || a.localeCompare(b))
+      .slice(0, AGE_CURVE_COLORS.length);
+    const map = {};
+    ranked.forEach((n, i) => { map[n] = AGE_CURVE_COLORS[i]; });
+    return map;
+  }, [flat]);
 
-  // Park the view on the first age that has anyone, since the teens are thin.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const first = ages.find(a => byAge[a]);
-    el.scrollLeft = first ? Math.max(0, (first - AGE_LO) * AGE_COL - AGE_COL) : 0;
-  }, [byAge, ages]);
+  // One label per colored player, parked on their best season. Labels that
+  // would land on top of an already placed one flip below the dot, then give up.
+  const labels = useMemo(() => {
+    const best = {};
+    flat.forEach(p => {
+      const c = colorOf[p.row.player];
+      if (!c) return;
+      if (!best[p.row.player] || p.value > best[p.row.player].value) best[p.row.player] = p;
+    });
+    const placed = [];
+    const out = [];
+    Object.keys(best)
+      .sort((a, b) => best[b].value - best[a].value)
+      .forEach(name => {
+        const p = best[name];
+        const text = ageCurveShortName(name);
+        const w = text.length * 5.3;
+        const cx = Math.min(AGE_VB_W - AGE_PAD_R - w / 2, Math.max(AGE_PAD_L + w / 2, xOf(p.age)));
+        for (const dy of [-9, 13]) {
+          const y = yOf(p.value) + dy;
+          const box = { x1: cx - w / 2, x2: cx + w / 2, y1: y - 9, y2: y + 3 };
+          if (y < AGE_PAD_T || y > AGE_PAD_T + AGE_PLOT_H) continue;
+          const hits = placed.some(b => !(box.x2 < b.x1 || box.x1 > b.x2 || box.y2 < b.y1 || box.y1 > b.y2));
+          if (hits) continue;
+          placed.push(box);
+          out.push({ text, x: cx, y, color: colorOf[name] });
+          break;
+        }
+      });
+    return out;
+  }, [flat, colorOf, yMin, yMax]);
 
   const selPoint = sel ? (byAge[sel.age] || [])[sel.rank] : null;
   const selRow = selPoint && selPoint.row;
@@ -8538,7 +8572,7 @@ function BestAtAgeView({ goToPlayer }) {
     <div>
       <p className="text-sm font-black text-gray-900 mb-1">Every Age</p>
       <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-        The two best seasons at every age from 14 to 52. Minimum 5 games, and 15 attempts for the shooting percentages. Tap a face for the season behind it.
+        The two best seasons at every age from 14 to 52. Minimum 5 games, and 15 attempts for the shooting percentages. Tap a dot for the season behind it.
       </p>
 
       {AGE_CURVE_GROUPS.map(group => (
@@ -8558,67 +8592,49 @@ function BestAtAgeView({ goToPlayer }) {
       <div className="mt-3 rounded-2xl border border-gray-100 bg-white overflow-hidden">
         <div className="px-3 pt-3 pb-1 flex items-baseline justify-between">
           <span className="text-[11px] font-black text-gray-900">{stat.full} by age</span>
-          <span className="text-[11px] text-gray-400">{flat.length} seasons plotted</span>
+          <span className="text-[11px] text-gray-400">{flat.length} seasons</span>
         </div>
 
         {flat.length === 0 ? (
           <div className="px-3 py-10 text-center text-[11px] text-gray-400">Nobody qualifies for this stat yet.</div>
         ) : (
-          <div className="flex">
-            {/* Pinned y axis */}
-            <div className="flex-shrink-0" style={{ width: AGE_GUTTER, height: AGE_CHART_H + AGE_LABEL_H }}>
-              <svg width={AGE_GUTTER} height={AGE_CHART_H + AGE_LABEL_H}>
-                {ticks.map((v, i) => (
-                  <text key={i} x={AGE_GUTTER - 6} y={yOf(v) + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{fmtAxis(v)}</text>
-                ))}
-              </svg>
-            </div>
+          <div className="px-1 pb-1">
+            <svg viewBox={`0 0 ${AGE_VB_W} ${AGE_VB_H}`} className="w-full" style={{ display: "block" }}>
+              {ticks.map((v, i) => (
+                <g key={i}>
+                  <line x1={AGE_PAD_L} x2={AGE_VB_W - AGE_PAD_R} y1={yOf(v)} y2={yOf(v)} stroke="#e5e7eb" strokeWidth="0.8" />
+                  <text x={AGE_PAD_L - 5} y={yOf(v) + 3.5} textAnchor="end" fontSize="11" fill="#9ca3af">{fmtAxis(v)}</text>
+                </g>
+              ))}
 
-            {/* Scrollable plot */}
-            <div ref={scrollRef} className="overflow-x-auto flex-1">
-              <div className="relative" style={{ width: plotW, height: AGE_CHART_H + AGE_LABEL_H }}>
-                <svg width={plotW} height={AGE_CHART_H + AGE_LABEL_H} className="absolute inset-0">
-                  {ticks.map((v, i) => (
-                    <line key={i} x1="0" x2={plotW} y1={yOf(v)} y2={yOf(v)} stroke="#f3f4f6" strokeWidth="1" />
-                  ))}
-                  {leaderPath && <path d={leaderPath} fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />}
-                  {ages.map(a => {
-                    const pair = byAge[a];
-                    if (!pair || pair.length < 2) return null;
-                    return <line key={a} x1={xOf(a) - AGE_NUDGE} y1={yOf(pair[0].value)} x2={xOf(a) + AGE_NUDGE} y2={yOf(pair[1].value)} stroke="#e5e7eb" strokeWidth="1" />;
-                  })}
-                  {ages.map(a => (
-                    <text key={a} x={xOf(a)} y={AGE_CHART_H + 14} textAnchor="middle" fontSize="11"
-                      fill={byAge[a] ? "#374151" : "#e5e7eb"} fontWeight={byAge[a] ? "700" : "400"}>{a}</text>
-                  ))}
-                </svg>
+              {ages.filter(a => a % 5 === 0).map(a => (
+                <text key={a} x={xOf(a)} y={AGE_VB_H - AGE_PAD_B + 14} textAnchor="middle" fontSize="11" fill="#6b7280" fontWeight="700">{a}</text>
+              ))}
 
-                {flat.map(p => {
-                  const isSel = sel && sel.age === p.age && sel.rank === p.rank;
-                  const ring = isSel ? "0 0 0 2.5px #2563eb" : p.rank === 0 ? "0 0 0 2px #111827" : "0 0 0 1.5px #d1d5db";
-                  return (
-                    <button key={p.age + "-" + p.rank}
-                      onClick={() => setSel(isSel ? null : { age: p.age, rank: p.rank })}
-                      className="absolute rounded-full active:opacity-70"
-                      style={{
-                        left: xOf(p.age) + (p.rank === 0 ? -AGE_NUDGE : AGE_NUDGE) - AGE_DOT / 2,
-                        top: yOf(p.value) - AGE_DOT / 2,
-                        width: AGE_DOT, height: AGE_DOT,
-                        boxShadow: ring, zIndex: isSel ? 30 : p.rank === 0 ? 20 : 10,
-                      }}>
-                      <ThAvatar name={p.row.player} size={AGE_DOT} photoUrl={avatarUrl(p.row.player)} />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+              {flat.map(p => {
+                const c = colorOf[p.row.player] || AGE_CURVE_GRAY;
+                const isSel = sel && sel.age === p.age && sel.rank === p.rank;
+                return (
+                  <g key={p.age + "-" + p.rank} onClick={() => setSel(isSel ? null : { age: p.age, rank: p.rank })} style={{ cursor: "pointer" }}>
+                    <circle cx={xOf(p.age)} cy={yOf(p.value)} r={9} fill="transparent" />
+                    <circle cx={xOf(p.age)} cy={yOf(p.value)} r={isSel ? AGE_DOT_R + 1.8 : AGE_DOT_R}
+                      fill={c} stroke={isSel ? "#111827" : "#ffffff"} strokeWidth={isSel ? 1.6 : 0.9} />
+                  </g>
+                );
+              })}
+
+              {labels.map((l, i) => (
+                <text key={i} x={l.x} y={l.y} textAnchor="middle" fontSize="11" fontWeight="700" fill={l.color}
+                  stroke="#ffffff" strokeWidth="2.6" paintOrder="stroke">{l.text}</text>
+              ))}
+            </svg>
           </div>
         )}
 
         {/* Selected season */}
         <div className="border-t border-gray-100 px-3 py-2.5">
           {!selRow ? (
-            <p className="text-[11px] text-gray-400">Dark ring is the best at that age, light ring is second. Tap either one.</p>
+            <p className="text-[11px] text-gray-400">Two dots per age, the better season on top. Tap any dot.</p>
           ) : (
             <div className="flex items-center gap-2.5 cursor-pointer active:opacity-70" onClick={() => goToPlayer(selRow.player)}>
               <ThAvatar name={selRow.player} size={38} photoUrl={avatarUrl(selRow.player)} />
@@ -8626,7 +8642,7 @@ function BestAtAgeView({ goToPlayer }) {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-sm font-black text-gray-900">{formatName(selRow.player)}</span>
                   <span className="text-[11px] text-gray-400">{selRow.team} <span className={selRow.year === currentYear() ? `font-bold ${CURRENT_YEAR_TEXT}` : ""}>{selRow.year}</span></span>
-                  <span className="text-[11px] text-gray-400">age {selRow.age}</span>
+                  <span className="text-[11px] text-gray-400">{sel.rank === 0 ? "best" : "second"} at {selRow.age}</span>
                 </div>
                 <div className="text-[11px] text-gray-500 mt-0.5">
                   {selRow.g} GP
