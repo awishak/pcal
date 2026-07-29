@@ -8523,24 +8523,30 @@ function BestAtAgeView({ goToPlayer }) {
   // Players holding the most spots come first, so the recurring names get the
   // cleanest separation.
   const [colorOf, labelNames] = useMemo(() => {
-    const counts = {}, best = {};
+    const counts = {}, leads = {}, best = {};
     flat.forEach(p => {
       counts[p.row.player] = (counts[p.row.player] || 0) + 1;
+      if (p.rank === 0) leads[p.row.player] = (leads[p.row.player] || 0) + 1;
       if (!(best[p.row.player] >= p.value)) best[p.row.player] = p.value;
     });
     const ranked = Object.keys(counts)
       .sort((a, b) => counts[b] - counts[a] || best[b] - best[a] || a.localeCompare(b));
     const map = {};
     ranked.forEach((n, i) => { map[n] = `hsl(${(i * 137.508) % 360}, 62%, 44%)`; });
-    return [map, new Set(ranked.filter(n => counts[n] >= 2).slice(0, AGE_CURVE_LABELS))];
+    const labelled = Object.keys(leads)
+      .filter(n => leads[n] >= 2)
+      .sort((a, b) => leads[b] - leads[a] || best[b] - best[a] || a.localeCompare(b))
+      .slice(0, AGE_CURVE_LABELS);
+    return [map, new Set(labelled)];
   }, [flat]);
 
-  // One label per recurring player, parked on their best season. Labels that
-  // would land on top of an already placed one flip below the dot, then give up.
+  // One label per recurring player, parked on their best leading season. Second
+  // place is never labeled. Labels that would land on top of an already placed
+  // one flip below the dot, then give up.
   const labels = useMemo(() => {
     const best = {};
     flat.forEach(p => {
-      if (!labelNames.has(p.row.player)) return;
+      if (p.rank !== 0 || !labelNames.has(p.row.player)) return;
       if (!best[p.row.player] || p.value > best[p.row.player].value) best[p.row.player] = p;
     });
     const placed = [];
@@ -8565,6 +8571,8 @@ function BestAtAgeView({ goToPlayer }) {
       });
     return out;
   }, [flat, colorOf, labelNames, yMin, yMax]);
+
+  const leaders = useMemo(() => flat.filter(p => p.rank === 0), [flat]);
 
   const selPoint = sel ? (byAge[sel.age] || [])[sel.rank] : null;
   const selRow = selPoint && selPoint.row;
@@ -8672,6 +8680,27 @@ function BestAtAgeView({ goToPlayer }) {
             </div>
           )}
         </div>
+
+        {/* Every leader, named. The chart can only carry a handful of labels,
+            so this is where you find out who the other top dots are. */}
+        {leaders.length > 0 && (
+          <div className="border-t border-gray-100 px-3 py-2.5">
+            <p className="text-[11px] font-black text-gray-900 mb-1.5">Best at each age</p>
+            <div className="flex flex-wrap gap-1">
+              {leaders.map(p => {
+                const isSel = sel && sel.age === p.age && sel.rank === 0;
+                return (
+                  <button key={p.age} onClick={() => setSel(isSel ? null : { age: p.age, rank: 0 })}
+                    className={`inline-flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-full border text-[11px] transition-colors ${isSel ? "bg-gray-900 border-gray-900 text-white" : "bg-white border-gray-200"}`}>
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: colorOf[p.row.player] }} />
+                    <span className={`font-black ${isSel ? "text-white" : "text-gray-900"}`}>{p.age}</span>
+                    <span className={isSel ? "text-white" : "text-gray-500"}>{ageCurveShortName(p.row.player)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
