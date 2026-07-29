@@ -8574,6 +8574,18 @@ function BestAtAgeView({ goToPlayer }) {
 
   const leaders = useMemo(() => flat.filter(p => p.rank === 0), [flat]);
 
+  // One row per player, in order of the youngest age they lead, with every age
+  // they lead gathered onto that row.
+  const leaderRows = useMemo(() => {
+    const byPlayer = new Map();
+    leaders.forEach(p => {
+      let row = byPlayer.get(p.row.player);
+      if (!row) { row = { player: p.row.player, first: p.age, ages: [] }; byPlayer.set(p.row.player, row); }
+      row.ages.push(p.age);
+    });
+    return [...byPlayer.values()].sort((a, b) => a.first - b.first);
+  }, [leaders]);
+
   const selPoint = sel ? (byAge[sel.age] || [])[sel.rank] : null;
   const selRow = selPoint && selPoint.row;
 
@@ -8686,18 +8698,27 @@ function BestAtAgeView({ goToPlayer }) {
         {leaders.length > 0 && (
           <div className="border-t border-gray-100 px-3 py-2.5">
             <p className="text-[11px] font-black text-gray-900 mb-1.5">Best at each age</p>
-            <div className="flex flex-wrap gap-1">
-              {leaders.map(p => {
-                const isSel = sel && sel.age === p.age && sel.rank === 0;
-                return (
-                  <button key={p.age} onClick={() => setSel(isSel ? null : { age: p.age, rank: 0 })}
-                    className={`inline-flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-full border text-[11px] transition-colors ${isSel ? "bg-gray-900 border-gray-900 text-white" : "bg-white border-gray-200"}`}>
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: colorOf[p.row.player] }} />
-                    <span className={`font-black ${isSel ? "text-white" : "text-gray-900"}`}>{p.age}</span>
-                    <span className={isSel ? "text-white" : "text-gray-500"}>{ageCurveShortName(p.row.player)}</span>
-                  </button>
-                );
-              })}
+            <div className="divide-y divide-gray-50">
+              {leaderRows.map(r => (
+                <div key={r.player} className="flex items-center gap-2 py-1.5">
+                  <div className="rounded-full flex flex-shrink-0" style={{ boxShadow: `0 0 0 2px ${colorOf[r.player]}` }}>
+                    <ThAvatar name={r.player} size={26} photoUrl={avatarUrl(r.player)} />
+                  </div>
+                  <span className="text-[11px] font-bold text-gray-900 flex-1 min-w-0 truncate cursor-pointer active:opacity-70"
+                    onClick={() => goToPlayer(r.player)}>{formatName(r.player)}</span>
+                  <div className="flex gap-1 flex-shrink-0">
+                    {r.ages.map(a => {
+                      const isSel = sel && sel.age === a && sel.rank === 0;
+                      return (
+                        <button key={a} onClick={() => setSel(isSel ? null : { age: a, rank: 0 })}
+                          className={`px-1.5 py-0.5 rounded-md text-[11px] font-bold tabular-nums transition-colors ${isSel ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>
+                          {a}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
