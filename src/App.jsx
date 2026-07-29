@@ -8611,17 +8611,22 @@ function BestAtAgeView({ goToPlayer }) {
                 <text key={a} x={xOf(a)} y={AGE_VB_H - AGE_PAD_B + 14} textAnchor="middle" fontSize="11" fill="#6b7280" fontWeight="700">{a}</text>
               ))}
 
-              {flat.map(p => {
-                const c = colorOf[p.row.player] || AGE_CURVE_GRAY;
+              {/* Runners up sit behind the leaders and are drawn faint, so the
+                  best season at each age is the one that reads first. */}
+              {[1, 0].map(layer => flat.filter(p => p.rank === layer).map(p => {
+                const named = colorOf[p.row.player];
                 const isSel = sel && sel.age === p.age && sel.rank === p.rank;
+                const dim = p.rank === 1 && !isSel;
                 return (
                   <g key={p.age + "-" + p.rank} onClick={() => setSel(isSel ? null : { age: p.age, rank: p.rank })} style={{ cursor: "pointer" }}>
                     <circle cx={xOf(p.age)} cy={yOf(p.value)} r={9} fill="transparent" />
-                    <circle cx={xOf(p.age)} cy={yOf(p.value)} r={isSel ? AGE_DOT_R + 1.8 : AGE_DOT_R}
-                      fill={c} stroke={isSel ? "#111827" : "#ffffff"} strokeWidth={isSel ? 1.6 : 0.9} />
+                    <circle cx={xOf(p.age)} cy={yOf(p.value)} r={isSel ? AGE_DOT_R + 1.8 : dim ? AGE_DOT_R - 0.5 : AGE_DOT_R}
+                      fill={named || AGE_CURVE_GRAY} fillOpacity={dim ? (named ? 0.3 : 0.5) : 1}
+                      stroke={isSel ? "#111827" : "#ffffff"} strokeWidth={isSel ? 1.6 : 0.9}
+                      strokeOpacity={dim ? 0.7 : 1} />
                   </g>
                 );
-              })}
+              }))}
 
               {labels.map((l, i) => (
                 <text key={i} x={l.x} y={l.y} textAnchor="middle" fontSize="11" fontWeight="700" fill={l.color}
@@ -8634,7 +8639,7 @@ function BestAtAgeView({ goToPlayer }) {
         {/* Selected season */}
         <div className="border-t border-gray-100 px-3 py-2.5">
           {!selRow ? (
-            <p className="text-[11px] text-gray-400">Two dots per age, the better season on top. Tap any dot.</p>
+            <p className="text-[11px] text-gray-400">Two dots per age. Solid is the best season at that age, faint is second. Tap either.</p>
           ) : (
             <div className="flex items-center gap-2.5 cursor-pointer active:opacity-70" onClick={() => goToPlayer(selRow.player)}>
               <ThAvatar name={selRow.player} size={38} photoUrl={avatarUrl(selRow.player)} />
