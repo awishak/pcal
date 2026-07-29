@@ -8612,6 +8612,14 @@ function BestAtAgeView({ goToPlayer }) {
                 <text key={a} x={xOf(a)} y={AGE_VB_H - AGE_PAD_B + 14} textAnchor="middle" fontSize="11" fill="#6b7280" fontWeight="700">{a}</text>
               ))}
 
+              {/* Hairline tying each age's pair together, under the dots. */}
+              {ages.map(a => {
+                const pair = byAge[a];
+                if (!pair || pair.length < 2) return null;
+                return <line key={a} x1={xOf(a)} x2={xOf(a)} y1={yOf(pair[0].value)} y2={yOf(pair[1].value)}
+                  stroke="#cbd5e1" strokeWidth="0.8" />;
+              })}
+
               {/* Runners up sit behind the leaders and are drawn faint, so the
                   best season at each age is the one that reads first. */}
               {[1, 0].map(layer => flat.filter(p => p.rank === layer).map(p => {
