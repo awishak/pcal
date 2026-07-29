@@ -8445,10 +8445,9 @@ const AGE_CURVE_STATS = [
 ];
 const AGE_CURVE_GROUPS = ["Per game", "Shooting"];
 
-// Repeat names get a color and a label, everyone else stays gray, so the
-// players who own the curve stand out without 78 labels fighting each other.
-const AGE_CURVE_COLORS = ["#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c", "#0891b2", "#be185d", "#4d7c0f"];
-const AGE_CURVE_GRAY = "#cbd5e1";
+// Every player gets their own color. Only the recurring names get a label,
+// otherwise 78 of them fight each other for the same space.
+const AGE_CURVE_LABELS = 8;
 
 const AGE_LO = 14, AGE_HI = 52;
 // Chart coordinates are viewBox units, scaled to whatever width the card gets.
@@ -8519,27 +8518,29 @@ function BestAtAgeView({ goToPlayer }) {
   const yOf = v => AGE_PAD_T + (1 - (v - yMin) / (yMax - yMin || 1)) * AGE_PLOT_H;
   const ticks = useMemo(() => [0, 1, 2, 3, 4].map(i => yMin + (yMax - yMin) * i / 4), [yMin, yMax]);
 
-  // Anyone holding two or more of the plotted spots earns a color, most spots
-  // first, up to the size of the palette.
-  const colorOf = useMemo(() => {
-    const counts = {};
-    flat.forEach(p => { counts[p.row.player] = (counts[p.row.player] || 0) + 1; });
+  // Every player on the chart gets their own color, spread around the wheel by
+  // the golden angle so neighbours in the order never land on the same hue.
+  // Players holding the most spots come first, so the recurring names get the
+  // cleanest separation.
+  const [colorOf, labelNames] = useMemo(() => {
+    const counts = {}, best = {};
+    flat.forEach(p => {
+      counts[p.row.player] = (counts[p.row.player] || 0) + 1;
+      if (!(best[p.row.player] >= p.value)) best[p.row.player] = p.value;
+    });
     const ranked = Object.keys(counts)
-      .filter(n => counts[n] >= 2)
-      .sort((a, b) => counts[b] - counts[a] || a.localeCompare(b))
-      .slice(0, AGE_CURVE_COLORS.length);
+      .sort((a, b) => counts[b] - counts[a] || best[b] - best[a] || a.localeCompare(b));
     const map = {};
-    ranked.forEach((n, i) => { map[n] = AGE_CURVE_COLORS[i]; });
-    return map;
+    ranked.forEach((n, i) => { map[n] = `hsl(${(i * 137.508) % 360}, 62%, 44%)`; });
+    return [map, new Set(ranked.filter(n => counts[n] >= 2).slice(0, AGE_CURVE_LABELS))];
   }, [flat]);
 
-  // One label per colored player, parked on their best season. Labels that
+  // One label per recurring player, parked on their best season. Labels that
   // would land on top of an already placed one flip below the dot, then give up.
   const labels = useMemo(() => {
     const best = {};
     flat.forEach(p => {
-      const c = colorOf[p.row.player];
-      if (!c) return;
+      if (!labelNames.has(p.row.player)) return;
       if (!best[p.row.player] || p.value > best[p.row.player].value) best[p.row.player] = p;
     });
     const placed = [];
@@ -8563,7 +8564,7 @@ function BestAtAgeView({ goToPlayer }) {
         }
       });
     return out;
-  }, [flat, colorOf, yMin, yMax]);
+  }, [flat, colorOf, labelNames, yMin, yMax]);
 
   const selPoint = sel ? (byAge[sel.age] || [])[sel.rank] : null;
   const selRow = selPoint && selPoint.row;
@@ -8614,14 +8615,13 @@ function BestAtAgeView({ goToPlayer }) {
               {/* Runners up sit behind the leaders and are drawn faint, so the
                   best season at each age is the one that reads first. */}
               {[1, 0].map(layer => flat.filter(p => p.rank === layer).map(p => {
-                const named = colorOf[p.row.player];
                 const isSel = sel && sel.age === p.age && sel.rank === p.rank;
                 const dim = p.rank === 1 && !isSel;
                 return (
                   <g key={p.age + "-" + p.rank} onClick={() => setSel(isSel ? null : { age: p.age, rank: p.rank })} style={{ cursor: "pointer" }}>
                     <circle cx={xOf(p.age)} cy={yOf(p.value)} r={9} fill="transparent" />
                     <circle cx={xOf(p.age)} cy={yOf(p.value)} r={isSel ? AGE_DOT_R + 1.8 : dim ? AGE_DOT_R - 0.5 : AGE_DOT_R}
-                      fill={named || AGE_CURVE_GRAY} fillOpacity={dim ? (named ? 0.3 : 0.5) : 1}
+                      fill={colorOf[p.row.player]} fillOpacity={dim ? 0.28 : 1}
                       stroke={isSel ? "#111827" : "#ffffff"} strokeWidth={isSel ? 1.6 : 0.9}
                       strokeOpacity={dim ? 0.7 : 1} />
                   </g>
