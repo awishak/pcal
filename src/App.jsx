@@ -3565,7 +3565,7 @@ function AppInner() {
             logos={TEAM_LOGOS_CURRENT}
             aiScores={liveAiScores}
             scheduleWarning={scheduleWarning}
-            isAdmin={isAdminView}
+            isCommissioner={isAdminView && hasRole("commissioner")}
           />
         )}
         {tab === "watch" && (

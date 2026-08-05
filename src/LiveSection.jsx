@@ -724,7 +724,7 @@ function PlayerAvatar({ name, team, size = 40, square = false }) {
 // ------------------------------------------------------------
 // Main Live Section
 // ------------------------------------------------------------
-export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null, aiScores = null, scheduleWarning = { bannerEnabled: false, text: "" }, isAdmin = false } = {}) {
+export default function LiveSection({ initialGameId = null, onConsumeInitialGameId = () => {}, logos = null, aiScores = null, scheduleWarning = { bannerEnabled: false, text: "" }, isCommissioner = false } = {}) {
   // Cached login from localStorage. This is kept so the scoring UI has
   // a player identity ({name, team, pin, season}) to attach to events.
   // It's synced below to the Supabase Auth session so logging in via the
@@ -838,7 +838,7 @@ export default function LiveSection({ initialGameId = null, onConsumeInitialGame
           <LiveHome me={me} onLogin={login} onLogout={logout} onOpenGame={openGame} onReview={() => setView("review")} onEditSchedule={() => setView("schedule_edit")} scheduleWarning={scheduleWarning} />
         )}
         {view === "game" && activeGameId && (
-          <LiveGameView gameId={activeGameId} me={me} onLogin={login} onBack={() => { setView("home"); setActiveGameId(null); }} isAdmin={isAdmin} />
+          <LiveGameView gameId={activeGameId} me={me} onLogin={login} onBack={() => { setView("home"); setActiveGameId(null); }} isCommissioner={isCommissioner} />
         )}
         {view === "review" && (
           <ReviewQueue onBack={() => setView("home")} onOpen={openGame} />
@@ -1979,7 +1979,7 @@ function ModalShell({ children, onClose, title }) {
 // Live Game View: scoreboard + box score + play-by-play
 // Scorer controls appear only for signed-in scorers
 // ============================================================
-function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
+function LiveGameView({ gameId, me, onLogin, onBack, isCommissioner = false }) {
   const [game, setGame] = useState(null);
   const [live, setLive] = useState(null);
   const [events, setEvents] = useState([]);
@@ -2063,7 +2063,9 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
   // For approved games the committed game_log rows are the source of truth:
   // the commissioner may have edited the numbers at approval, and those edits
   // must show everywhere. The live event-derived box is preserved untouched
-  // as the "as scored" original, shown to admins via a toggle. game_log has
+  // as the "as scored" original, shown to the commissioner only via a
+  // toggle. Everyone else, admins and registrars included, sees official
+  // and never sees the toggle. game_log has
   // no game_id, so we read by the year+week+date+matchup proxy.
   const isApproved = live?.status === "approved" || game?.status === "approved";
   // The flow chart is a retrospective, so it only appears once the game stops
@@ -2318,7 +2320,7 @@ function LiveGameView({ gameId, me, onLogin, onBack, isAdmin = false }) {
       </div>
 
       {mode === "box" && <BoxScoreView game={game} box={displayBox} rosters={rosters}
-        showSourceToggle={isAdmin && hasOfficial} boxSource={boxSource} onSourceChange={setBoxSource} />}
+        showSourceToggle={isCommissioner && hasOfficial} boxSource={boxSource} onSourceChange={setBoxSource} />}
       {mode === "log" && <PlayByPlay events={events} me={me} myRole={myRole} game={game} isFinal={isFinal} />}
       </div>
     </PhotosContext.Provider>
