@@ -17581,8 +17581,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             <tr className="bg-gray-50 border-b border-gray-100">
               {TEAM_COLS.map(c => (
                 <th key={c.key} onClick={() => toggleTeamSort(c.key, c.str)}
-                  style={c.shoot ? { width: "1%" } : undefined}
-                  className={`px-2 py-2 text-[11px] font-black uppercase tracking-wide select-none cursor-pointer ${c.str ? "text-left px-2.5" : "text-center"} ${c.shoot ? "whitespace-nowrap" : ""} ${teamSortKey === c.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
+                  style={c.str ? { boxShadow: "1px 0 0 0 rgb(229 231 235)" } : (c.shoot ? { width: "1%" } : undefined)}
+                  className={`px-2 py-2 text-[11px] font-black uppercase tracking-wide select-none cursor-pointer ${c.str ? "text-left px-2.5 sticky left-0 z-20 bg-gray-50" : "text-center"} ${c.shoot ? "whitespace-nowrap" : ""} ${teamSortKey === c.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
                   {c.label}{teamArrow(c.key)}
                 </th>
               ))}
@@ -17592,11 +17592,13 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             {teamSorted.map(a => {
               const c = TEAM_COLORS[a.team] || "#9ca3af";
               return (
-                <tr key={a.team} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
+                <tr key={a.team} className="group border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
                   {TEAM_COLS.map(col => {
                     if (col.str) {
                       return (
-                        <td key={col.key} className="px-2.5 py-2 text-left">
+                        <td key={col.key}
+                          className="px-2.5 py-2 text-left sticky left-0 z-10 bg-white group-hover:bg-gray-50 transition-colors"
+                          style={{ boxShadow: "1px 0 0 0 rgb(243 244 246)" }}>
                           <div className="flex items-center gap-2">
                             <TeamLogo team={a.team} year={2026} size={22} />
                             <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ background: c }} />
@@ -17648,8 +17650,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
               {COLS.map(c => (
                 <th key={c.key} onClick={() => toggleSort(c.key, c.str)}
-                  style={c.shoot ? { width: "1%" } : undefined}
-                  className={`px-2 py-2 text-[11px] font-bold uppercase tracking-wide select-none cursor-pointer ${c.player ? "text-left px-2.5" : "text-center"} ${c.shoot ? "whitespace-nowrap" : ""} ${sortKey === c.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
+                  className={`px-2 py-2 text-[11px] font-bold uppercase tracking-wide select-none cursor-pointer ${c.player ? "text-left px-2.5 sticky left-0 z-20 bg-gray-50" : "text-center"} ${c.shoot ? "whitespace-nowrap" : ""} ${sortKey === c.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
+                  style={c.player ? { boxShadow: "1px 0 0 0 rgb(229 231 235)" } : (c.shoot ? { width: "1%" } : undefined)}>
                   {c.label}{arrow(c.key)}
                 </th>
               ))}
@@ -17658,12 +17660,18 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           <tbody>
             {sorted.map(r => (
               <tr key={r.key} onClick={() => setSelected(r.key === selected ? null : r.key)}
-                className={`border-b border-gray-50 cursor-pointer transition-colors ${r.key === selected ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
+                className={`group border-b border-gray-50 cursor-pointer transition-colors ${r.key === selected ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
                 {COLS.map(c => {
                   if (c.player) {
                     const chip = r.active26 ? (TEAM_COLORS[r.view.team] || "#9ca3af") : "#d1d5db";
+                    // Pinned while the stat columns scroll under it, so the row
+                    // you are reading always has a name attached. Needs its own
+                    // opaque background, matching the row state, or the
+                    // scrolled cells show through.
                     return (
-                      <td key={c.key} className="px-2.5 py-1.5 text-left">
+                      <td key={c.key}
+                        className={`px-2.5 py-1.5 text-left sticky left-0 z-10 transition-colors ${r.key === selected ? "bg-indigo-50" : "bg-white group-hover:bg-gray-50"}`}
+                        style={{ boxShadow: "1px 0 0 0 rgb(243 244 246)" }}>
                         <div className="flex items-center gap-2">
                           <span className="w-7 text-right text-xs font-bold text-gray-400 tabular-nums flex-shrink-0">{r.jersey != null ? "#" + r.jersey : ""}</span>
                           <ThAvatar name={r.name} size={28} photoUrl={photoFor(r.name)} />
@@ -17744,7 +17752,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                 <table className="w-full border-collapse text-xs">
                   <thead>
                     <tr className="text-gray-400 border-b border-gray-100 text-[10px] uppercase tracking-wide">
-                      <th className="px-1.5 py-1 text-left font-bold">Date</th>
+                      <th className="px-1.5 py-1 text-left font-bold sticky left-0 z-20 bg-white" style={{ boxShadow: "1px 0 0 0 rgb(243 244 246)" }}>Date</th>
                       <th className="px-1.5 py-1 text-left font-bold">Opp</th>
                       <th className={th}>PTS</th>
                       <th className={th}>TM PTS%</th>
@@ -17779,7 +17787,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                       const tl = typeLbl(r[5]);
                       return (
                         <tr key={i} className="border-b border-gray-50">
-                          <td className="px-1.5 py-1 text-left tabular-nums whitespace-nowrap text-gray-700">
+                          <td className="px-1.5 py-1 text-left tabular-nums whitespace-nowrap text-gray-700 sticky left-0 z-10 bg-white"
+                            style={{ boxShadow: "1px 0 0 0 rgb(243 244 246)" }}>
                             {multiYear && <span className="text-gray-400">{r[20]} · </span>}
                             <span className="font-bold text-gray-900">{r[4]}</span>
                             {tl && <span className="text-[9px] font-black text-amber-700 ml-1">{tl}</span>}
@@ -17820,7 +17829,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="text-gray-400 border-b border-gray-100 text-[11px] uppercase tracking-wide">
-                  <th className="px-2 py-1.5 text-left font-bold">Year</th>
+                  <th className="px-2 py-1.5 text-left font-bold sticky left-0 z-20 bg-white" style={{ boxShadow: "1px 0 0 0 rgb(243 244 246)" }}>Year</th>
                   <th className="px-2 py-1.5 text-left font-bold">Team</th>
                   <th className="px-2 py-1.5 text-center font-bold">G</th>
                   <th className="px-2 py-1.5 text-center font-bold">PPG</th>
@@ -17847,7 +17856,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
                   };
                   return (
                     <tr key={h.year} className={`border-b border-gray-50 ${selSeasons.includes(h.year) ? "bg-indigo-50" : ""}`}>
-                      <td className="px-2 py-1.5 text-left font-bold text-gray-900 tabular-nums">{h.year}</td>
+                      <td className={`px-2 py-1.5 text-left font-bold text-gray-900 tabular-nums sticky left-0 z-10 ${selSeasons.includes(h.year) ? "bg-indigo-50" : "bg-white"}`}
+                        style={{ boxShadow: "1px 0 0 0 rgb(243 244 246)" }}>{h.year}</td>
                       <td className="px-2 py-1.5 text-left text-gray-500">{h.teams.join("/")}</td>
                       <td className="px-2 py-1.5 text-center tabular-nums text-gray-700">{h.g}</td>
                       {avgCell("ppg")}{avgCell("rpg")}{avgCell("apg")}{avgCell("spg")}{avgCell("bpg")}
