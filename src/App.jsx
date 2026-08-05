@@ -3566,7 +3566,11 @@ function AppInner() {
         {tab === "rules" && (
           <RulesView />
         )}
-        {tab === "scouting" && isRealAdmin && (
+        {/* Unlisted, not gated. The tile is adminOnly so nothing in the app
+            links here, but /stats/scouting works for anyone who has the URL.
+            Nothing on this page is private: game_log is public read, so the
+            page publishes the presentation, not new data. */}
+        {tab === "scouting" && (
           <ScoutingView onBack={() => setTab("stats_home")} goToPlayer={goToPlayer} defaultSeason={2026} photoVersion={photoVersion} />
         )}
         {tab === "admin" && adminUnlocked && isRealAdmin && (
@@ -17478,8 +17482,8 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
         <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mr-1">Jump to</span>
         {[
           { label: "Team stats", ref: teamRef },
-          { label: "Efficiency chart", ref: chartRef },
           { label: "Player stats", ref: playersRef },
+          { label: "Efficiency chart", ref: chartRef },
         ].map(j => (
           <button key={j.label} onClick={() => jumpTo(j.ref)}
             className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">
@@ -17519,11 +17523,6 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
               </button>
             );
           })}
-          <button onClick={() => { setAwardsOnly(v => !v); setSelected(null); }}
-            title="5 or more games played in 2026 and no 2026 spiritual fouls"
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${awardsOnly ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            Awards eligible
-          </button>
           <div className="flex items-center gap-1.5 ml-auto">
             <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Min att for %</span>
             {[0, 5, 10, 15, 20].map(n => (
@@ -17533,6 +17532,20 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
               </button>
             ))}
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button type="button" role="switch" aria-checked={awardsOnly}
+            onClick={() => { setAwardsOnly(v => !v); setSelected(null); }}
+            className="flex items-center gap-2 group">
+            <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${awardsOnly ? "bg-gray-900" : "bg-gray-300 group-hover:bg-gray-400"}`}>
+              <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform"
+                style={{ transform: `translateX(${awardsOnly ? 18 : 2}px)` }} />
+            </span>
+            <span className="text-xs font-black text-gray-900">Awards eligible only</span>
+          </button>
+          <span className="text-[11px] text-gray-500">
+            5 or more games played in 2026 and no 2026 spiritual fouls{awardsOnly ? `, ${sorted.length} of ${roster.length} shown` : ""}
+          </span>
         </div>
       </div>
 
@@ -17618,107 +17631,6 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           </tbody>
         </table>
       </div>
-
-      {/* Efficiency scatter. Points per possession on the x axis, scoring on the
-          y, total points as marker area. The x scale is fixed so the 1.0 line
-          sits in the same spot every time and teams compare like for like. The
-          solid vertical line is break even, 1.0 points per possession; the
-          dashed lines are the selection's own means. Low-volume players are
-          muted because tiny samples send efficiency to meaningless extremes. */}
-      {scatter && (() => {
-        const xPos = (v) => ((Math.min(Math.max(v, scatter.xMin), scatter.xMax) - scatter.xMin) / (scatter.xMax - scatter.xMin)) * 100;
-        const yPos = (v) => (1 - v / scatter.yMax) * 100;
-        return (
-        <div ref={chartRef} className="rounded-2xl border border-gray-100 p-4 mb-5 scroll-mt-4">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
-            <div className="text-sm font-black text-gray-900">Scoring vs efficiency</div>
-            <div className="text-[11px] text-gray-500">Y: points per game · X: points per possession · marker size: total points in {seasonLabel}</div>
-          </div>
-          <div className="relative" style={{ height: 480, paddingLeft: 40, paddingRight: 28, paddingTop: 28, paddingBottom: 44 }}>
-            <div className="absolute" style={{ left: 40, right: 28, top: 28, bottom: 44 }}>
-              {/* Gridlines and axis ticks */}
-              {scatter.yTicks.map((t, i) => (
-                <div key={"y" + i} className="absolute left-0 right-0 border-t border-gray-100" style={{ top: `${yPos(t)}%` }}>
-                  <span className="absolute right-full pr-2 text-[11px] text-gray-400 tabular-nums" style={{ transform: "translateY(-50%)" }}>{t.toFixed(0)}</span>
-                </div>
-              ))}
-              {scatter.xTicks.map((t, i) => (
-                <div key={"x" + i} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${xPos(t)}%` }}>
-                  <span className="absolute top-full pt-1.5 text-[11px] text-gray-400 tabular-nums" style={{ transform: "translateX(-50%)" }}>{t.toFixed(1)}</span>
-                </div>
-              ))}
-
-              {/* Means */}
-              <div className="absolute left-0 right-0 border-t border-dashed border-gray-300" style={{ top: `${yPos(scatter.meanY)}%` }} />
-              <div className="absolute top-0 bottom-0 border-l border-dashed border-gray-300" style={{ left: `${xPos(scatter.meanX)}%` }} />
-
-              {/* Break even: 1.0 points per possession */}
-              <div className="absolute top-0 bottom-0 border-l-2 border-gray-500" style={{ left: `${xPos(1.0)}%` }} />
-              <span className="absolute text-[11px] font-bold text-gray-500 bg-white px-1 pointer-events-none"
-                style={{ left: `${xPos(1.0)}%`, top: 0, transform: "translate(4px, -2px)" }}>1.0 PPP</span>
-
-              {/* Players */}
-              {scatter.pts.map(p => {
-                const d = scatter.size(p);
-                const muted = !p.active26 || p.lowVol;
-                const col = muted ? "#d1d5db" : (TEAM_COLORS[p.team] || "#9ca3af");
-                const isSel = p.key === selected, isHov = p.key === hovered;
-                return (
-                  <button key={p.key} type="button"
-                    onClick={() => setSelected(p.key === selected ? null : p.key)}
-                    onMouseEnter={() => setHovered(p.key)}
-                    onMouseLeave={() => setHovered(h => h === p.key ? null : h)}
-                    title={`${p.display} · ${p.x.toFixed(2)} PPP · ${p.y.toFixed(1)} PPG · ${p.poss.toFixed(1)} POSS · ${p.pts} pts`}
-                    className="absolute rounded-full overflow-hidden transition-transform hover:scale-110"
-                    style={{
-                      left: `${xPos(p.x)}%`,
-                      top: `${yPos(p.y)}%`,
-                      width: d, height: d, marginLeft: -d / 2, marginTop: -d / 2,
-                      boxShadow: `0 0 0 ${isSel ? 4 : 3}px ${isSel ? "#111827" : col}`,
-                      opacity: muted ? 0.4 : 1,
-                      zIndex: (isSel || isHov) ? 40 : 10,
-                    }}>
-                    <ThAvatar name={p.name} size={d} photoUrl={photoFor(p.name)} />
-                  </button>
-                );
-              })}
-
-              {/* Hover card, points per possession leading */}
-              {hov && (
-                <div className="absolute z-50 pointer-events-none rounded-lg bg-gray-900 px-3 py-2 shadow-lg"
-                  style={{
-                    left: `${xPos(hov.x)}%`,
-                    top: `${yPos(hov.y)}%`,
-                    transform: `translate(-50%, calc(-100% - ${scatter.size(hov) / 2 + 8}px))`,
-                    whiteSpace: "nowrap",
-                  }}>
-                  <div className="text-[11px] font-black text-white">{hov.display}{hov.lowVol ? <span className="ml-1 font-bold text-gray-400">· low volume</span> : null}</div>
-                  <div className="flex items-baseline gap-1.5 mt-0.5">
-                    <span className={`text-lg font-black tabular-nums leading-none ${hov.x >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                      {hov.x.toFixed(2)}
-                    </span>
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">pts per poss</span>
-                  </div>
-                  <div className="text-[11px] font-medium text-gray-300 tabular-nums mt-1">
-                    {hov.team} · {hov.y.toFixed(1)} PPG · {hov.poss.toFixed(1)} POSS · {hov.pts} pts · {hov.g} G
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Axis title */}
-            <div className="absolute inset-x-0 bottom-0 text-center text-[11px] font-bold uppercase tracking-wide text-gray-400">Points per possession</div>
-            <div className="absolute left-0 top-0 text-[11px] font-bold uppercase tracking-wide text-gray-400">PPG</div>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500 mt-2">
-            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-0 border-t-2 border-gray-500" />1.0 points per possession. Right of the line beats break even.</span>
-            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-0 border-t border-dashed border-gray-300" />Selection average</span>
-            <span>Faded markers are under {scatter.lowVol} field goal attempts or did not play in 2026.</span>
-            <span>Click a player to open the deep dive below.</span>
-          </div>
-        </div>
-        );
-      })()}
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500 mb-3">
@@ -17950,6 +17862,107 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
           <div className="text-[10px] text-gray-400 mt-2">Bold marks a career high. Selected seasons ({seasonLabel}) are highlighted. 3P%/FT% shaded on the same bands as the roster.</div>
         </div>
       )}
+
+      {/* Efficiency scatter. Points per possession on the x axis, scoring on the
+          y, total points as marker area. The x scale is fixed so the 1.0 line
+          sits in the same spot every time and teams compare like for like. The
+          solid vertical line is break even, 1.0 points per possession; the
+          dashed lines are the selection's own means. Low-volume players are
+          muted because tiny samples send efficiency to meaningless extremes. */}
+      {scatter && (() => {
+        const xPos = (v) => ((Math.min(Math.max(v, scatter.xMin), scatter.xMax) - scatter.xMin) / (scatter.xMax - scatter.xMin)) * 100;
+        const yPos = (v) => (1 - v / scatter.yMax) * 100;
+        return (
+        <div ref={chartRef} className="rounded-2xl border border-gray-100 p-4 mb-5 scroll-mt-4">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
+            <div className="text-sm font-black text-gray-900">Scoring vs efficiency</div>
+            <div className="text-[11px] text-gray-500">Y: points per game · X: points per possession · marker size: total points in {seasonLabel}</div>
+          </div>
+          <div className="relative" style={{ height: 480, paddingLeft: 40, paddingRight: 28, paddingTop: 28, paddingBottom: 44 }}>
+            <div className="absolute" style={{ left: 40, right: 28, top: 28, bottom: 44 }}>
+              {/* Gridlines and axis ticks */}
+              {scatter.yTicks.map((t, i) => (
+                <div key={"y" + i} className="absolute left-0 right-0 border-t border-gray-100" style={{ top: `${yPos(t)}%` }}>
+                  <span className="absolute right-full pr-2 text-[11px] text-gray-400 tabular-nums" style={{ transform: "translateY(-50%)" }}>{t.toFixed(0)}</span>
+                </div>
+              ))}
+              {scatter.xTicks.map((t, i) => (
+                <div key={"x" + i} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${xPos(t)}%` }}>
+                  <span className="absolute top-full pt-1.5 text-[11px] text-gray-400 tabular-nums" style={{ transform: "translateX(-50%)" }}>{t.toFixed(1)}</span>
+                </div>
+              ))}
+
+              {/* Means */}
+              <div className="absolute left-0 right-0 border-t border-dashed border-gray-300" style={{ top: `${yPos(scatter.meanY)}%` }} />
+              <div className="absolute top-0 bottom-0 border-l border-dashed border-gray-300" style={{ left: `${xPos(scatter.meanX)}%` }} />
+
+              {/* Break even: 1.0 points per possession */}
+              <div className="absolute top-0 bottom-0 border-l-2 border-gray-500" style={{ left: `${xPos(1.0)}%` }} />
+              <span className="absolute text-[11px] font-bold text-gray-500 bg-white px-1 pointer-events-none"
+                style={{ left: `${xPos(1.0)}%`, top: 0, transform: "translate(4px, -2px)" }}>1.0 PPP</span>
+
+              {/* Players */}
+              {scatter.pts.map(p => {
+                const d = scatter.size(p);
+                const muted = !p.active26 || p.lowVol;
+                const col = muted ? "#d1d5db" : (TEAM_COLORS[p.team] || "#9ca3af");
+                const isSel = p.key === selected, isHov = p.key === hovered;
+                return (
+                  <button key={p.key} type="button"
+                    onClick={() => setSelected(p.key === selected ? null : p.key)}
+                    onMouseEnter={() => setHovered(p.key)}
+                    onMouseLeave={() => setHovered(h => h === p.key ? null : h)}
+                    title={`${p.display} · ${p.x.toFixed(2)} PPP · ${p.y.toFixed(1)} PPG · ${p.poss.toFixed(1)} POSS · ${p.pts} pts`}
+                    className="absolute rounded-full overflow-hidden transition-transform hover:scale-110"
+                    style={{
+                      left: `${xPos(p.x)}%`,
+                      top: `${yPos(p.y)}%`,
+                      width: d, height: d, marginLeft: -d / 2, marginTop: -d / 2,
+                      boxShadow: `0 0 0 ${isSel ? 4 : 3}px ${isSel ? "#111827" : col}`,
+                      opacity: muted ? 0.4 : 1,
+                      zIndex: (isSel || isHov) ? 40 : 10,
+                    }}>
+                    <ThAvatar name={p.name} size={d} photoUrl={photoFor(p.name)} />
+                  </button>
+                );
+              })}
+
+              {/* Hover card, points per possession leading */}
+              {hov && (
+                <div className="absolute z-50 pointer-events-none rounded-lg bg-gray-900 px-3 py-2 shadow-lg"
+                  style={{
+                    left: `${xPos(hov.x)}%`,
+                    top: `${yPos(hov.y)}%`,
+                    transform: `translate(-50%, calc(-100% - ${scatter.size(hov) / 2 + 8}px))`,
+                    whiteSpace: "nowrap",
+                  }}>
+                  <div className="text-[11px] font-black text-white">{hov.display}{hov.lowVol ? <span className="ml-1 font-bold text-gray-400">· low volume</span> : null}</div>
+                  <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span className={`text-lg font-black tabular-nums leading-none ${hov.x >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                      {hov.x.toFixed(2)}
+                    </span>
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">pts per poss</span>
+                  </div>
+                  <div className="text-[11px] font-medium text-gray-300 tabular-nums mt-1">
+                    {hov.team} · {hov.y.toFixed(1)} PPG · {hov.poss.toFixed(1)} POSS · {hov.pts} pts · {hov.g} G
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Axis title */}
+            <div className="absolute inset-x-0 bottom-0 text-center text-[11px] font-bold uppercase tracking-wide text-gray-400">Points per possession</div>
+            <div className="absolute left-0 top-0 text-[11px] font-bold uppercase tracking-wide text-gray-400">PPG</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500 mt-2">
+            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-0 border-t-2 border-gray-500" />1.0 points per possession. Right of the line beats break even.</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-0 border-t border-dashed border-gray-300" />Selection average</span>
+            <span>Faded markers are under {scatter.lowVol} field goal attempts or did not play in 2026.</span>
+            <span>Click a player to open the deep dive above.</span>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }
