@@ -17282,12 +17282,20 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       const mDen = 2 * ((ta.fga - t.fga) + 0.44 * (ta.fta - t.fta));
       view.mateTs = mDen > 0 ? (ta.pts - t.pts) / mDen : null;
     };
+    // formatName would render "GUEST PDF" as "Pdf Guest", so guests get a label
+    // that keeps the team code readable.
+    const displayFor = (n) => thIsGuest(n)
+      ? ((String(n).trim().split(/\s+/)[1] || "") + " Guest").trim()
+      : formatName(thCanon(n));
     const rows = [];
     const pinnedKeys = new Set();
     for (const tm of effTeams) {
       for (const rawName of ((roster2026 && roster2026[tm]) || [])) {
         const k = thNorm(rawName);
         if (pinnedKeys.has(k)) continue;
+        // Guests are carried on the rosters table, one bucket per team, so they
+        // arrive through this branch and not the unrostered one below.
+        if (!showGuests && thIsGuest(rawName)) continue;
         pinnedKeys.add(k);
         const yr = (idx[k] || []).filter(x => yrSet.has(x[20]) && x[6] === 1);
         const primary = yr.length ? primaryTeam(yr) : tm;
@@ -17297,7 +17305,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
         view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
         view.team = primary; view.diffTeam = yr.length > 0 && primary !== tm;
         attachShares(view, primary);
-        rows.push({ key: k, name: thCanon(rawName), display: formatName(thCanon(rawName)), isCurrent: true, active26: true, team2026: tm, jersey: jerseyByKey[k] ?? null, view });
+        rows.push({ key: k, name: thCanon(rawName), display: displayFor(rawName), isGuest: thIsGuest(rawName), isCurrent: true, active26: true, team2026: tm, jersey: jerseyByKey[k] ?? null, view });
       }
     }
     const grayMap = {};
@@ -17316,12 +17324,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
       view.team = primary; view.diffTeam = false;
       attachShares(view, primary);
-      // formatName turns "GUEST PDF" into "Pdf Guest", so guests get their own
-      // label that keeps the team code readable.
-      const display = thIsGuest(name)
-        ? ((String(name).trim().split(/\s+/)[1] || "") + " Guest").trim()
-        : formatName(thCanon(name));
-      rows.push({ key: k, name: thCanon(name), display, isGuest: thIsGuest(name), isCurrent: false, active26: played2026.has(k), team2026: null, jersey: null, view });
+      rows.push({ key: k, name: thCanon(name), display: displayFor(name), isGuest: thIsGuest(name), isCurrent: false, active26: played2026.has(k), team2026: null, jersey: null, view });
     }
     return rows;
   }, [selSeasons, effTeams.join(","), dataIdx, roster2026, jerseyByKey, singleSeason, showGuests]);
