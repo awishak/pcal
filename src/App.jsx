@@ -3245,7 +3245,7 @@ function AppInner() {
   // Stats sub-pages config (grouped)
   const STATS_GROUPS = [
     { title: null, cards: [
-      { key: "2025stats", label: "2025 Season Stats", desc: "Current season leaderboard" },
+      { key: "scouting", label: "Season Stats", desc: "Team and player stat board. Best on desktop.", adminOnly: true },
       { key: "onthisday", label: "On This Day", desc: "Notable moments from every game date" },
     ]},
     { title: "Leaderboards", cards: [
@@ -3299,7 +3299,9 @@ function AppInner() {
   const DISPLAY_GROUPS = orderedGroups.map((group, gIdx) => {
     const groupKey = group.title || "_featured";
     const customOrder = tileOrderInGroup[groupKey];
-    let cards = group.cards;
+    // adminOnly tiles never reach a non-admin, not even as a hidden or coming
+    // placeholder, since isAdminView also covers registrars.
+    let cards = group.cards.filter(c => !c.adminOnly || isRealAdmin);
     if (customOrder) {
       const orderMap = new Map(cards.map(c => [c.key, c]));
       cards = customOrder.map(k => orderMap.get(k)).filter(Boolean);
@@ -3424,24 +3426,6 @@ function AppInner() {
         {tab === "stats_home" && (
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-widest font-medium mb-3">Stats & History</p>
-            {isRealAdmin && (
-              <button
-                onClick={() => setTab("scouting")}
-                className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-900 to-gray-700 p-3.5 mb-2.5 hover:from-gray-800 hover:to-gray-600 active:scale-[0.99] transition-all">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-black text-white mb-0.5">Scouting Report <span className="text-[9px] font-bold text-white/50 uppercase tracking-wide ml-1">Admin</span></div>
-                    <div className="text-[11px] text-white/70 leading-snug">
-                      Full-team stat board with shooter highlights and season-over-season player history. Best on desktop.
-                    </div>
-                    <div className="text-[10px] text-white/80 font-bold mt-1.5">Open scouting →</div>
-                  </div>
-                </div>
-              </button>
-            )}
             <button
               onClick={() => setTab("rules")}
               className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-amber-50 to-white p-3.5 mb-2.5 hover:border-amber-300 active:scale-[0.99] transition-all">
@@ -17137,7 +17121,9 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     return [...cur, ...extra];
   }, [selSeasons, GAME_LOG.length]);
   const [selTeams, setSelTeams] = useState(() => [seasonTeams[0] || "SAC"]);
-  const [allTeams, setAllTeams] = useState(false);
+  // Opens on every team rather than one, so the board reads as the season's
+  // stats first and a team filter second.
+  const [allTeams, setAllTeams] = useState(true);
   const [sortKey, setSortKey] = useState("ppg");
   const [sortDir, setSortDir] = useState("desc");
   const [minAtt, setMinAtt] = useState(SCOUT_ATT_GATE);
@@ -17145,6 +17131,13 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
   const [teamSortKey, setTeamSortKey] = useState("ppg");
   const [teamSortDir, setTeamSortDir] = useState("desc");
   const [hovered, setHovered] = useState(null);
+  const [awardsOnly, setAwardsOnly] = useState(false);
+
+  // Section anchors for the jump buttons under the heading.
+  const teamRef = useRef(null);
+  const chartRef = useRef(null);
+  const playersRef = useRef(null);
+  const jumpTo = (ref) => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const effTeams = allTeams ? seasonTeams : selTeams;
   const singleSeason = selSeasons.length === 1 ? selSeasons[0] : null;
@@ -17194,6 +17187,35 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     })();
     return () => { alive = false; };
   }, []);
+
+  // Players carrying at least one 2026 spiritual foul. team_spiritual_fouls is
+  // team-scoped but names the player, so it doubles as the player-level source.
+  // A fetch failure leaves the set empty, which only ever widens eligibility.
+  const [foul2026Keys, setFoul2026Keys] = useState(() => new Set());
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase.from("team_spiritual_fouls").select("player").eq("year", 2026);
+      if (!alive) return;
+      if (error) { console.error("scouting spiritual foul fetch error:", error); return; }
+      setFoul2026Keys(new Set((data || []).filter(r => r.player).map(r => thNorm(r.player))));
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // 2026 awards eligibility, which is a 2026 question no matter which seasons
+  // are on screen: 5 or more counted games played and no spiritual fouls.
+  const awardsEligible = useMemo(() => {
+    const g = {};
+    for (const r of GAME_LOG) {
+      if (r[20] !== 2026 || r[6] !== 1 || !COUNTED_GAME_TYPES.has(r[5])) continue;
+      const k = thNorm(r[0]);
+      g[k] = (g[k] || 0) + 1;
+    }
+    const ok = new Set();
+    for (const k in g) if (g[k] >= 5 && !foul2026Keys.has(k)) ok.add(k);
+    return ok;
+  }, [GAME_LOG.length, foul2026Keys]);
 
   // Build the roster across every selected team, combining stats over all the
   // selected seasons. Top group is the union of those teams' 2026 rosters,
@@ -17386,8 +17408,9 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       const d = (av == null ? -Infinity : av) - (bv == null ? -Infinity : bv);
       return sortDir === "desc" ? -d : d;
     };
-    return [...roster].sort(cmp);
-  }, [roster, sortKey, sortDir]);
+    const base = awardsOnly ? roster.filter(r => awardsEligible.has(r.key)) : roster;
+    return [...base].sort(cmp);
+  }, [roster, sortKey, sortDir, awardsOnly, awardsEligible]);
 
   const toggleSort = (key, str) => {
     if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
@@ -17447,7 +17470,23 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       <div className="flex items-center gap-3 mb-1">
         <button onClick={onBack} className="text-[13px] font-bold text-gray-400 hover:text-gray-900">← Stats</button>
       </div>
-      <h1 className="text-2xl font-black text-gray-900 tracking-tight mb-4">Scouting Report</h1>
+      <h1 className="text-2xl font-black text-gray-900 tracking-tight mb-3">Season Stats</h1>
+
+      {/* Section jumps. The player table sits below a team table and a full
+          width chart, so on a laptop it always starts off screen. */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-4">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mr-1">Jump to</span>
+        {[
+          { label: "Team stats", ref: teamRef },
+          { label: "Efficiency chart", ref: chartRef },
+          { label: "Player stats", ref: playersRef },
+        ].map(j => (
+          <button key={j.label} onClick={() => jumpTo(j.ref)}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">
+            {j.label} ↓
+          </button>
+        ))}
+      </div>
 
       {/* Controls */}
       <div className="space-y-2.5 mb-5">
@@ -17480,6 +17519,11 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
               </button>
             );
           })}
+          <button onClick={() => { setAwardsOnly(v => !v); setSelected(null); }}
+            title="5 or more games played in 2026 and no 2026 spiritual fouls"
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${awardsOnly ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            Awards eligible
+          </button>
           <div className="flex items-center gap-1.5 ml-auto">
             <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Min att for %</span>
             {[0, 5, 10, 15, 20].map(n => (
@@ -17518,7 +17562,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
 
       {/* Team stats. Same seasons and teams as everything below it, aggregated
           per team game so PPG is the team's scoring, not a sum of player rows. */}
-      <div className="rounded-2xl border border-gray-100 overflow-x-auto mb-5">
+      <div ref={teamRef} className="rounded-2xl border border-gray-100 overflow-x-auto mb-5 scroll-mt-4">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
@@ -17585,7 +17629,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
         const xPos = (v) => ((Math.min(Math.max(v, scatter.xMin), scatter.xMax) - scatter.xMin) / (scatter.xMax - scatter.xMin)) * 100;
         const yPos = (v) => (1 - v / scatter.yMax) * 100;
         return (
-        <div className="rounded-2xl border border-gray-100 p-4 mb-5">
+        <div ref={chartRef} className="rounded-2xl border border-gray-100 p-4 mb-5 scroll-mt-4">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
             <div className="text-sm font-black text-gray-900">Scoring vs efficiency</div>
             <div className="text-[11px] text-gray-500">Y: points per game · X: points per possession · marker size: total points in {seasonLabel}</div>
@@ -17686,7 +17730,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       </div>
 
       {/* Roster table */}
-      <div className="rounded-2xl border border-gray-100 overflow-x-auto">
+      <div ref={playersRef} className="rounded-2xl border border-gray-100 overflow-x-auto scroll-mt-4">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
@@ -17742,11 +17786,14 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
               </tr>
             ))}
             {sorted.length === 0 && (
-              <tr><td colSpan={COLS.length} className="px-4 py-8 text-center text-sm text-gray-400">No games logged for the current selection in {seasonLabel}.</td></tr>
+              <tr><td colSpan={COLS.length} className="px-4 py-8 text-center text-sm text-gray-400">{awardsOnly ? `No awards eligible players in the current selection.` : `No games logged for the current selection in ${seasonLabel}.`}</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      {awardsOnly && (
+        <div className="text-[11px] text-gray-500 mt-2">Showing 2026 awards eligible players only: 5 or more games played in 2026 and no 2026 spiritual fouls. Eligibility is always measured against 2026, whichever seasons are selected above.</div>
+      )}
       <div className="text-[11px] text-gray-400 mt-2">Stats combine all selected seasons ({seasonLabel}), everyone sorted together. Names and chips are grayed for players who did not play in 2026. The color chip is the team they played most in the span. AI Score only shows for a single season. Tap a player for full season-over-season history.</div>
 
       {/* Player deep-dive */}
