@@ -17109,6 +17109,25 @@ function scoutTeamAggregate(team, yrSet) {
   };
 }
 
+// Labelled on/off switch for the scouting filters. The hint sits beside the
+// label rather than in a title attribute so the rule is readable without a
+// hover, which matters now that the page is a public link.
+function ScoutSwitch({ on, onChange, label, hint }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <button type="button" role="switch" aria-checked={on} onClick={onChange}
+        className="flex items-center gap-2 group">
+        <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${on ? "bg-gray-900" : "bg-gray-300 group-hover:bg-gray-400"}`}>
+          <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform"
+            style={{ transform: `translateX(${on ? 18 : 2}px)` }} />
+        </span>
+        <span className="text-xs font-black text-gray-900 whitespace-nowrap">{label}</span>
+      </button>
+      {hint && <span className="text-[11px] text-gray-500">{hint}</span>}
+    </span>
+  );
+}
+
 function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion = 0 }) {
   const seasons = useMemo(
     () => [...new Set(GAME_LOG.map(g => g[20]))].filter(Boolean).sort((a, b) => b - a),
@@ -17136,6 +17155,9 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
   const [teamSortDir, setTeamSortDir] = useState("desc");
   const [hovered, setHovered] = useState(null);
   const [awardsOnly, setAwardsOnly] = useState(false);
+  // Guest buckets are one row per team ("GUEST PDF"), not real people, so they
+  // are off unless asked for.
+  const [showGuests, setShowGuests] = useState(false);
 
   // Section anchors for the jump buttons under the heading.
   const teamRef = useRef(null);
@@ -17213,6 +17235,10 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     const g = {};
     for (const r of GAME_LOG) {
       if (r[20] !== 2026 || r[6] !== 1 || !COUNTED_GAME_TYPES.has(r[5])) continue;
+      // A guest bucket is a team's guests pooled into one row, not a person, so
+      // it can never be eligible. GUEST PDF sits on exactly 5 games in 2026 and
+      // would otherwise clear the gate.
+      if (thIsGuest(r[0])) continue;
       const k = thNorm(r[0]);
       g[k] = (g[k] || 0) + 1;
     }
@@ -17278,7 +17304,7 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
     for (const r of GAME_LOG) {
       if (!yrSet.has(r[20]) || r[6] !== 1 || !selSet.has(r[1])) continue;
       const k = thNorm(r[0]);
-      if (pinnedKeys.has(k) || thIsGuest(r[0])) continue;
+      if (pinnedKeys.has(k) || (!showGuests && thIsGuest(r[0]))) continue;
       (grayMap[k] = grayMap[k] || { name: r[0], rows: [] }).rows.push(r);
     }
     for (const k of Object.keys(grayMap)) {
@@ -17290,10 +17316,15 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
       view.aiScore = dv ? dv.aiScore : null; view.aiRank = dv ? dv.aiRank : null; view.award = dv ? dv.award : "";
       view.team = primary; view.diffTeam = false;
       attachShares(view, primary);
-      rows.push({ key: k, name: thCanon(name), display: formatName(thCanon(name)), isCurrent: false, active26: played2026.has(k), team2026: null, jersey: null, view });
+      // formatName turns "GUEST PDF" into "Pdf Guest", so guests get their own
+      // label that keeps the team code readable.
+      const display = thIsGuest(name)
+        ? ((String(name).trim().split(/\s+/)[1] || "") + " Guest").trim()
+        : formatName(thCanon(name));
+      rows.push({ key: k, name: thCanon(name), display, isGuest: thIsGuest(name), isCurrent: false, active26: played2026.has(k), team2026: null, jersey: null, view });
     }
     return rows;
-  }, [selSeasons, effTeams.join(","), dataIdx, roster2026, jerseyByKey, singleSeason]);
+  }, [selSeasons, effTeams.join(","), dataIdx, roster2026, jerseyByKey, singleSeason, showGuests]);
 
   // Team lines for whichever teams are selected, over whichever seasons are
   // selected. Records only attach on a single-season 2026 view, since that is
@@ -17533,19 +17564,13 @@ function ScoutingView({ onBack, goToPlayer, defaultSeason = 2026, photoVersion =
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button type="button" role="switch" aria-checked={awardsOnly}
-            onClick={() => { setAwardsOnly(v => !v); setSelected(null); }}
-            className="flex items-center gap-2 group">
-            <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${awardsOnly ? "bg-gray-900" : "bg-gray-300 group-hover:bg-gray-400"}`}>
-              <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform"
-                style={{ transform: `translateX(${awardsOnly ? 18 : 2}px)` }} />
-            </span>
-            <span className="text-xs font-black text-gray-900">Awards eligible only</span>
-          </button>
-          <span className="text-[11px] text-gray-500">
-            5 or more games played in 2026 and no 2026 spiritual fouls{awardsOnly ? `, ${sorted.length} of ${roster.length} shown` : ""}
-          </span>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <ScoutSwitch on={awardsOnly} onChange={() => { setAwardsOnly(v => !v); setSelected(null); }}
+            label="Awards eligible only"
+            hint={`5 or more games played in 2026 and no 2026 spiritual fouls${awardsOnly ? `, ${sorted.length} of ${roster.length} shown` : ""}`} />
+          <ScoutSwitch on={showGuests} onChange={() => { setShowGuests(v => !v); setSelected(null); }}
+            label="Guest players"
+            hint={showGuests ? "Shown, one row per team's guest bucket" : "Hidden"} />
         </div>
       </div>
 
