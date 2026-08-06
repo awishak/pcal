@@ -111,9 +111,13 @@ function Avatar({ label, photos, size = 28, dark = false }) {
   );
 }
 
+// Points at the Season Stats board, not the stats landing page. That route is
+// unlisted (its tile is adminOnly, so nothing else in the app links to it) but
+// ungated, and nothing on it is private: game_log is public read. This link is
+// the first thing in the app to send anyone there.
 function StatsLink({ className = "" }) {
   return (
-    <a href="/stats" target="_blank" rel="noopener noreferrer"
+    <a href="/stats/scouting" target="_blank" rel="noopener noreferrer"
       className={`inline-flex items-center gap-1 text-[13px] font-bold text-gray-900 active:opacity-60 ${className}`}>
       Open season stats in a new tab
       <span aria-hidden="true">&#8599;</span>
