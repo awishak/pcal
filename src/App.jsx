@@ -16861,14 +16861,6 @@ function thSeasonInfo(name) {
 function thExpLabel(seasons) {
   return seasons <= 1 ? "Rookie" : `${thOrdinal(seasons)} season`;
 }
-function thAgeFromDob(dob) {
-  if (!dob) return null;
-  const d = new Date(dob);
-  if (isNaN(d.getTime())) return null;
-  const a = Math.floor((Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000));
-  return (a > 5 && a < 100) ? a : null;
-}
-
 function ThAvatar({ name, size, photoUrl, square = false }) {
   const s = { width: size, height: size };
   const shape = square ? "rounded-none" : "rounded-full";
@@ -16898,7 +16890,7 @@ function th2026AiScore(name) {
 
 // One player, full width. Everything the old card and its expandable panel
 // showed, minus season totals, with AI Score in place of Game Score.
-function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCareerLinks, photoUrl,
+function RosterHeroCard({ rosterEntry, goToPlayer, age, hometown, inCA, hideCareerLinks, photoUrl,
   isAdmin, jerseyValue, onJerseyChange, onEditPhoto, aiScore }) {
   const name = rosterEntry.player_name;
   const season = useMemo(() => thAggregate(thRowsFor(name, 2026)), [name]);
@@ -16907,7 +16899,8 @@ function RosterHeroCard({ rosterEntry, goToPlayer, dob, hometown, inCA, hideCare
   const ai = aiScore !== undefined ? aiScore : th2026AiScore(name);
   // Admins see the number, not an input, until they choose to change it.
   const [editingJersey, setEditingJersey] = useState(false);
-  const age = thAgeFromDob(dob);
+  // age arrives already computed from get_roster_meta(); the raw dob never
+  // reaches the browser
   const guest = thIsGuest(name);
   const parts = String(name).trim().split(/\s+/);
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
@@ -18085,7 +18078,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
   const teamsRanked = useMemo(() => (teamPage ? allRanked.filter(t => t === teamPage) : allRanked), [allRanked, teamPage]);
   const [rosters, setRosters] = useState(null);
   const [schedule, setSchedule] = useState(null);
-  const [dobMap, setDobMap] = useState({});
+  const [ageMap, setAgeMap] = useState({});
   const [cityMap, setCityMap] = useState({});
   const [caMap, setCaMap] = useState({});
   // Cards no longer expand in place. The roster and schedule live on the
@@ -18106,19 +18099,20 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
       const [ros, sch, reg] = await Promise.all([
         supabase.from("rosters").select("*").eq("season", 2026).eq("active", true).order("player_name", { ascending: true }),
         supabase.from("schedule").select("*").eq("season", 2026).order("game_date", { ascending: true }).order("game_time", { ascending: true }),
-        supabase.from("registrations").select("linked_player, first_name, last_name, dob, city, zip"),
+        // Ages and a "lives in CA" flag, reduced server side by
+        // get_roster_meta(). dob and zip are not readable by anon and must not
+        // be pulled to the browser just to be thrown away here.
+        supabase.rpc("get_roster_meta"),
       ]);
       if (!alive) return;
       setRosters(ros.data || []);
       setSchedule(sch.data || []);
       const m = {}, c = {}, ca = {};
-      // CA zip codes run 90000-96199.
-      const isCaZip = (z) => { const n = parseInt(String(z || "").trim().slice(0, 5), 10); return n >= 90000 && n <= 96199; };
       const put = (key, r) => {
         if (!key) return;
-        if (r.dob && m[key] === undefined) m[key] = r.dob;
+        if (r.age && m[key] === undefined) m[key] = r.age;
         if (r.city && c[key] === undefined) c[key] = r.city;
-        if (r.zip && ca[key] === undefined) ca[key] = isCaZip(r.zip);
+        if (r.ca_zip != null && ca[key] === undefined) ca[key] = r.ca_zip;
       };
       (reg.data || []).forEach(r => {
         // New players have no linked_player, so also key by "LASTNAME Firstname"
@@ -18130,12 +18124,12 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
         // may differ from their registration name (nicknames, merges).
         if (r.linked_player) {
           const k = thNorm(r.linked_player);
-          m[k] = r.dob;
+          m[k] = r.age;
           if (r.city) c[k] = r.city;
-          if (r.zip) ca[k] = isCaZip(r.zip);
+          if (r.ca_zip != null) ca[k] = r.ca_zip;
         }
       });
-      setDobMap(m);
+      setAgeMap(m);
       setCityMap(c);
       setCaMap(ca);
     })();
@@ -18474,7 +18468,7 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
                         rosterEntry={p}
                         aiScore={aiByName[thNorm(p.player_name)] ?? null}
                         goToPlayer={goToPlayer}
-                        dob={dobMap[thNorm(p.player_name)]}
+                        age={ageMap[thNorm(p.player_name)]}
                         hometown={cityMap[thNorm(p.player_name)]}
                         inCA={caMap[thNorm(p.player_name)]}
                         hideCareerLinks={hideCareerLinks}

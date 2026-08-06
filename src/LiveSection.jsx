@@ -1816,7 +1816,9 @@ function LoginModal({ onClose, onLogin }) {
     // have a registration (this covers scorekeepers, photographers, etc.).
     const { data: reg } = await supabase
       .from("registrations")
-      .select("*")
+      // Only these three are read below. select("*") would also demand the
+      // columns anon no longer has, and fail the whole lookup.
+      .select("first_name, last_name, team_pref")
       .eq("email", email)
       .limit(1);
     const user = res.user;
