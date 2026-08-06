@@ -264,7 +264,7 @@ begin
   end if;
   insert into survey_options (question_id, position, label) values (v_q, 100, 'Sacramento (SAC)')
     on conflict do nothing;
-  insert into survey_options (question_id, position, label) values (v_q, 101, 'Port of Deliverance (PDF)')
+  insert into survey_options (question_id, position, label) values (v_q, 101, 'Pacific (PDF)')
     on conflict do nothing;
   insert into survey_options (question_id, position, label) values (v_q, 102, 'Modesto (MOD)')
     on conflict do nothing;
@@ -274,7 +274,7 @@ begin
     on conflict do nothing;
   insert into survey_options (question_id, position, label) values (v_q, 105, 'Pleasanton (PLE)')
     on conflict do nothing;
-  delete from survey_options where question_id = v_q and label not in ('Sacramento (SAC)', 'Port of Deliverance (PDF)', 'Modesto (MOD)', 'San Jose (SJO)', 'Hayward (HAY)', 'Pleasanton (PLE)');
+  delete from survey_options where question_id = v_q and label not in ('Sacramento (SAC)', 'Pacific (PDF)', 'Modesto (MOD)', 'San Jose (SJO)', 'Hayward (HAY)', 'Pleasanton (PLE)');
 
 end $$;
 

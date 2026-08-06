@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 import { LoginModal } from "./LiveSection";
+import { PLAYER_MERGE } from "./playerNames.js";
 import {
   fetchSurvey,
   fetchVoterStatus,
@@ -45,6 +46,80 @@ const TEAM_OF = (label) => {
 
 const PLACE_WORD = ["1st", "2nd", "3rd"];
 const PLACE_POINTS = [5, 3, 1];
+
+// Ballot labels read "Mark Shacker (SJO)". player_photos is keyed in roster
+// order and mixed case, "SHACKER Mark", so both sides get normalised the same
+// way App.jsx does it: uppercase, collapse whitespace, then apply the alias
+// map. That last step is what finds John Ramzy, whose photo is filed under
+// RAMZY HANNA JOHN.
+//
+// Matching is exact after normalising, never fuzzy. Four nominees have no
+// photo at all (Yousef Mikhail, Andrew Sharkawy, Bishoy Awad, Alex Hanna) and
+// each has a same-surname teammate who does. A loose match would put the
+// wrong face beside a name on an awards ballot, so they get initials.
+const normName = (s) => {
+  const n = String(s || "").trim().replace(/\s+/g, " ").toUpperCase();
+  return PLAYER_MERGE[n] || n;
+};
+
+const stripTeam = (label) => String(label || "").replace(/\s*\([A-Z]{3}\)\s*$/, "").trim();
+
+function photoKeyFor(label) {
+  const n = stripTeam(label);
+  const parts = n.split(/\s+/);
+  if (parts.length < 2) return normName(n);
+  return normName(parts[parts.length - 1] + " " + parts.slice(0, -1).join(" "));
+}
+
+function initialsFor(label) {
+  const parts = stripTeam(label).split(/\s+/).filter(Boolean);
+  if (!parts.length) return "";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function usePhotoIndex() {
+  const [index, setIndex] = useState({});
+  useEffect(() => {
+    let alive = true;
+    supabase.from("player_photos").select("id, image_url").then(({ data }) => {
+      if (!alive || !data) return;
+      const m = {};
+      data.forEach(r => { if (r.id && r.image_url) m[normName(r.id)] = r.image_url; });
+      setIndex(m);
+    });
+    return () => { alive = false; };
+  }, []);
+  return index;
+}
+
+function Avatar({ label, photos, size = 28, dark = false }) {
+  const url = photos[photoKeyFor(label)];
+  const s = { width: size, height: size };
+  if (url) {
+    return (
+      <img src={url} alt="" style={{ ...s, objectFit: "cover", objectPosition: "top center" }}
+        className="rounded-full flex-shrink-0 bg-gray-100" loading="lazy" />
+    );
+  }
+  return (
+    <div style={s} aria-hidden="true"
+      className={`rounded-full flex-shrink-0 flex items-center justify-center font-bold ${
+        dark ? "bg-gray-700 text-gray-300" : "bg-gray-200 text-gray-500"}`}>
+      <span style={{ fontSize: Math.round(size * 0.36) }}>{initialsFor(label)}</span>
+    </div>
+  );
+}
+
+function StatsLink({ className = "" }) {
+  return (
+    <a href="/stats" target="_blank" rel="noopener noreferrer"
+      className={`inline-flex items-center gap-1 text-[13px] font-bold text-gray-900 active:opacity-60 ${className}`}>
+      Open season stats in a new tab
+      <span aria-hidden="true">&#8599;</span>
+    </a>
+  );
+}
 
 export default function AwardsSection({ view = "ballot" }) {
   const [session, setSession] = useState(undefined);   // undefined = still loading
@@ -86,6 +161,7 @@ function rankByPoints(options) {
 function ResultsPage() {
   const [results, setResults] = useState(null);
   const [err, setErr] = useState("");
+  const photos = usePhotoIndex();
 
   useEffect(() => {
     let alive = true;
@@ -134,9 +210,12 @@ function ResultsPage() {
               {rows.map(o => (
                 <div key={o.id} className="rounded-2xl border border-gray-100 px-3 py-2">
                   <div className="flex items-baseline gap-2">
-                    <span className="w-6 flex-none text-[13px] font-black text-gray-400">
+                    <span className="w-5 flex-none text-[13px] font-black text-gray-400">
                       {o.points > 0 ? o.place : ""}
                     </span>
+                    {q.type === "ranked" && (
+                      <Avatar label={o.label} photos={photos} size={24} />
+                    )}
                     <span className="text-[13px] font-bold text-gray-900">{o.label}</span>
                     {o.tied && (
                       <span className="text-[11px] font-black text-gray-400 uppercase">tied</span>
@@ -207,6 +286,7 @@ function FirstTeam({ title, rows }) {
 function TurnoutPage() {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState("");
+  const photos = usePhotoIndex();
 
   useEffect(() => {
     let alive = true;
@@ -267,6 +347,7 @@ function TurnoutPage() {
                     className="flex items-center gap-2 rounded-2xl border border-gray-100 px-3 py-2">
                     <span className={`h-2.5 w-2.5 flex-none rounded-full ${
                       r.voted ? "bg-gray-900" : "bg-gray-200"}`} aria-hidden="true" />
+                    <Avatar label={r.display_name} photos={photos} size={24} />
                     <span className={`text-[13px] font-bold ${r.voted ? "text-gray-900" : "text-gray-500"}`}>
                       {String(r.display_name || "").replace(/\s*\([A-Z]{3}\)\s*$/, "")}
                     </span>
@@ -402,6 +483,7 @@ function Shell({ children }) {
   return (
     <div className="px-4 pb-24 pt-2">
       <h2 className="text-xl font-black text-gray-900">2026 PCAL Awards</h2>
+      <div className="mt-2"><StatsLink /></div>
       <div className="mt-3">{children}</div>
     </div>
   );
@@ -461,6 +543,7 @@ function Ballot({ survey, status, onDone }) {
   }, []);
 
   const myTeam = TEAM_OF(status && status.display_name);
+  const photos = usePhotoIndex();
 
   const questions = useMemo(
     () => [...survey.questions].sort((a, b) => a.position - b.position),
@@ -538,6 +621,7 @@ function Ballot({ survey, status, onDone }) {
       <p className="text-[13px] text-gray-600 mt-1">
         Voting closes {DEADLINE_COPY}. One ballot per voter.
       </p>
+      <div className="mt-2"><StatsLink /></div>
 
       <div className="sticky top-0 z-10 -mx-4 mb-3 mt-3 bg-white px-4 py-2">
         <div className="flex items-center gap-2">
@@ -574,10 +658,13 @@ function Ballot({ survey, status, onDone }) {
                     on ? "border-gray-900 bg-gray-900" : "border-gray-100 bg-white"} ${
                     !on && full ? "opacity-50" : ""}`}>
                   {q.type === "ranked" && (
-                    <span className={`inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-[11px] font-black ${
-                      on ? "bg-white text-gray-900" : "border border-dashed border-gray-300 text-gray-300"}`}>
-                      {on ? at + 1 : ""}
-                    </span>
+                    <>
+                      <span className={`inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-[11px] font-black ${
+                        on ? "bg-white text-gray-900" : "border border-dashed border-gray-300 text-gray-300"}`}>
+                        {on ? at + 1 : ""}
+                      </span>
+                      <Avatar label={o.label} photos={photos} size={28} dark={on} />
+                    </>
                   )}
                   <span className={`text-[13px] font-bold ${on ? "text-white" : "text-gray-900"}`}>
                     {o.label}
