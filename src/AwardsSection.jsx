@@ -24,6 +24,7 @@ import {
   fetchSurvey,
   fetchVoterStatus,
   fetchTurnout,
+  fetchResults,
   submitResponse,
   getRespondentKey,
   seededShuffle,
@@ -60,7 +61,145 @@ export default function AwardsSection({ view = "ballot" }) {
   }, []);
 
   if (view === "voters") return <TurnoutPage />;
+  if (view === "results") return <ResultsPage />;
   return <BallotPage session={session} />;
+}
+
+// ---------------------------------------------------------------- results
+
+// PCAL scores 5-3-1 and calls players tied on points co-winners. That is NOT
+// the order survey_results returns: the feature breaks a points tie by
+// first-place votes, which is a reasonable default and the wrong rule here.
+// So rank on points alone, standard competition style, and let equal points
+// share a place.
+function rankByPoints(options) {
+  const sorted = [...options].sort((a, b) => b.points - a.points);
+  const counts = {};
+  sorted.forEach(o => { counts[o.points] = (counts[o.points] || 0) + 1; });
+  let place = 0, prev = null;
+  return sorted.map((o, i) => {
+    if (prev === null || o.points !== prev) { place = i + 1; prev = o.points; }
+    return { ...o, place, tied: counts[o.points] > 1 && o.points > 0 };
+  });
+}
+
+function ResultsPage() {
+  const [results, setResults] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    fetchResults(supabase, SLUG)
+      .then(r => { if (alive) setResults(r); })
+      .catch(e => { if (alive) setErr(e.message || "Could not load results."); });
+    return () => { alive = false; };
+  }, []);
+
+  const questions = useMemo(
+    () => results ? [...results.questions].sort((a, b) => a.position - b.position) : [],
+    [results]);
+
+  if (err) {
+    return (
+      <div className="px-4 pb-24 pt-2">
+        <h2 className="text-xl font-black text-gray-900">2026 Awards Results</h2>
+        <div className="mt-3 rounded-2xl border border-gray-100 p-4">
+          <p className="text-[13px] text-gray-700 leading-relaxed">{err}</p>
+          <p className="text-[11px] text-gray-500 mt-2">
+            Results are owner only while voting is open. Log in as the commissioner to see them.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (!results) {
+    return <div className="px-4 pb-24 pt-2"><p className="text-[13px] text-gray-500">Loading...</p></div>;
+  }
+
+  return (
+    <div className="px-4 pb-24 pt-2">
+      <h2 className="text-xl font-black text-gray-900">2026 Awards Results</h2>
+      <p className="text-[13px] text-gray-600 mt-1">
+        {results.total_responses} of 30 ballots in. 1st is worth 5 points, 2nd 3, 3rd 1.
+        Players level on points are co-winners.
+      </p>
+
+      {questions.map(q => {
+        const rows = rankByPoints(q.options);
+        const top = rows.length ? rows[0].points : 0;
+        return (
+          <div key={q.id} className="mt-5">
+            <h3 className="text-[13px] font-black text-gray-900 uppercase tracking-wide">{q.prompt}</h3>
+            <div className="mt-2 space-y-1.5">
+              {rows.map(o => (
+                <div key={o.id} className="rounded-2xl border border-gray-100 px-3 py-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-6 flex-none text-[13px] font-black text-gray-400">
+                      {o.points > 0 ? o.place : ""}
+                    </span>
+                    <span className="text-[13px] font-bold text-gray-900">{o.label}</span>
+                    {o.tied && (
+                      <span className="text-[11px] font-black text-gray-400 uppercase">tied</span>
+                    )}
+                    <span className="ml-auto text-[13px] font-black text-gray-900">
+                      {q.type === "ranked" ? `${o.points} pts` : `${o.votes}`}
+                    </span>
+                  </div>
+                  {q.type === "ranked" && (
+                    <>
+                      <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                        <div className="h-full bg-gray-900"
+                          style={{ width: `${top > 0 ? (o.points / top) * 100 : 0}%` }} />
+                      </div>
+                      <div className="mt-1 text-[11px] text-gray-500">
+                        {[1, 2, 3].map(p => `${PLACE_WORD[p - 1]}: ${o.rank_counts[String(p)] || 0}`).join("  ")}
+                        {"   on "}{o.votes}{" ballots"}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* First Teams are derived, not voted: the top 5 vote-getters. */}
+            {(q.position === 0 || q.position === 4) && results.total_responses > 0 && (
+              <FirstTeam
+                title={q.position === 0 ? "First-Team All-League" : "First-Team Best Teammates"}
+                rows={rows} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Top 5 vote-getters. If a tie straddles 5th, everyone level with 5th is
+// included, so this can name more than five. Better than cutting a co-winner
+// on an arbitrary tiebreak PCAL does not use.
+function FirstTeam({ title, rows }) {
+  const scored = rows.filter(r => r.points > 0);
+  if (!scored.length) return null;
+  const cutoff = scored.length >= 5 ? scored[4].points : 0;
+  const team = scored.filter(r => r.points >= cutoff);
+  return (
+    <div className="mt-2 rounded-2xl bg-gray-900 px-3 py-3">
+      <div className="text-[11px] font-black text-white uppercase tracking-wide">{title}</div>
+      <div className="mt-1.5 space-y-1">
+        {team.map(r => (
+          <div key={r.id} className="flex items-baseline gap-2">
+            <span className="text-[13px] font-bold text-white">{r.label}</span>
+            <span className="ml-auto text-[11px] font-black text-gray-400">{r.points} pts</span>
+          </div>
+        ))}
+      </div>
+      {team.length > 5 && (
+        <p className="mt-2 text-[11px] text-gray-400">
+          {team.length} named: a tie on points at 5th, and PCAL calls those co-winners.
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------- turnout

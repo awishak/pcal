@@ -1966,9 +1966,9 @@ function WatchPage({ streams = [], isAdmin = false, setStreams, onOpenGame }) {
 // awards and awardsvoters are deliberately absent from NAV_ITEMS. The ballot
 // is an unlisted link sent to the 30 eligible voters; the voter list is
 // public but has no reason to occupy a nav slot.
-const SECTION_SEG = { home: "", stats: "stats", schedule: "schedule", live: "games", teams: "teams", register: "register", watch: "live", awards: "awards", awardsvoters: "awardsvoters" };
-const SEG_SECTION = { stats: "stats", schedule: "schedule", games: "live", teams: "teams", register: "register", live: "watch", awards: "awards", awardsvoters: "awardsvoters" };
-const SECTION_DEFAULT_TAB = { home: "home", stats: "stats_home", schedule: "schedule", live: "live", teams: "teams", register: "register", watch: "watch", awards: "awards_ballot", awardsvoters: "awards_voters" };
+const SECTION_SEG = { home: "", stats: "stats", schedule: "schedule", live: "games", teams: "teams", register: "register", watch: "live", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults" };
+const SEG_SECTION = { stats: "stats", schedule: "schedule", games: "live", teams: "teams", register: "register", live: "watch", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults" };
+const SECTION_DEFAULT_TAB = { home: "home", stats: "stats_home", schedule: "schedule", live: "live", teams: "teams", register: "register", watch: "watch", awards: "awards_ballot", awardsvoters: "awards_voters", awardsresults: "awards_results" };
 
 function playerSlug(name) {
   return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -3569,6 +3569,7 @@ function AppInner() {
         )}
         {tab === "awards_ballot" && <AwardsSection view="ballot" />}
         {tab === "awards_voters" && <AwardsSection view="voters" />}
+        {tab === "awards_results" && <AwardsSection view="results" />}
         {tab === "rules" && (
           <RulesView />
         )}
