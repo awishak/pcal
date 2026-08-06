@@ -10,3 +10,6 @@ dist/
 # logs
 *.log
 .vercel
+
+# SQL holding personal data (email lists, rolls). Run it, never commit it.
+supabase/*.local.sql

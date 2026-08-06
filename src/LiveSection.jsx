@@ -1782,7 +1782,10 @@ function TeamBadge({ team }) {
 // away_scorer_pin (both text columns, so this works without a schema
 // change). Events the scorer writes will have their user id in
 // scorer_pin, which remains a stable per-user identifier.
-function LoginModal({ onClose, onLogin }) {
+// Exported so the awards ballot reuses this exact login rather than growing
+// a second one. emailTitle only changes the heading; the flow is identical,
+// and the Supabase session it establishes is global either way.
+export function LoginModal({ onClose, onLogin, emailTitle = "Log in to score" }) {
   const [mode, setMode] = useState("email");          // 'email' | 'code'
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -1849,7 +1852,7 @@ function LoginModal({ onClose, onLogin }) {
   };
 
   return (
-    <ModalShell onClose={onClose} title={mode === "email" ? "Log in to score" : "Enter your code"}>
+    <ModalShell onClose={onClose} title={mode === "email" ? emailTitle : "Enter your code"}>
       {mode === "email" && (
         <>
           <div className="text-[11px] text-gray-500 mb-3">

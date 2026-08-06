@@ -36,6 +36,9 @@ create table if not exists surveys (
   -- when true, only signed-in users may respond, and each account gets
   -- exactly one response (identity is still hidden if anonymous is on)
   require_auth            boolean not null default false,
+  -- when true, only accounts on survey_voters may respond. Implies
+  -- require_auth. See survey_voters below for why it is a separate table.
+  restrict_to_voters      boolean not null default false,
   -- accepted responses per source per hour; 0 disables the limit
   rate_limit_per_hour     int not null default 60,
   opens_at                timestamptz,
@@ -47,6 +50,31 @@ create table if not exists surveys (
 
 alter table surveys add column if not exists rate_limit_per_hour int not null default 60;
 alter table surveys add column if not exists require_auth boolean not null default false;
+alter table surveys add column if not exists restrict_to_voters boolean not null default false;
+
+-- A fixed electorate: only these addresses may respond.
+--
+-- Deliberately a separate table from the responses, and the two are never
+-- joined. voted_at records THAT someone voted; it says nothing about what they
+-- chose. That is what lets a survey publish turnout ("who voted") while the
+-- ballots themselves stay anonymous, which is how a real election works.
+--
+-- Keyed by email rather than user_id because the roll usually has to exist
+-- before anyone has signed in, so there are no user ids yet to point at.
+create table if not exists survey_voters (
+  id           uuid primary key default gen_random_uuid(),
+  survey_id    uuid not null references surveys(id) on delete cascade,
+  email        text not null,
+  -- what the turnout list shows. Never the email, which is not public.
+  display_name text,
+  voted_at     timestamptz,
+  added_at     timestamptz not null default now()
+);
+
+-- Addresses are matched case and whitespace insensitively, so the index has
+-- to agree with the lookup or a roll with " Bob@x.com " would admit twice.
+create unique index if not exists survey_voters_unique
+  on survey_voters (survey_id, lower(btrim(email)));
 
 create table if not exists survey_questions (
   id                uuid primary key default gen_random_uuid(),
@@ -176,6 +204,7 @@ alter table survey_options     enable row level security;
 alter table survey_responses   enable row level security;
 alter table survey_answers     enable row level security;
 alter table survey_rate_events enable row level security;
+alter table survey_voters      enable row level security;
 
 drop policy if exists surveys_read_published on surveys;
 create policy surveys_read_published on surveys
@@ -197,6 +226,9 @@ create policy survey_options_owner on survey_options
 
 -- No policies at all on survey_responses / survey_answers: raw rows are
 -- unreadable to every client. Tallies come from survey_results().
+--
+-- Same for survey_voters, which holds addresses. Turnout comes from
+-- survey_turnout(), which returns display names and never an email.
 
 -- ------------------------------------------------------------- functions
 
@@ -349,6 +381,7 @@ as $$
     'show_text_answers',       p.show_text_answers,
     'rate_limit_per_hour',     p.rate_limit_per_hour,
     'require_auth',            p.require_auth,
+    'restrict_to_voters',      p.restrict_to_voters,
     'opens_at',                p.opens_at,
     'closes_at',               p.closes_at,
     'accepting',               survey_is_accepting(p.status, p.opens_at, p.closes_at),
@@ -443,6 +476,9 @@ declare
   v_seen        int;
   v_places      int;
   v_rank        int;
+  v_needs_auth  boolean;
+  v_email       text;
+  v_voter_id    uuid;
 begin
   select * into v_poll from surveys where slug = p_slug;
   if not found then
@@ -453,8 +489,29 @@ begin
     raise exception 'survey_closed' using errcode = 'P0001';
   end if;
 
-  if v_poll.require_auth and auth.uid() is null then
+  -- A restricted electorate is meaningless without an account to check
+  -- against, so it implies require_auth rather than being combinable with it.
+  v_needs_auth := v_poll.require_auth or v_poll.restrict_to_voters;
+
+  if v_needs_auth and auth.uid() is null then
     raise exception 'auth_required' using errcode = 'P0001';
+  end if;
+
+  -- The electorate check. This is the whole point of the setting: hiding the
+  -- button in a UI stops nobody, because survey_submit is granted to every
+  -- authenticated role and anyone can create an account.
+  if v_poll.restrict_to_voters then
+    select u.email into v_email from auth.users u where u.id = auth.uid();
+
+    select v.id into v_voter_id
+    from survey_voters v
+    where v.survey_id = v_poll.id
+      and lower(btrim(v.email)) = lower(btrim(coalesce(v_email, '')))
+    limit 1;
+
+    if v_voter_id is null then
+      raise exception 'not_an_eligible_voter' using errcode = 'P0001';
+    end if;
   end if;
 
   if p_respondent_key is null or length(p_respondent_key) < 16 then
@@ -505,7 +562,7 @@ begin
   --   auth-gated  -> one per account (device is irrelevant)
   --   device-gated-> the device hash the client sent
   --   unlimited   -> a fresh random key, which can never collide
-  if v_poll.require_auth then
+  if v_needs_auth then
     v_key := survey_account_key(v_poll.id, auth.uid());
   elsif v_poll.one_response_per_device then
     v_key := p_respondent_key;
@@ -520,6 +577,13 @@ begin
   exception when unique_violation then
     raise exception 'already_responded' using errcode = 'P0001';
   end;
+
+  -- Turnout. Records THAT this voter voted, never what they chose, and rides
+  -- the same transaction so it can never drift from the ballot count. The
+  -- roll and the responses are never joined anywhere.
+  if v_voter_id is not null then
+    update survey_voters set voted_at = now() where id = v_voter_id;
+  end if;
 
   for v_q in
     select * from survey_questions where survey_id = v_poll.id order by position
@@ -880,7 +944,8 @@ begin
     insert into surveys (
       slug, title, description, status, anonymous, randomize_questions,
       one_response_per_device, show_results, show_text_answers,
-      rate_limit_per_hour, require_auth, opens_at, closes_at, created_by
+      rate_limit_per_hour, require_auth, restrict_to_voters,
+      opens_at, closes_at, created_by
     ) values (
       v_slug,
       coalesce(p_payload->>'title', 'Untitled'),
@@ -893,6 +958,7 @@ begin
       coalesce((p_payload->>'show_text_answers')::boolean, false),
       coalesce((p_payload->>'rate_limit_per_hour')::int, 60),
       coalesce((p_payload->>'require_auth')::boolean, false),
+      coalesce((p_payload->>'restrict_to_voters')::boolean, false),
       nullif(p_payload->>'opens_at', '')::timestamptz,
       nullif(p_payload->>'closes_at', '')::timestamptz,
       v_uid
@@ -911,6 +977,7 @@ begin
       show_text_answers       = coalesce((p_payload->>'show_text_answers')::boolean, show_text_answers),
       rate_limit_per_hour     = coalesce((p_payload->>'rate_limit_per_hour')::int, rate_limit_per_hour),
       require_auth            = coalesce((p_payload->>'require_auth')::boolean, require_auth),
+      restrict_to_voters      = coalesce((p_payload->>'restrict_to_voters')::boolean, restrict_to_voters),
       opens_at                = nullif(p_payload->>'opens_at', '')::timestamptz,
       closes_at               = nullif(p_payload->>'closes_at', '')::timestamptz,
       updated_at              = now()
@@ -1093,15 +1160,21 @@ begin
   insert into surveys (
     slug, title, description, status, anonymous, randomize_questions,
     one_response_per_device, show_results, show_text_answers,
-    rate_limit_per_hour, require_auth, created_by
+    rate_limit_per_hour, require_auth, restrict_to_voters, created_by
   )
   values (
     v_slug, v_src.title || ' (copy)', v_src.description, 'draft',
     v_src.anonymous, v_src.randomize_questions, v_src.one_response_per_device,
     v_src.show_results, v_src.show_text_answers, v_src.rate_limit_per_hour,
-    v_src.require_auth, v_uid
+    v_src.require_auth, v_src.restrict_to_voters, v_uid
   )
   returning id into v_new;
+
+  -- The electorate is structure, so it copies. The voted_at stamps are
+  -- results, so they do not: the duplicate starts with nobody having voted.
+  insert into survey_voters (survey_id, email, display_name)
+  select v_new, sv.email, sv.display_name
+  from survey_voters sv where sv.survey_id = v_src.id;
 
   for v_q in
     select * from survey_questions where survey_id = v_src.id order by position
@@ -1128,6 +1201,126 @@ begin
   end loop;
 
   return survey_get(v_slug);
+end;
+$$;
+
+-- ------------------------------------------------------------ electorate
+
+-- Replace the roll wholesale. Owner only.
+--
+-- p_voters: [{"email": "...", "display_name": "..."}, ...]
+--
+-- Re-adding an address that has already voted keeps its voted_at, so fixing a
+-- typo in someone's display name does not erase the fact that they voted.
+-- Removing an address drops the row entirely, stamp included, which is the
+-- point: they are off the roll.
+create or replace function survey_set_voters(p_slug text, p_voters jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_poll surveys;
+  v_kept text[];
+begin
+  select * into v_poll from surveys where slug = p_slug;
+  if not found or auth.uid() is null or v_poll.created_by is distinct from auth.uid() then
+    raise exception 'not_found_or_not_owner' using errcode = 'P0001';
+  end if;
+
+  if jsonb_typeof(p_voters) <> 'array' then
+    raise exception 'bad_voter_list' using errcode = 'P0001';
+  end if;
+
+  if exists (
+    select 1 from jsonb_array_elements(p_voters) e
+    where nullif(btrim(coalesce(e->>'email', '')), '') is null
+  ) then
+    raise exception 'bad_voter_list' using errcode = 'P0001';
+  end if;
+
+  insert into survey_voters (survey_id, email, display_name)
+  select v_poll.id, btrim(e->>'email'), nullif(btrim(coalesce(e->>'display_name', '')), '')
+  from jsonb_array_elements(p_voters) e
+  on conflict (survey_id, lower(btrim(email)))
+  do update set display_name = excluded.display_name;
+
+  select coalesce(array_agg(lower(btrim(e->>'email'))), '{}'::text[]) into v_kept
+  from jsonb_array_elements(p_voters) e;
+
+  delete from survey_voters
+   where survey_id = v_poll.id
+     and not (lower(btrim(email)) = any (v_kept));
+
+  return jsonb_build_object(
+    'ok', true,
+    'voters', (select count(*) from survey_voters where survey_id = v_poll.id)
+  );
+end;
+$$;
+
+-- Turnout: who is on the roll and whether they have voted.
+--
+-- Safe to expose publicly because it returns display names and a boolean,
+-- never an address and never an answer. It says that someone voted, not how.
+create or replace function survey_turnout(p_slug text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'display_name', t.display_name,
+           'voted',        t.voted_at is not null
+         ) order by t.display_name nulls last), '[]'::jsonb)
+  from survey_voters t
+  join surveys p on p.id = t.survey_id
+  where p.slug = p_slug;
+$$;
+
+-- What the caller may do: used to pick which screen to render. The screen is
+-- a convenience; survey_submit enforces the same rule regardless.
+create or replace function survey_my_voter_status(p_slug text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_poll  surveys;
+  v_email text;
+  v_row   survey_voters;
+begin
+  select * into v_poll from surveys where slug = p_slug;
+  if not found then
+    raise exception 'survey_not_found' using errcode = 'P0002';
+  end if;
+
+  if auth.uid() is null then
+    return jsonb_build_object('signed_in', false, 'eligible', false, 'voted', false);
+  end if;
+
+  select u.email into v_email from auth.users u where u.id = auth.uid();
+
+  if not v_poll.restrict_to_voters then
+    return jsonb_build_object('signed_in', true, 'eligible', true, 'voted',
+      coalesce(survey_has_responded(p_slug, survey_account_key(v_poll.id, auth.uid())), false));
+  end if;
+
+  select * into v_row from survey_voters
+   where survey_id = v_poll.id
+     and lower(btrim(email)) = lower(btrim(coalesce(v_email, '')))
+   limit 1;
+
+  return jsonb_build_object(
+    'signed_in',    true,
+    'eligible',     found,
+    'voted',        found and v_row.voted_at is not null,
+    'display_name', case when found then v_row.display_name end
+  );
 end;
 $$;
 
@@ -1206,6 +1399,9 @@ revoke all on function survey_save(jsonb)                 from public;
 revoke all on function survey_list_mine()                 from public;
 revoke all on function survey_duplicate(text, text)       from public;
 revoke all on function survey_export(text)                from public;
+revoke all on function survey_set_voters(text, jsonb)     from public;
+revoke all on function survey_turnout(text)               from public;
+revoke all on function survey_my_voter_status(text)       from public;
 revoke all on function survey_is_accepting(text, timestamptz, timestamptz) from public;
 revoke all on function survey_account_key(uuid, uuid)     from public;
 revoke all on function survey_question_visible(jsonb, jsonb) from public;
@@ -1218,3 +1414,9 @@ grant execute on function survey_save(jsonb)              to authenticated;
 grant execute on function survey_list_mine()              to authenticated;
 grant execute on function survey_duplicate(text, text)    to authenticated;
 grant execute on function survey_export(text)             to authenticated;
+grant execute on function survey_set_voters(text, jsonb)  to authenticated;
+-- anon too: the page calls this before anyone signs in, to decide whether to
+-- show a login button. Signed out it returns all-false and nothing else.
+grant execute on function survey_my_voter_status(text)    to anon, authenticated;
+-- turnout is display names plus a boolean, never an address or an answer
+grant execute on function survey_turnout(text)            to anon, authenticated;
