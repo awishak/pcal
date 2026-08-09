@@ -1967,7 +1967,11 @@ function WatchPage({ streams = [], isAdmin = false, setStreams, onOpenGame }) {
 // is an unlisted link sent to the 30 eligible voters; the voter list is
 // public but has no reason to occupy a nav slot.
 const SECTION_SEG = { home: "", stats: "stats", schedule: "schedule", live: "games", teams: "teams", register: "register", watch: "live", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults" };
-const SEG_SECTION = { stats: "stats", schedule: "schedule", games: "live", teams: "teams", register: "register", live: "watch", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults" };
+// SEG_SECTION is inbound only, so an extra key here is an entry point rather
+// than a second address: stateToPath still builds the canonical path from
+// SECTION_SEG, and the history effect rewrites the bar to /awardsresults.
+// "awardresults" is the spelling people actually type.
+const SEG_SECTION = { stats: "stats", schedule: "schedule", games: "live", teams: "teams", register: "register", live: "watch", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults", awardresults: "awardsresults" };
 const SECTION_DEFAULT_TAB = { home: "home", stats: "stats_home", schedule: "schedule", live: "live", teams: "teams", register: "register", watch: "watch", awards: "awards_ballot", awardsvoters: "awards_voters", awardsresults: "awards_results" };
 
 function playerSlug(name) {
