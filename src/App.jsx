@@ -9832,62 +9832,53 @@ function ChampionshipsView({ goToPlayer }) {
                 {/* Rank anchors the card when the list is in rank order. In
                     the date sorts the year takes the badge instead, so the
                     card never leads with a number that means nothing. */}
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="h-12 w-12 flex-none rounded-2xl bg-gray-900 flex items-center justify-center">
-                    <span className="text-2xl font-black text-white leading-none tabular-nums">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 flex-none rounded-xl bg-gray-900 flex items-center justify-center">
+                    <span className="text-xl font-black text-white leading-none tabular-nums">
                       {sortMode === "rank" ? g.meta.rank : String(g.year).slice(2)}
                     </span>
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-black text-gray-400 uppercase tracking-wide">
-                        {sortMode === "rank" ? g.year : `Rank ${g.meta.rank}`}
-                      </span>
-                      {g.meta.ot && (
-                        <span className="px-1.5 py-0.5 rounded-full text-[11px] font-black bg-gray-900 text-white">
-                          OT
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-lg font-black text-gray-900 leading-tight">
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] text-gray-400 font-bold">
+                      {sortMode === "rank" ? g.year : `Rank ${g.meta.rank}`}
+                    </p>
+
+                    <h3 className="text-base font-black text-gray-900 leading-tight">
                       {g.meta.headline || g.meta.context || `${g.year} final`}
                     </h3>
+
+                    {/* One line, normal case, no panel. The winner is black and
+                        the loser gray, so the result reads off weight and colour
+                        rather than layout. getTeamLogo covers the defunct codes,
+                        so San Ramon and Concord get their historic marks. */}
+                    <p className="text-base leading-snug mt-1">
+                      {getTeamLogo(g.win) && (
+                        <img src={getTeamLogo(g.win)} alt=""
+                          className="inline-block h-4 w-4 mr-1 -mt-0.5 object-contain align-middle" />
+                      )}
+                      <span className="font-black text-gray-900">
+                        {championshipTeam(g.win)} {g.winPts}
+                      </span>
+                      <span className="text-gray-400">, </span>
+                      {getTeamLogo(g.lose) && (
+                        <img src={getTeamLogo(g.lose)} alt=""
+                          className="inline-block h-4 w-4 mr-1 -mt-0.5 object-contain align-middle opacity-50" />
+                      )}
+                      <span className="font-medium text-gray-400">
+                        {championshipTeam(g.lose)} {g.losePts}
+                      </span>
+                      {g.meta.ot && <span className="font-bold text-gray-900"> (OT)</span>}
+                    </p>
+
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      {[g.date, g.meta.location].filter(Boolean).join(" · ")}
+                    </p>
+                    {g.meta.context && (
+                      <p className="text-[11px] text-gray-500">{g.meta.context}</p>
+                    )}
                   </div>
                 </div>
-
-                {/* Scoreboard. The winner carries the weight: black, larger
-                    score, listed first. The loser recedes to gray. getTeamLogo
-                    covers the defunct codes, so San Ramon and Concord get
-                    their historic marks rather than nothing. */}
-                <div className="rounded-xl bg-gray-50 px-3 py-2 space-y-1">
-                  {[
-                    { team: g.win, pts: g.winPts, rec: g.winRec, won: true },
-                    { team: g.lose, pts: g.losePts, rec: g.loseRec, won: false },
-                  ].map(side => (
-                    <div key={side.team} className="flex items-center gap-2">
-                      {getTeamLogo(side.team) && (
-                        <img src={getTeamLogo(side.team)} alt=""
-                          className={`h-6 w-6 flex-none object-contain ${side.won ? "" : "opacity-50"}`} />
-                      )}
-                      <span className={`text-[13px] uppercase truncate ${
-                        side.won ? "font-black text-gray-900" : "font-bold text-gray-400"}`}>
-                        {championshipTeam(side.team)}
-                      </span>
-                      <span className={`text-[11px] flex-none ${side.won ? "text-gray-500" : "text-gray-400"}`}>
-                        {side.rec || ""}
-                      </span>
-                      <span className={`ml-auto flex-none tabular-nums leading-none ${
-                        side.won ? "text-2xl font-black text-gray-900" : "text-lg font-bold text-gray-400"}`}>
-                        {side.pts}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Date, place and what the title meant, on one line. */}
-                <p className="text-[11px] text-gray-500 mt-2">
-                  {[g.date, g.meta.location, g.meta.context].filter(Boolean).join(" · ")}
-                </p>
 
                 {g.scoreMismatch && (
                   <p className="text-[11px] text-gray-500 mt-0.5">
@@ -9898,7 +9889,7 @@ function ChampionshipsView({ goToPlayer }) {
 
                 {g.meta.mvp && (
                   <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-[11px] font-black text-gray-400 uppercase tracking-wide flex-none">
+                    <span className="text-[11px] font-bold text-gray-400 flex-none">
                       MVP
                     </span>
                     <span className="text-[13px] font-black text-gray-900 cursor-pointer active:opacity-60"
@@ -9958,11 +9949,14 @@ function ChampionshipsView({ goToPlayer }) {
                 <div className="px-4 py-3 border-t border-gray-100 space-y-3">
                   {[[g.win, g.winBox], [g.lose, g.loseBox]].map(([team, box]) => (
                     <div key={team}>
-                      <div className="flex items-center gap-1.5 text-[11px] font-black text-gray-900 uppercase tracking-wide mb-1">
+                      <div className="flex items-center gap-1.5 text-[13px] font-black text-gray-900 mb-1">
                         {getTeamLogo(team) && (
                           <img src={getTeamLogo(team)} alt="" className="h-4 w-4 flex-none object-contain" />
                         )}
                         {championshipTeam(team)}
+                        <span className="text-[11px] font-bold text-gray-400">
+                          {team === g.win ? g.winRec : g.loseRec}
+                        </span>
                       </div>
                       <table className="w-full text-[11px]">
                         <thead>
