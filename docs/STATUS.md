@@ -72,6 +72,8 @@ To fix any of it, the player-level box scores are needed. Team totals alone cann
 
 Nothing user-facing is wrong at the team level, since displayed records read from the baked `TEAM_SEASONS`. The damage is confined to player stats in those games and, through them, slightly wrong 2024 and 2025 AI Scores. Too small to move an award.
 
+Related, found 2026-08-10 while building the Championship Games card: the 2010 final box score adds up to San Ramon 44, San Jose 36, but the official final score was 42-39. Andrew confirmed the official score from memory. Same class of error as the 2024 and 2025 games above, and it needs the same fix, the player level box score. For now `CHAMPIONSHIP_META[2010].score` overrides the number in the card header and the card says plainly that the box score below it disagrees. That override is display only and must never be used on a game where the correction would flip the winner.
+
 ## Backlog: app features
 
 1. Add an "Explaining AI Score and Game Score" card at the top of analytics. AI Score is a season metric, Game Score is per game. Awards component covers the 2005 to 2023 pre voting era. Top 10 AI Score equals First plus Second Team. First Team is the top 5 via formula, then pick MVP from those 5.

@@ -538,6 +538,96 @@ const VOTED_AWARDS_BY_YEAR = {
 // Award categories in prestige order
 const VOTED_AWARD_ORDER = ["MVP", "MIP", "DPOY", "Rising Star", "Best Teammate", "First Team Best Teammate"];
 
+// The commissioner's ranking of every championship game, plus the things the
+// box score cannot tell you. Teams, scores, winner and date are NEVER stored
+// here: they derive from GAME_LOG (game_type "C") so they cannot drift from
+// the box scores. Only judgment and outside facts live in this table.
+//
+// rank is Andrew's order, 1 is best, and it is the default sort. The seed
+// order was 2026 first (the only final to reach overtime) and then by margin,
+// closest game first, which is a starting point and not a claim.
+//
+// mvp holds the canonical "LASTNAME FIRSTNAME" so it matches GAME_LOG and the
+// player links resolve. Championship MVP is not recorded anywhere in the data,
+// so every one of these is set by hand.
+//
+// Optional per game:
+//   score  [winner, loser] when the box score does not add up to the official
+//          final score. Header only, and never one that would flip the winner.
+//   photo  { url, caption }. Upload with uploadPhoto() in supabase.js, which
+//          puts the file in the public "photos" bucket and hands back a URL.
+//   video  { url, caption }. Any YouTube or Twitch watch URL: toEmbedUrl()
+//          converts it to an embeddable one.
+//   blurb  a string, or an array of strings for multiple paragraphs.
+const CHAMPIONSHIP_EXPLAINER = [
+  "There is something special about playoff time, and especially about the championship game. You can feel the buzz in the gym before it starts. The crowd is bigger than it has been all season, and anyone who has been around this league long enough knows that whatever happens in the next hour is what people will still be arguing about next summer.",
+  "I have been thankful to attend all but one final in the history of the league, and to play in 10 of the first 21. On the heels of two finals as good as 2025 and 2026, I wanted to go back through all 21 and put them in order.",
+  "These are my rankings, which makes them arguments and not facts. The scores and the box scores are the record. The order is mine, and I am happy to hear why it is wrong.",
+];
+
+const CHAMPIONSHIP_META = {
+  2026: { rank: 1, location: "Livermore Community Center", mvp: "MIKHAIL YOUSEF",
+    context: "Pleasanton's third championship, and the first under the Pleasanton name",
+    ot: true, blurb: "" },
+  2017: { rank: 4, location: "Livermore Community Center", mvp: "AWAD MARK",
+    context: "Sacramento's second championship", blurb: "" },
+  2024: { rank: 7, location: "Livermore Community Center", mvp: "DANIAL MARKO",
+    context: "Sacramento's seventh championship, fourth in a row", blurb: "" },
+  2016: { rank: 8, location: "Livermore Community Center", mvp: "MOTAGALLY RAPHAEL",
+    context: "Pleasanton's second championship, won under the San Ramon name", blurb: "" },
+  2013: { rank: 5, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+    context: "Hayward's seventh championship, back to back", blurb: "" },
+  2025: { rank: 2, location: "Pleasanton Middle School, Pleasanton", mvp: "GERGES THEO",
+    context: "Sacramento's eighth championship, fifth in a row", blurb: "" },
+  2010: { rank: 3, location: "Livermore Community Center", mvp: "EJIGU KINDU",
+    context: "Pleasanton's first championship, won under the San Ramon name",
+    score: [42, 39],
+    blurb: [
+      "One of the most thrilling finals we have had, and a game I do not think about much, because I was playing with bitterness instead of joy.",
+      "San Ramon had taken down Hayward in the semifinal, the first playoff loss in Hayward's history, and still came into the final as underdogs. There were some ill feelings between San Ramon and a few of the other teams, San Jose included, in part because both rosters had players who wanted to win badly enough that it showed. The game itself was excellent. John Nakhla coached San Ramon well and had them playing hard on both ends, and this was the first season anyone had played zone defense in PCAL.",
+      "San Ramon led by nine in the last few minutes and San Jose stormed back. I had an awful game, both in how I played and in how I let my emotions get the best of me, though I forced three turnovers in the final 90 seconds and hit two free throws to make it 40-39 with 20 seconds left. Then I fouled out. A thrilling game all the same.",
+    ] },
+  2009: { rank: 9, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+    context: "Hayward's fifth championship, fifth in a row",
+    blurb: "A good game, though not for me. I tore something in my ankle during the semifinal and could not contribute much. Even so, this was the most competitive final we had played to that point, and Hayward still won their fifth straight. George Shehata was again the engine of the Hayward steamroller, and Mounir Gad kept it close with a big game. Gad often missed the playoffs for a family trip, but when he did play in a final he played well. I had ankle surgery a month later, so being 0-3 in finals was the least of my worries." },
+  2015: { rank: 16, location: "Livermore Community Center", mvp: "ISHAK ANDREW",
+    context: "San Jose's second championship", blurb: "" },
+  2014: { rank: 10, location: "Livermore Community Center", mvp: "MULUGETA YONI",
+    context: "Sacramento's first championship", blurb: "" },
+  2006: { rank: 13, location: "Iron Horse Middle School, San Ramon", mvp: "SHEHATA GEORGE",
+    context: "Hayward's second championship, back to back",
+    blurb: "Closer than the year before, but it still felt inevitable. Hayward came into this game having won their first 17, and while San Ramon put up a fight early, Hayward pulled away in the second half. This was the first season we played a women's game before the final, so the mood in the gym was festive." },
+  2023: { rank: 14, location: "Livermore Community Center", mvp: "KELADA ANTHONY",
+    context: "Sacramento's sixth championship, third in a row", blurb: "" },
+  2019: { rank: 12, location: "Livermore Community Center", mvp: "SHACKER MARK",
+    context: "San Jose's third championship", blurb: "" },
+  2008: { rank: 15, location: "Livermore Community Center", mvp: "ROUHANI DAVID",
+    context: "Hayward's fourth championship, fourth in a row",
+    blurb: "This was a happy to be here situation for Concord, and the game was not as close as the score looks. The Hanna brothers could provide some sparks, but the firepower was not there, and Concord had spent their emotion in the semifinal, beating San Ramon on a missed buzzer beater. I had flown back from Texas to show a documentary. My team had missed the playoffs for the first time, on the first Bible trivia tiebreaker in league history, so I was not playing, and I coached Concord instead, which was a lot of fun. Hayward did not play their best game and it did not matter, because Concord could not keep up offensively. That made 42 straight wins to start the league for Hayward, though Concord would beat them in week 2 of 2009 in a finals rematch." },
+  2021: { rank: 11, location: "Livermore Community Center", mvp: "BADROOS ANDREW",
+    context: "Sacramento's fourth championship", blurb: "" },
+  2007: { rank: 17, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+    context: "Hayward's third championship, third in a row",
+    blurb: "Hayward came in 29-0, so we had no reason to believe we could win this game. But we took a five point lead in the second half on the strength of a couple of things: my brother Eddie and his athleticism, back from New York for a few games, and Abouna Salib's son John Saddik, in his only season, giving our team structure and calmness. Then Hayward did what Hayward always did. They went on a second half run, again led by George Shehata, and won their third straight championship." },
+  2022: { rank: 19, location: "Livermore Community Center", mvp: "BADROOS ANDREW",
+    context: "Sacramento's fifth championship, back to back", blurb: "" },
+  2011: { rank: 6, location: "Harvest Park Middle School, Pleasanton", mvp: "ABRAHAM PETER",
+    context: "San Jose's first championship",
+    blurb: [
+      "I am biased, but this game was better than the score indicates.",
+      "The big story is Peter Abraham, who completely changed the complexion of the season as a dominant two-way player, and who is an all-around great guy on top of it. One thing I loved about playing with Peter: the interior was not his standard position, but he recognized it was the best place for him to play in our league, and he adjusted to do what was best for the team.",
+      "It is a team sport, though, and I am proud of the way the rest of San Jose played their roles to perfection. Clutch shots, excellent rebounding, and defense that held Hayward to 32 points, all of it in support of our man in the middle.",
+      "It felt great to win a championship after losing four finals. I had spent a lot of time working on my shooting after a couple of poor shooting seasons, so it was vindicating.",
+    ] },
+  2012: { rank: 20, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+    context: "Hayward's sixth championship", blurb: "" },
+  2005: { rank: 18, location: "Resurrection Greek Orthodox Church, Castro Valley", mvp: "SHEHATA GEORGE",
+    context: "Hayward's first championship",
+    blurb: "The first one. What I remember most is not the basketball, it is that there were smiles all around because we had actually gotten this thing off the ground and finished a season. Hayward and George Shehata dominated the whole year and this game was no exception. San Jose only had five players that day. We could have had five more and it would not have made a difference against that Hayward juggernaut." },
+  2018: { rank: 21, location: "Livermore Community Center", mvp: "AWAD BISHOY",
+    context: "Sacramento's third championship, back to back", blurb: "" },
+};
+
 // 2005 teams had different names — display contextually
 const TEAM_LOGOS_CURRENT = {
   PDF: "data:image/png;base64,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",
@@ -3312,6 +3402,8 @@ function AppInner() {
       { key: "families", label: "Families", desc: "Brothers & fathers/sons" },
     ]},
     { title: "Awards & History", cards: [
+      // adminOnly until all 21 writeups are in. Drop the flag to ship it.
+      { key: "championships", label: "Championship Games", desc: "All 21 finals, ranked by the commissioner", adminOnly: true },
       { key: "milestones", label: "Milestones", desc: "Scoring thresholds & double-doubles" },
       { key: "seasons", label: "Season Recaps", desc: "Year-by-year summaries" },
       { key: "teams", label: "Team Histories", desc: "Franchise records & rosters" },
@@ -4153,6 +4245,7 @@ function AppInner() {
         {tab === "hof" && <HallOfFameView goToPlayer={goToPlayer} />}
         {tab === "teammates" && <TeammatesView goToPlayer={goToPlayer} />}
         {tab === "families" && <FamiliesView goToPlayer={goToPlayer} />}
+        {tab === "championships" && <ChampionshipsView goToPlayer={goToPlayer} />}
         {tab === "milestones" && <MilestonesView goToPlayer={goToPlayer} />}
         {tab === "potw_stats" && <POTWStatsView goToPlayer={goToPlayer} />}
         {tab === "stat_explainers" && <StatExplainersView />}
@@ -9614,6 +9707,278 @@ function POTWStatsView({ goToPlayer }) {
   );
 }
 
+
+const CH_MONTHS = ["", "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+// game_log stores the date as "8/9" with the year in its own column, so the
+// full date has to be assembled rather than parsed.
+function championshipDate(mmdd, year) {
+  const parts = String(mmdd || "").split("/");
+  const mo = parseInt(parts[0], 10);
+  const da = parseInt(parts[1], 10);
+  if (!mo || !da || !CH_MONTHS[mo]) return String(year);
+  return CH_MONTHS[mo] + " " + da + ", " + year;
+}
+
+// San Ramon is the Pleasanton franchise (see FRANCHISE_MAP). Wherever the old
+// name appears it carries the current one in parentheses, so a reader does not
+// need to know the history to follow the ledger. Pleasanton under its own name
+// is never annotated.
+function championshipTeam(code) {
+  const name = TEAM_NAMES[code] || code;
+  return code === "SRA" ? name + " (Pleasanton)" : name;
+}
+
+// Every final, ranked by the commissioner. Scores and rosters come off
+// GAME_LOG; everything else comes off CHAMPIONSHIP_META. A year present in one
+// and missing from the other still renders, it just renders thinner.
+function ChampionshipsView({ goToPlayer }) {
+  const [sortMode, setSortMode] = useState("rank");
+  const [openYear, setOpenYear] = useState(null);
+
+  const games = useMemo(() => {
+    const byYear = {};
+    GAME_LOG.forEach(row => {
+      if (row[5] !== "C" || row[6] !== 1) return;
+      (byYear[row[20]] = byYear[row[20]] || []).push(row);
+    });
+    return Object.keys(byYear).map(Number).map(year => {
+      const rows = byYear[year];
+      const pts = {};
+      rows.forEach(r => { pts[r[1]] = (pts[r[1]] || 0) + r[7]; });
+      const teams = Object.keys(pts);
+      if (teams.length !== 2) return null;
+      const win = pts[teams[0]] >= pts[teams[1]] ? teams[0] : teams[1];
+      const lose = win === teams[0] ? teams[1] : teams[0];
+      const byGmSc = (a, b) => b[19] - a[19];
+      const meta = CHAMPIONSHIP_META[year] || {};
+      // meta.score is the official final score for games where game_log's box
+      // score does not add up to it. It only overrides the number in the
+      // header: the winner is still derived from the box score, so an override
+      // must never be one that flips the result. If one ever needs to, that is
+      // a game_log correction, not a display override.
+      const winPts = meta.score ? meta.score[0] : pts[win];
+      const losePts = meta.score ? meta.score[1] : pts[lose];
+      // Records come off TEAM_SEASONS and include playoff games, the same
+      // convention the rest of the app uses.
+      const rec = (t) => {
+        const ts = TEAM_SEASONS[t + "-" + year];
+        return ts ? ts.w + "-" + ts.l : null;
+      };
+      return {
+        year, win, lose, winPts, losePts,
+        boxWin: pts[win], boxLose: pts[lose],
+        scoreMismatch: !!meta.score && (meta.score[0] !== pts[win] || meta.score[1] !== pts[lose]),
+        winRec: rec(win), loseRec: rec(lose),
+        date: championshipDate(rows[0][4], year),
+        winBox: rows.filter(r => r[1] === win).sort(byGmSc),
+        loseBox: rows.filter(r => r[1] === lose).sort(byGmSc),
+        meta,
+      };
+    }).filter(Boolean);
+  }, []);
+
+  const sorted = useMemo(() => {
+    const list = [...games];
+    if (sortMode === "last") return list.sort((a, b) => b.year - a.year);
+    if (sortMode === "first") return list.sort((a, b) => a.year - b.year);
+    return list.sort((a, b) => (a.meta.rank || 999) - (b.meta.rank || 999));
+  }, [games, sortMode]);
+
+  const SORTS = [
+    { key: "rank", label: "My Rank" },
+    { key: "last", label: "Last Played" },
+    { key: "first", label: "First Played" },
+  ];
+
+  return (
+    <div className="px-4 pb-20">
+      <h2 className="text-xl font-black text-gray-900">Championship Games</h2>
+
+      <div className="mt-3 rounded-2xl border border-gray-100 p-4 space-y-3">
+        {CHAMPIONSHIP_EXPLAINER.map((p, i) => (
+          <p key={i} className="text-[13px] text-gray-600 leading-relaxed">{p}</p>
+        ))}
+      </div>
+
+      <div className="mt-4 flex gap-1.5">
+        {SORTS.map(s => (
+          <button key={s.key} onClick={() => setSortMode(s.key)}
+            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold ${
+              sortMode === s.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {sorted.map(g => {
+          const open = openYear === g.year;
+          return (
+            <div key={g.year} className="rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-4 pt-3 pb-3">
+                <div className="flex items-baseline gap-2 mb-1">
+                  {sortMode === "rank" && g.meta.rank && (
+                    <span className="text-[13px] font-black text-gray-400">#{g.meta.rank}</span>
+                  )}
+                  <span className="text-[11px] font-black text-gray-400 uppercase tracking-wide">
+                    {g.year}
+                  </span>
+                  {g.meta.ot && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[11px] font-black bg-gray-900 text-white">
+                      OT
+                    </span>
+                  )}
+                </div>
+
+                {/* getTeamLogo covers the defunct codes too, so San Ramon and
+                    Concord get their historic marks rather than nothing. */}
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-base font-black text-gray-900 uppercase leading-tight">
+                  {getTeamLogo(g.win) && (
+                    <img src={getTeamLogo(g.win)} alt="" className="h-5 w-5 flex-none object-contain" />
+                  )}
+                  <span>{championshipTeam(g.win)} {g.winPts},</span>
+                  {getTeamLogo(g.lose) && (
+                    <img src={getTeamLogo(g.lose)} alt="" className="h-5 w-5 flex-none object-contain" />
+                  )}
+                  <span>{championshipTeam(g.lose)} {g.losePts}</span>
+                </div>
+
+                {(g.winRec || g.loseRec) && (
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    {championshipTeam(g.win)} {g.winRec || "?"}
+                    {" · "}
+                    {championshipTeam(g.lose)} {g.loseRec || "?"}
+                  </p>
+                )}
+
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  {g.date}{g.meta.location ? " · " + g.meta.location : ""}
+                </p>
+
+                {g.scoreMismatch && (
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    Official final score. The box score below adds up to {g.boxWin}-{g.boxLose},
+                    which is a recording error in the game log.
+                  </p>
+                )}
+
+                {g.meta.context && (
+                  <p className="text-[13px] font-bold text-gray-900 mt-2">{g.meta.context}</p>
+                )}
+                {g.meta.note && (
+                  <p className="text-[11px] text-gray-500 mt-0.5">{g.meta.note}</p>
+                )}
+
+                {g.meta.mvp && (
+                  <p className="text-[13px] text-gray-600 mt-2">
+                    <span className="font-black text-gray-900">Championship MVP: </span>
+                    <span className="font-bold text-gray-900 cursor-pointer active:opacity-60"
+                      onClick={() => goToPlayer(g.meta.mvp)}>
+                      {formatName(g.meta.mvp)}
+                    </span>
+                  </p>
+                )}
+
+                {/* An optional still and an optional clip. Both are dropped
+                    quietly if they fail to load rather than leaving a broken
+                    frame on the card. */}
+                {g.meta.photo && g.meta.photo.url && (
+                  <figure className="mt-3">
+                    <img src={g.meta.photo.url} alt={g.meta.photo.caption || ""} loading="lazy"
+                      className="w-full rounded-xl max-h-96 object-contain bg-gray-100"
+                      onError={(e) => { e.target.style.display = "none"; }} />
+                    {g.meta.photo.caption && (
+                      <figcaption className="text-[11px] text-gray-500 mt-1">{g.meta.photo.caption}</figcaption>
+                    )}
+                  </figure>
+                )}
+
+                {g.meta.video && g.meta.video.url && toEmbedUrl(g.meta.video.url) && (
+                  <figure className="mt-3">
+                    <div className="relative w-full rounded-xl overflow-hidden bg-gray-100" style={{ paddingTop: "56.25%" }}>
+                      <iframe src={toEmbedUrl(g.meta.video.url)} title={g.meta.video.caption || `${g.year} final`}
+                        loading="lazy" allowFullScreen
+                        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        className="absolute inset-0 w-full h-full border-0" />
+                    </div>
+                    {g.meta.video.caption && (
+                      <figcaption className="text-[11px] text-gray-500 mt-1">{g.meta.video.caption}</figcaption>
+                    )}
+                  </figure>
+                )}
+
+                {/* blurb is a string or an array of paragraphs. */}
+                {(Array.isArray(g.meta.blurb) ? g.meta.blurb : [g.meta.blurb]).filter(Boolean).length ? (
+                  (Array.isArray(g.meta.blurb) ? g.meta.blurb : [g.meta.blurb]).map((para, i) => (
+                    <p key={i} className="text-[13px] text-gray-600 leading-relaxed mt-2">{para}</p>
+                  ))
+                ) : (
+                  <p className="text-[11px] text-gray-400 italic mt-2">No writeup yet.</p>
+                )}
+              </div>
+
+              <button onClick={() => setOpenYear(open ? null : g.year)}
+                className="w-full px-4 py-2 bg-gray-50 border-t border-gray-100 text-[11px] font-bold text-gray-600 text-left">
+                {open ? "Hide box score" : "Box score"}
+              </button>
+
+              {open && (
+                <div className="px-4 py-3 border-t border-gray-100 space-y-3">
+                  {[[g.win, g.winBox], [g.lose, g.loseBox]].map(([team, box]) => (
+                    <div key={team}>
+                      <div className="flex items-center gap-1.5 text-[11px] font-black text-gray-900 uppercase tracking-wide mb-1">
+                        {getTeamLogo(team) && (
+                          <img src={getTeamLogo(team)} alt="" className="h-4 w-4 flex-none object-contain" />
+                        )}
+                        {championshipTeam(team)}
+                      </div>
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="text-gray-900 font-black">
+                            <th className="text-left py-1">Player</th>
+                            <th className="text-right py-1 w-8">PTS</th>
+                            <th className="text-right py-1 w-8">REB</th>
+                            <th className="text-right py-1 w-8">AST</th>
+                            <th className="text-right py-1 w-8">STL</th>
+                            <th className="text-right py-1 w-8">BLK</th>
+                            <th className="text-right py-1 w-10">GmSc</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {box.map((r, i) => (
+                            <tr key={r[0] + i} className="border-t border-gray-100">
+                              <td className="py-1 pr-1">
+                                <span className="font-bold text-gray-900 cursor-pointer active:opacity-60"
+                                  onClick={() => goToPlayer(r[0])}>
+                                  {formatName(r[0])}
+                                </span>
+                                {r[0] === g.meta.mvp && (
+                                  <span className="ml-1 text-[11px] font-black text-gray-400">MVP</span>
+                                )}
+                              </td>
+                              <td className="text-right tabular-nums text-gray-700">{r[7]}</td>
+                              <td className="text-right tabular-nums text-gray-700">{r[8]}</td>
+                              <td className="text-right tabular-nums text-gray-700">{r[10]}</td>
+                              <td className="text-right tabular-nums text-gray-700">{r[9]}</td>
+                              <td className="text-right tabular-nums text-gray-700">{r[11]}</td>
+                              <td className="text-right tabular-nums font-bold text-gray-900">{r[19].toFixed(1)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function MilestonesView({ goToPlayer }) {
   const [tab, setTab] = useState("twentyPt");
