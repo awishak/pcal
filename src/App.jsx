@@ -562,24 +562,25 @@ const VOTED_AWARD_ORDER = ["MVP", "MIP", "DPOY", "Rising Star", "Best Teammate",
 const CHAMPIONSHIP_EXPLAINER = [
   "There is something special about playoff time, and especially about the championship game. You can feel the buzz in the gym before it starts. The crowd is bigger than it has been all season, and anyone who has been around this league long enough knows that whatever happens in the next hour is what people will still be arguing about next summer.",
   "I have been thankful to attend all but one final in the history of the league, and to play in 10 of the first 21. On the heels of two finals as good as 2025 and 2026, I wanted to go back through all 21 and put them in order.",
+  "How I ranked them, roughly in this order. How close it was at the end, because a final decided in the last minute beats one decided by halftime. What was at stake, whether a streak was ending or a franchise was winning its first. Whether somebody played a game people still bring up. And the quality of the basketball, which is not the same thing as the score being close.",
   "These are my rankings, which makes them arguments and not facts. The scores and the box scores are the record. The order is mine, and I am happy to hear why it is wrong.",
 ];
 
 const CHAMPIONSHIP_META = {
-  2026: { rank: 1, location: "Livermore Community Center", mvp: "MIKHAIL YOUSEF",
+  2026: { rank: 1, headline: "The streak ends in overtime", location: "Livermore Community Center", mvp: "MIKHAIL YOUSEF",
     context: "Pleasanton's third championship, and the first under the Pleasanton name",
     ot: true, blurb: "" },
-  2017: { rank: 4, location: "Livermore Community Center", mvp: "AWAD MARK",
+  2017: { rank: 4, headline: "Decided by two", location: "Livermore Community Center", mvp: "AWAD MARK",
     context: "Sacramento's second championship", blurb: "" },
-  2024: { rank: 7, location: "Livermore Community Center", mvp: "DANIAL MARKO",
+  2024: { rank: 7, headline: "Pacific comes up three short", location: "Livermore Community Center", mvp: "DANIAL MARKO",
     context: "Sacramento's seventh championship, fourth in a row", blurb: "" },
-  2016: { rank: 8, location: "Livermore Community Center", mvp: "MOTAGALLY RAPHAEL",
+  2016: { rank: 8, headline: "The best player on the floor lost", location: "Livermore Community Center", mvp: "MOTAGALLY RAPHAEL",
     context: "Pleasanton's second championship, won under the San Ramon name", blurb: "" },
-  2013: { rank: 5, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+  2013: { rank: 5, headline: "Hayward's last one", location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
     context: "Hayward's seventh championship, back to back", blurb: "" },
-  2025: { rank: 2, location: "Pleasanton Middle School, Pleasanton", mvp: "GERGES THEO",
+  2025: { rank: 2, headline: "The highest-scoring final ever played", location: "Pleasanton Middle School, Pleasanton", mvp: "GERGES THEO",
     context: "Sacramento's eighth championship, fifth in a row", blurb: "" },
-  2010: { rank: 3, location: "Livermore Community Center", mvp: "EJIGU KINDU",
+  2010: { rank: 3, headline: "The missed buzzer beater", location: "Livermore Community Center", mvp: "EJIGU KINDU",
     context: "Pleasanton's first championship, won under the San Ramon name",
     score: [42, 39],
     blurb: [
@@ -587,31 +588,31 @@ const CHAMPIONSHIP_META = {
       "San Ramon had taken down Hayward in the semifinal, the first playoff loss in Hayward's history, and still came into the final as underdogs. There were some ill feelings between San Ramon and a few of the other teams, San Jose included, in part because both rosters had players who wanted to win badly enough that it showed. The game itself was excellent. John Nakhla coached San Ramon well and had them playing hard on both ends, and this was the first season anyone had played zone defense in PCAL.",
       "San Ramon led by nine in the last few minutes and San Jose stormed back. I had an awful game, both in how I played and in how I let my emotions get the best of me, though I forced three turnovers in the final 90 seconds and hit two free throws to make it 40-39 with 20 seconds left. Then I fouled out. A thrilling game all the same.",
     ] },
-  2009: { rank: 9, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+  2009: { rank: 9, headline: "The closest anyone had come", location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
     context: "Hayward's fifth championship, fifth in a row",
     blurb: "A good game, though not for me. I tore something in my ankle during the semifinal and could not contribute much. Even so, this was the most competitive final we had played to that point, and Hayward still won their fifth straight. George Shehata was again the engine of the Hayward steamroller, and Mounir Gad kept it close with a big game. Gad often missed the playoffs for a family trip, but when he did play in a final he played well. I had ankle surgery a month later, so being 0-3 in finals was the least of my worries." },
-  2015: { rank: 16, location: "Livermore Community Center", mvp: "ISHAK ANDREW",
+  2015: { rank: 16, headline: "Thirty-two and twenty", location: "Livermore Community Center", mvp: "ISHAK ANDREW",
     context: "San Jose's second championship", blurb: "" },
-  2014: { rank: 10, location: "Livermore Community Center", mvp: "MULUGETA YONI",
+  2014: { rank: 10, headline: "Sacramento's first", location: "Livermore Community Center", mvp: "MULUGETA YONI",
     context: "Sacramento's first championship", blurb: "" },
-  2006: { rank: 13, location: "Iron Horse Middle School, San Ramon", mvp: "SHEHATA GEORGE",
+  2006: { rank: 13, headline: "Seventeen and zero", location: "Iron Horse Middle School, San Ramon", mvp: "SHEHATA GEORGE",
     context: "Hayward's second championship, back to back",
     blurb: "Closer than the year before, but it still felt inevitable. Hayward came into this game having won their first 17, and while San Ramon put up a fight early, Hayward pulled away in the second half. This was the first season we played a women's game before the final, so the mood in the gym was festive." },
-  2023: { rank: 14, location: "Livermore Community Center", mvp: "KELADA ANTHONY",
+  2023: { rank: 14, headline: "Business as usual", location: "Livermore Community Center", mvp: "KELADA ANTHONY",
     context: "Sacramento's sixth championship, third in a row", blurb: "" },
-  2019: { rank: 12, location: "Livermore Community Center", mvp: "SHACKER MARK",
+  2019: { rank: 12, headline: "San Jose's last title", location: "Livermore Community Center", mvp: "SHACKER MARK",
     context: "San Jose's third championship", blurb: "" },
-  2008: { rank: 15, location: "Livermore Community Center", mvp: "ROUHANI DAVID",
+  2008: { rank: 15, headline: "Concord spent it in the semifinal", location: "Livermore Community Center", mvp: "ROUHANI DAVID",
     context: "Hayward's fourth championship, fourth in a row",
     blurb: "This was a happy to be here situation for Concord, and the game was not as close as the score looks. The Hanna brothers could provide some sparks, but the firepower was not there, and Concord had spent their emotion in the semifinal, beating San Ramon on a missed buzzer beater. I had flown back from Texas to show a documentary. My team had missed the playoffs for the first time, on the first Bible trivia tiebreaker in league history, so I was not playing, and I coached Concord instead, which was a lot of fun. Hayward did not play their best game and it did not matter, because Concord could not keep up offensively. That made 42 straight wins to start the league for Hayward, though Concord would beat them in week 2 of 2009 in a finals rematch." },
-  2021: { rank: 11, location: "Livermore Community Center", mvp: "BADROOS ANDREW",
+  2021: { rank: 11, headline: "A final in October", location: "Livermore Community Center", mvp: "BADROOS ANDREW",
     context: "Sacramento's fourth championship", blurb: "" },
-  2007: { rank: 17, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+  2007: { rank: 17, headline: "The five-point lead that didn't hold", location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
     context: "Hayward's third championship, third in a row",
     blurb: "Hayward came in 29-0, so we had no reason to believe we could win this game. But we took a five point lead in the second half on the strength of a couple of things: my brother Eddie and his athleticism, back from New York for a few games, and Abouna Salib's son John Saddik, in his only season, giving our team structure and calmness. Then Hayward did what Hayward always did. They went on a second half run, again led by George Shehata, and won their third straight championship." },
-  2022: { rank: 19, location: "Livermore Community Center", mvp: "BADROOS ANDREW",
+  2022: { rank: 19, headline: "The lowest-scoring final ever played", location: "Livermore Community Center", mvp: "BADROOS ANDREW",
     context: "Sacramento's fifth championship, back to back", blurb: "" },
-  2011: { rank: 6, location: "Harvest Park Middle School, Pleasanton", mvp: "ABRAHAM PETER",
+  2011: { rank: 6, headline: "Hayward finally loses one", location: "Harvest Park Middle School, Pleasanton", mvp: "ABRAHAM PETER",
     context: "San Jose's first championship",
     blurb: [
       "I am biased, but this game was better than the score indicates.",
@@ -619,12 +620,12 @@ const CHAMPIONSHIP_META = {
       "It is a team sport, though, and I am proud of the way the rest of San Jose played their roles to perfection. Clutch shots, excellent rebounding, and defense that held Hayward to 32 points, all of it in support of our man in the middle.",
       "It felt great to win a championship after losing four finals. I had spent a lot of time working on my shooting after a couple of poor shooting seasons, so it was vindicating.",
     ] },
-  2012: { rank: 20, location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
+  2012: { rank: 20, headline: "The best record, the worst night", location: "Livermore Community Center", mvp: "SHEHATA GEORGE",
     context: "Hayward's sixth championship", blurb: "" },
-  2005: { rank: 18, location: "Resurrection Greek Orthodox Church, Castro Valley", mvp: "SHEHATA GEORGE",
+  2005: { rank: 18, headline: "The first one", location: "Resurrection Greek Orthodox Church, Castro Valley", mvp: "SHEHATA GEORGE",
     context: "Hayward's first championship",
     blurb: "The first one. What I remember most is not the basketball, it is that there were smiles all around because we had actually gotten this thing off the ground and finished a season. Hayward and George Shehata dominated the whole year and this game was no exception. San Jose only had five players that day. We could have had five more and it would not have made a difference against that Hayward juggernaut." },
-  2018: { rank: 21, location: "Livermore Community Center", mvp: "AWAD BISHOY",
+  2018: { rank: 21, headline: "The biggest blowout", location: "Livermore Community Center", mvp: "AWAD BISHOY",
     context: "Sacramento's third championship, back to back", blurb: "" },
 };
 
@@ -9730,6 +9731,15 @@ function championshipTeam(code) {
   return code === "SRA" ? name + " (Pleasanton)" : name;
 }
 
+// The MVP's line, points first and then whichever two other categories he
+// actually filled. Showing five columns of mostly zeros reads as noise.
+function championshipMvpStats(row) {
+  if (!row) return "";
+  const rest = [[row[8], "REB"], [row[10], "AST"], [row[9], "STL"], [row[11], "BLK"]]
+    .filter(([v]) => v > 0).sort((a, b) => b[0] - a[0]).slice(0, 2);
+  return [row[7] + " PTS", ...rest.map(([v, label]) => v + " " + label)].join(" · ");
+}
+
 // Every final, ranked by the commissioner. Scores and rosters come off
 // GAME_LOG; everything else comes off CHAMPIONSHIP_META. A year present in one
 // and missing from the other still renders, it just renders thinner.
@@ -9774,6 +9784,7 @@ function ChampionshipsView({ goToPlayer }) {
         date: championshipDate(rows[0][4], year),
         winBox: rows.filter(r => r[1] === win).sort(byGmSc),
         loseBox: rows.filter(r => r[1] === lose).sort(byGmSc),
+        mvpStats: championshipMvpStats(meta.mvp ? rows.find(r => r[0] === meta.mvp) : null),
         meta,
       };
     }).filter(Boolean);
@@ -9818,43 +9829,64 @@ function ChampionshipsView({ goToPlayer }) {
           return (
             <div key={g.year} className="rounded-2xl border border-gray-100 overflow-hidden">
               <div className="px-4 pt-3 pb-3">
-                <div className="flex items-baseline gap-2 mb-1">
-                  {sortMode === "rank" && g.meta.rank && (
-                    <span className="text-[13px] font-black text-gray-400">#{g.meta.rank}</span>
-                  )}
-                  <span className="text-[11px] font-black text-gray-400 uppercase tracking-wide">
-                    {g.year}
-                  </span>
-                  {g.meta.ot && (
-                    <span className="px-1.5 py-0.5 rounded-full text-[11px] font-black bg-gray-900 text-white">
-                      OT
+                {/* Rank anchors the card when the list is in rank order. In
+                    the date sorts the year takes the badge instead, so the
+                    card never leads with a number that means nothing. */}
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="h-12 w-12 flex-none rounded-2xl bg-gray-900 flex items-center justify-center">
+                    <span className="text-2xl font-black text-white leading-none tabular-nums">
+                      {sortMode === "rank" ? g.meta.rank : String(g.year).slice(2)}
                     </span>
-                  )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-black text-gray-400 uppercase tracking-wide">
+                        {sortMode === "rank" ? g.year : `Rank ${g.meta.rank}`}
+                      </span>
+                      {g.meta.ot && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[11px] font-black bg-gray-900 text-white">
+                          OT
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-lg font-black text-gray-900 leading-tight">
+                      {g.meta.headline || g.meta.context || `${g.year} final`}
+                    </h3>
+                  </div>
                 </div>
 
-                {/* getTeamLogo covers the defunct codes too, so San Ramon and
-                    Concord get their historic marks rather than nothing. */}
-                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-base font-black text-gray-900 uppercase leading-tight">
-                  {getTeamLogo(g.win) && (
-                    <img src={getTeamLogo(g.win)} alt="" className="h-5 w-5 flex-none object-contain" />
-                  )}
-                  <span>{championshipTeam(g.win)} {g.winPts},</span>
-                  {getTeamLogo(g.lose) && (
-                    <img src={getTeamLogo(g.lose)} alt="" className="h-5 w-5 flex-none object-contain" />
-                  )}
-                  <span>{championshipTeam(g.lose)} {g.losePts}</span>
+                {/* Scoreboard. The winner carries the weight: black, larger
+                    score, listed first. The loser recedes to gray. getTeamLogo
+                    covers the defunct codes, so San Ramon and Concord get
+                    their historic marks rather than nothing. */}
+                <div className="rounded-xl bg-gray-50 px-3 py-2 space-y-1">
+                  {[
+                    { team: g.win, pts: g.winPts, rec: g.winRec, won: true },
+                    { team: g.lose, pts: g.losePts, rec: g.loseRec, won: false },
+                  ].map(side => (
+                    <div key={side.team} className="flex items-center gap-2">
+                      {getTeamLogo(side.team) && (
+                        <img src={getTeamLogo(side.team)} alt=""
+                          className={`h-6 w-6 flex-none object-contain ${side.won ? "" : "opacity-50"}`} />
+                      )}
+                      <span className={`text-[13px] uppercase truncate ${
+                        side.won ? "font-black text-gray-900" : "font-bold text-gray-400"}`}>
+                        {championshipTeam(side.team)}
+                      </span>
+                      <span className={`text-[11px] flex-none ${side.won ? "text-gray-500" : "text-gray-400"}`}>
+                        {side.rec || ""}
+                      </span>
+                      <span className={`ml-auto flex-none tabular-nums leading-none ${
+                        side.won ? "text-2xl font-black text-gray-900" : "text-lg font-bold text-gray-400"}`}>
+                        {side.pts}
+                      </span>
+                    </div>
+                  ))}
                 </div>
 
-                {(g.winRec || g.loseRec) && (
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    {championshipTeam(g.win)} {g.winRec || "?"}
-                    {" · "}
-                    {championshipTeam(g.lose)} {g.loseRec || "?"}
-                  </p>
-                )}
-
-                <p className="text-[11px] text-gray-500 mt-0.5">
-                  {g.date}{g.meta.location ? " · " + g.meta.location : ""}
+                {/* Date, place and what the title meant, on one line. */}
+                <p className="text-[11px] text-gray-500 mt-2">
+                  {[g.date, g.meta.location, g.meta.context].filter(Boolean).join(" · ")}
                 </p>
 
                 {g.scoreMismatch && (
@@ -9864,21 +9896,19 @@ function ChampionshipsView({ goToPlayer }) {
                   </p>
                 )}
 
-                {g.meta.context && (
-                  <p className="text-[13px] font-bold text-gray-900 mt-2">{g.meta.context}</p>
-                )}
-                {g.meta.note && (
-                  <p className="text-[11px] text-gray-500 mt-0.5">{g.meta.note}</p>
-                )}
-
                 {g.meta.mvp && (
-                  <p className="text-[13px] text-gray-600 mt-2">
-                    <span className="font-black text-gray-900">Championship MVP: </span>
-                    <span className="font-bold text-gray-900 cursor-pointer active:opacity-60"
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-[11px] font-black text-gray-400 uppercase tracking-wide flex-none">
+                      MVP
+                    </span>
+                    <span className="text-[13px] font-black text-gray-900 cursor-pointer active:opacity-60"
                       onClick={() => goToPlayer(g.meta.mvp)}>
                       {formatName(g.meta.mvp)}
                     </span>
-                  </p>
+                    {g.mvpStats && (
+                      <span className="text-[11px] text-gray-500 tabular-nums">{g.mvpStats}</span>
+                    )}
+                  </div>
                 )}
 
                 {/* An optional still and an optional clip. Both are dropped
