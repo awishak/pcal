@@ -503,6 +503,11 @@ const FIRST_NAME_NICKNAMES = {
 
 // Voted awards (2024+) beyond the First Team/Second Team/MVP system that's in DATA.
 // Keys: canonical "LASTNAME FIRSTNAME" uppercase. Co-winners listed in the array.
+//
+// "First Team Best Teammate" is the top 5 vote-getters in that category and it
+// includes the winner, the same way VOTED_FIRST_TEAM holds the MVP alongside
+// the four All-PCAL picks. Added in 2026; earlier years have no such list, and
+// the render skips any category a year does not carry.
 const VOTED_AWARDS_BY_YEAR = {
   2024: {
     MVP: ["ABDELMALAK SIMON"],
@@ -518,10 +523,20 @@ const VOTED_AWARDS_BY_YEAR = {
     "Rising Star": ["GEBRAEIL MATTHEW"],
     "Best Teammate": ["GHOBRIAL PETER"],
   },
+  2026: {
+    MVP: ["SHACKER MARK"],
+    MIP: ["HAGOS LAMEK"],
+    DPOY: ["MUQHAR ANDRE"],
+    "Rising Star": ["IBRAHIM KYRILLOUS"],
+    "Best Teammate": ["HANNA ANDRE"],
+    "First Team Best Teammate": [
+      "HANNA ANDRE", "HANNA JOE", "ABDELMALAK SIMON", "RAMSEY PAUL", "AGAIBY KERO",
+    ],
+  },
 };
 
 // Award categories in prestige order
-const VOTED_AWARD_ORDER = ["MVP", "MIP", "DPOY", "Rising Star", "Best Teammate"];
+const VOTED_AWARD_ORDER = ["MVP", "MIP", "DPOY", "Rising Star", "Best Teammate", "First Team Best Teammate"];
 
 // 2005 teams had different names — display contextually
 const TEAM_LOGOS_CURRENT = {
@@ -632,13 +647,13 @@ function pct(v) { return v > 0 ? (v * 100).toFixed(1) + "%" : "—"; }
 const TEAM_SEASONS = {
 "CIS-2014":{final:"Missed",w:0,l:6},"CIS-2019":{final:"Missed",w:2,l:8},"CIS-2021":{final:"Missed",w:0,l:10},
 "CON-2005":{final:"Semis",w:1,l:7},"CON-2006":{final:"Semis",w:4,l:5},"CON-2007":{final:"Semis",w:4,l:8},"CON-2008":{final:"Finals",w:6,l:6},"CON-2009":{final:"Semis",w:7,l:4},"CON-2010":{final:"Missed",w:2,l:8},"CON-2011":{final:"Missed",w:1,l:9},"CON-2012":{final:"Semis",w:6,l:5},"CON-2013":{final:"Missed",w:2,l:8},"CON-2014":{final:"Missed",w:3,l:7},"CON-2015":{final:"Finals",w:6,l:6},"CON-2016":{final:"Missed",w:1,l:9},"CON-2017":{final:"Semis",w:2,l:7},"CON-2018":{final:"Missed",w:1,l:7},"CON-2019":{final:"Missed",w:2,l:8},"CON-2021":{final:"Missed",w:2,l:8},"CON-2022":{final:"Semis",w:3,l:8},
-"HAY-2005":{final:"Champ",w:8,l:0},"HAY-2006":{final:"Champ",w:10,l:0},"HAY-2007":{final:"Champ",w:12,l:0},"HAY-2008":{final:"Champ",w:12,l:0},"HAY-2009":{final:"Champ",w:9,l:3},"HAY-2010":{final:"Semis",w:6,l:5},"HAY-2011":{final:"Finals",w:9,l:3},"HAY-2012":{final:"Champ",w:9,l:3},"HAY-2013":{final:"Champ",w:10,l:2},"HAY-2014":{final:"Semis",w:4,l:7},"HAY-2015":{final:"Missed",w:4,l:6},"HAY-2016":{final:"Semis",w:8,l:3},"HAY-2017":{final:"Semis",w:5,l:4},"HAY-2018":{final:"Finals",w:7,l:3},"HAY-2019":{final:"Semis",w:5,l:6},"HAY-2021":{final:"Semis",w:8,l:3},"HAY-2022":{final:"Missed",w:3,l:7},"HAY-2023":{final:"Finals",w:7,l:5},"HAY-2024":{final:"Missed",w:2,l:8},"HAY-2025":{final:"Missed",w:2,l:8},
-"MOD-2008":{final:"Missed",w:2,l:8},"MOD-2009":{final:"Missed",w:1,l:9},"MOD-2012":{final:"Missed",w:0,l:10},"MOD-2013":{final:"Semis",w:2,l:9},"MOD-2014":{final:"Semis",w:6,l:5},"MOD-2015":{final:"Semis",w:6,l:5},"MOD-2016":{final:"Missed",w:1,l:9},"MOD-2017":{final:"Missed",w:1,l:7},"MCS-2018":{final:"Semis",w:1,l:8},"MOD-2022":{final:"Missed",w:3,l:7},"MOD-2023":{final:"Missed",w:3,l:7},"MOD-2024":{final:"Missed",w:3,l:7},"MOD-2025":{final:"Missed",w:3,l:7},
-"PDF-2019":{final:"Semis",w:4,l:7},"PDF-2021":{final:"Semis",w:4,l:7},"PDF-2022":{final:"Finals",w:9,l:3},"PDF-2023":{final:"Semis",w:6,l:5},"PDF-2024":{final:"Finals",w:6,l:6},"PDF-2025":{final:"Semis",w:4,l:7},
-"SRA-2005":{final:"Semis",w:2,l:6},"SRA-2006":{final:"Finals",w:5,l:5},"SRA-2007":{final:"Semis",w:5,l:7},"SRA-2008":{final:"Semis",w:5,l:6},"SRA-2009":{final:"Missed",w:3,l:7},"SRA-2010":{final:"Champ",w:7,l:5},"SRA-2011":{final:"Semis",w:4,l:7},"SRA-2012":{final:"Missed",w:2,l:8},"SRA-2016":{final:"Champ",w:8,l:4},"PLE-2022":{final:"Missed",w:1,l:9},"PLE-2023":{final:"Semis",w:5,l:6},"PLE-2024":{final:"Semis",w:5,l:6},"PLE-2025":{final:"Finals",w:5,l:7},
-"SAC-2006":{final:"Missed",w:2,l:6},"SAC-2007":{final:"Missed",w:2,l:8},"SAC-2008":{final:"Semis",w:4,l:7},"SAC-2009":{final:"Semis",w:4,l:7},"SAC-2010":{final:"Semis",w:4,l:7},"SAC-2011":{final:"Semis",w:5,l:6},"SAC-2012":{final:"Finals",w:10,l:2},"SAC-2013":{final:"Finals",w:9,l:3},"SAC-2014":{final:"Champ",w:11,l:1},"SAC-2015":{final:"Semis",w:6,l:5},"SAC-2016":{final:"Finals",w:10,l:2},"SAC-2017":{final:"Champ",w:10,l:0},"SAC-2018":{final:"Champ",w:8,l:2},"SAC-2019":{final:"Finals",w:10,l:2},"SAC-2021":{final:"Champ",w:10,l:2},"SAC-2022":{final:"Champ",w:12,l:0},"SAC-2023":{final:"Champ",w:8,l:4},"SAC-2024":{final:"Champ",w:10,l:2},"SAC-2025":{final:"Champ",w:11,l:1},
+"HAY-2005":{final:"Champ",w:8,l:0},"HAY-2006":{final:"Champ",w:10,l:0},"HAY-2007":{final:"Champ",w:12,l:0},"HAY-2008":{final:"Champ",w:12,l:0},"HAY-2009":{final:"Champ",w:9,l:3},"HAY-2010":{final:"Semis",w:6,l:5},"HAY-2011":{final:"Finals",w:9,l:3},"HAY-2012":{final:"Champ",w:9,l:3},"HAY-2013":{final:"Champ",w:10,l:2},"HAY-2014":{final:"Semis",w:4,l:7},"HAY-2015":{final:"Missed",w:4,l:6},"HAY-2016":{final:"Semis",w:8,l:3},"HAY-2017":{final:"Semis",w:5,l:4},"HAY-2018":{final:"Finals",w:7,l:3},"HAY-2019":{final:"Semis",w:5,l:6},"HAY-2021":{final:"Semis",w:8,l:3},"HAY-2022":{final:"Missed",w:3,l:7},"HAY-2023":{final:"Finals",w:7,l:5},"HAY-2024":{final:"Missed",w:2,l:8},"HAY-2025":{final:"Missed",w:2,l:8},"HAY-2026":{final:"Missed",w:0,l:10},
+"MOD-2008":{final:"Missed",w:2,l:8},"MOD-2009":{final:"Missed",w:1,l:9},"MOD-2012":{final:"Missed",w:0,l:10},"MOD-2013":{final:"Semis",w:2,l:9},"MOD-2014":{final:"Semis",w:6,l:5},"MOD-2015":{final:"Semis",w:6,l:5},"MOD-2016":{final:"Missed",w:1,l:9},"MOD-2017":{final:"Missed",w:1,l:7},"MCS-2018":{final:"Semis",w:1,l:8},"MOD-2022":{final:"Missed",w:3,l:7},"MOD-2023":{final:"Missed",w:3,l:7},"MOD-2024":{final:"Missed",w:3,l:7},"MOD-2025":{final:"Missed",w:3,l:7},"MOD-2026":{final:"Semis",w:4,l:7},
+"PDF-2019":{final:"Semis",w:4,l:7},"PDF-2021":{final:"Semis",w:4,l:7},"PDF-2022":{final:"Finals",w:9,l:3},"PDF-2023":{final:"Semis",w:6,l:5},"PDF-2024":{final:"Finals",w:6,l:6},"PDF-2025":{final:"Semis",w:4,l:7},"PDF-2026":{final:"Missed",w:3,l:7},
+"SRA-2005":{final:"Semis",w:2,l:6},"SRA-2006":{final:"Finals",w:5,l:5},"SRA-2007":{final:"Semis",w:5,l:7},"SRA-2008":{final:"Semis",w:5,l:6},"SRA-2009":{final:"Missed",w:3,l:7},"SRA-2010":{final:"Champ",w:7,l:5},"SRA-2011":{final:"Semis",w:4,l:7},"SRA-2012":{final:"Missed",w:2,l:8},"SRA-2016":{final:"Champ",w:8,l:4},"PLE-2022":{final:"Missed",w:1,l:9},"PLE-2023":{final:"Semis",w:5,l:6},"PLE-2024":{final:"Semis",w:5,l:6},"PLE-2025":{final:"Finals",w:5,l:7},"PLE-2026":{final:"Champ",w:10,l:2},
+"SAC-2006":{final:"Missed",w:2,l:6},"SAC-2007":{final:"Missed",w:2,l:8},"SAC-2008":{final:"Semis",w:4,l:7},"SAC-2009":{final:"Semis",w:4,l:7},"SAC-2010":{final:"Semis",w:4,l:7},"SAC-2011":{final:"Semis",w:5,l:6},"SAC-2012":{final:"Finals",w:10,l:2},"SAC-2013":{final:"Finals",w:9,l:3},"SAC-2014":{final:"Champ",w:11,l:1},"SAC-2015":{final:"Semis",w:6,l:5},"SAC-2016":{final:"Finals",w:10,l:2},"SAC-2017":{final:"Champ",w:10,l:0},"SAC-2018":{final:"Champ",w:8,l:2},"SAC-2019":{final:"Finals",w:10,l:2},"SAC-2021":{final:"Champ",w:10,l:2},"SAC-2022":{final:"Champ",w:12,l:0},"SAC-2023":{final:"Champ",w:8,l:4},"SAC-2024":{final:"Champ",w:10,l:2},"SAC-2025":{final:"Champ",w:11,l:1},"SAC-2026":{final:"Finals",w:10,l:2},
 "SJK-2016":{final:"Semis",w:5,l:6},
-"SJO-2005":{final:"Finals",w:5,l:3},"SJO-2006":{final:"Semis",w:2,l:7},"SJO-2007":{final:"Finals",w:6,l:6},"SJO-2008":{final:"Missed",w:4,l:6},"SJO-2009":{final:"Finals",w:9,l:3},"SJO-2010":{final:"Finals",w:9,l:3},"SJO-2011":{final:"Champ",w:9,l:3},"SJO-2012":{final:"Semis",w:6,l:5},"SJO-2013":{final:"Semis",w:5,l:6},"SJO-2014":{final:"Finals",w:7,l:5},"SJO-2015":{final:"Champ",w:6,l:6},"SJO-2016":{final:"Missed",w:5,l:5},"SJO-2017":{final:"Finals",w:5,l:5},"SJO-2018":{final:"Semis",w:6,l:3},"SJO-2019":{final:"Champ",w:10,l:2},"SJO-2021":{final:"Finals",w:9,l:3},"SJO-2022":{final:"Semis",w:7,l:4},"SJO-2023":{final:"Missed",w:4,l:6},"SJO-2024":{final:"Semis",w:7,l:4},"SJO-2025":{final:"Semis",w:8,l:3}
+"SJO-2005":{final:"Finals",w:5,l:3},"SJO-2006":{final:"Semis",w:2,l:7},"SJO-2007":{final:"Finals",w:6,l:6},"SJO-2008":{final:"Missed",w:4,l:6},"SJO-2009":{final:"Finals",w:9,l:3},"SJO-2010":{final:"Finals",w:9,l:3},"SJO-2011":{final:"Champ",w:9,l:3},"SJO-2012":{final:"Semis",w:6,l:5},"SJO-2013":{final:"Semis",w:5,l:6},"SJO-2014":{final:"Finals",w:7,l:5},"SJO-2015":{final:"Champ",w:6,l:6},"SJO-2016":{final:"Missed",w:5,l:5},"SJO-2017":{final:"Finals",w:5,l:5},"SJO-2018":{final:"Semis",w:6,l:3},"SJO-2019":{final:"Champ",w:10,l:2},"SJO-2021":{final:"Finals",w:9,l:3},"SJO-2022":{final:"Semis",w:7,l:4},"SJO-2023":{final:"Missed",w:4,l:6},"SJO-2024":{final:"Semis",w:7,l:4},"SJO-2025":{final:"Semis",w:8,l:3},"SJO-2026":{final:"Semis",w:6,l:5}
 };
 
 // Team Share bonus: rewards players who produced a disproportionate share of their
@@ -736,6 +751,11 @@ const VOTED_FIRST_TEAM = {
     "TAWDROS MARIOS|PLE": "All-PCAL", "ISHAK ANDREW|PDF": "All-PCAL",
     "ABDELSHAID MOSES|SAC": "All-PCAL",
   },
+  2026: {
+    "SHACKER MARK|SJO": "MVP", "MIKHAIL YOUSEF|PLE": "All-PCAL",
+    "ISHAK ANDREW|PDF": "All-PCAL", "BADROOS ANDREW|SAC": "All-PCAL",
+    "TAWDROS MARIOS|PLE": "All-PCAL",
+  },
 };
 
 // Rebuild DATA, TEAMS, YEARS and all derived structures from GAME_LOG. Runs
@@ -777,7 +797,7 @@ YEARS.forEach(y => {
 // Single source of truth for awards, written onto the `award` field of DATA. Player profiles,
 // badges, all-time MVP counts, the leaders table, Season Summaries, and the Awards page all read
 // this field. For 2005-2023 the First Team, Second Team, and MVP are computed from Game Score.
-// For 2024-2025 the voted First Team (MVP and All-PCAL) is kept as-is and only the Second Team is
+// For 2024 onward the voted First Team (MVP and All-PCAL) is kept as-is and only the Second Team is
 // recomputed as the next 5 by AI Score. Side awards stay in VOTED_AWARDS_BY_YEAR.
 (() => {
   const MVP_PICKS = {
@@ -867,9 +887,9 @@ YEARS.forEach(y => {
     secondTeam.forEach(p => { p.award = "Second Team"; });
   });
 
-  // Voted years (2024-2025): keep the voted First Team (MVP and All-PCAL from the CSV) untouched,
+  // Voted years (2024 onward): keep the voted First Team (MVP and All-PCAL from the CSV) untouched,
   // and replace the Second Team with the next 5 by AI Score among 5+ game players not on First Team.
-  const VOTED_YEARS = [2024, 2025];
+  const VOTED_YEARS = [2024, 2025, 2026];
   VOTED_YEARS.forEach(y => {
     const eligible = DATA.filter(r => r.year === y && r.g >= 5);
     if (!eligible.length) return;
@@ -16891,8 +16911,6 @@ function ThAvatar({ name, size, photoUrl, square = false }) {
 // Full-width season-stats panel shown below the roster grid when a card is open.
 // A player's 2026 AI Score, read off the derived DATA rows. Returns null if the
 // player has no 2026 row, which happens for anyone rostered but yet to play.
-// Note TEAM_SEASONS carries no 2026 entry, so for this season the team
-// multiplier is 1.0 and the share bonus is 0: the number is the raw rank score.
 function th2026AiScore(name) {
   const key = thNorm(name);
   const row = DATA.find(r => r.year === 2026 && thNorm(r.player) === key);
