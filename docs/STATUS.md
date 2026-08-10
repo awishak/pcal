@@ -48,6 +48,30 @@ GAME_LOG loads from Supabase. Row count confirmed matching at 8,758. Career and 
 - Nashed George: 714 in game_log vs 707 in baked DATA. game_log correctly includes his 2011 playoff and championship games that DATA omitted.
 - Full diff report at `phase3_diff_report.md`.
 
+### Parked 2026-08-10: 2024 and 2025 game results disagree with TEAM_SEASONS
+
+Recomputing team records from game_log does not reproduce the baked `TEAM_SEASONS` for 2024 or 2025. Andrew confirmed the baked table is the correct one in both years, so the errors are in game_log. 2023 reproduces exactly, which is also how the W-L convention was confirmed: regular season plus playoffs, exhibition excluded.
+
+2024 is diagnosed and unambiguous. Two games are recorded with the winner undercounted, which flipped the result. The losing side's total is right in both.
+
+- 7/7/2024, SJO vs HAY. Log has SJO 40, HAY 41. Correct is SJO 43, HAY 41. SJO is 3 points short.
+- 8/4/2024, SAC vs MOD. Log has SAC 32, MOD 33. Correct is SAC 41, MOD 33. SAC is 9 points short.
+
+Fixing those two brings 2024 into full agreement (SAC 10-2, SJO 7-4, MOD 3-7, HAY 2-8).
+
+2025 is not resolved. The log gives HAY 3-7 and MOD 2-8 where the baked table says 2-8 and 3-7. Both HAY vs MOD games were checked and Hayward won both, so no head to head flip explains it.
+
+- 6/15/2025, MOD vs HAY. Log has MOD 37, HAY 38. Correct is MOD 27, HAY 36. Both totals are wrong but Hayward still wins, so this changes stats and not the record.
+- 6/29/2025, HAY 48, MOD 26. Log matches. No correction needed.
+
+Exactly one two-game combination reconciles 2025: 7/20 PLE 46 HAY 47 becoming a Pleasanton win, plus 7/27 PLE 44 MOD 29 becoming a Modesto win. The first is a one-point game and plausible. The second is a 15-point margin and is not a scorekeeping slip, so this is probably the wrong explanation.
+
+A Hayward forfeit to Modesto in 2025 would move one win exactly as needed with no box score being wrong. `team_forfeits` is empty for every season, so if that happened it was never entered. Check this before hunting for more score errors.
+
+To fix any of it, the player-level box scores are needed. Team totals alone cannot say which player's line is wrong. Wanted: SJO 7/7/2024, SAC 8/4/2024, and both MOD and HAY for 6/15/2025. Use the `/boxscore` skill, which takes a pasted team line and emits the UPDATE SQL.
+
+Nothing user-facing is wrong at the team level, since displayed records read from the baked `TEAM_SEASONS`. The damage is confined to player stats in those games and, through them, slightly wrong 2024 and 2025 AI Scores. Too small to move an award.
+
 ## Backlog: app features
 
 1. Add an "Explaining AI Score and Game Score" card at the top of analytics. AI Score is a season metric, Game Score is per game. Awards component covers the 2005 to 2023 pre voting era. Top 10 AI Score equals First plus Second Team. First Team is the top 5 via formula, then pick MVP from those 5.
