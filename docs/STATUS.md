@@ -74,6 +74,34 @@ Nothing user-facing is wrong at the team level, since displayed records read fro
 
 Related, found 2026-08-10 while building the Championship Games card: the 2010 final box score adds up to San Ramon 44, San Jose 36, but the official final score was 42-39. Andrew confirmed the official score from memory. Same class of error as the 2024 and 2025 games above, and it needs the same fix, the player level box score. For now `CHAMPIONSHIP_META[2010].score` overrides the number in the card header and the card says plainly that the box score below it disagrees. That override is display only and must never be used on a game where the correction would flip the winner.
 
+## In flight: Championship Games card
+
+Paused 2026-08-10, deployed and live at `/stats/championships`. Built, ranked, and readable, but the writeups are a third done and Andrew is not happy with the layout yet.
+
+Where things live. `CHAMPIONSHIP_META` in App.jsx holds one entry per year, keyed by year. Teams, scores, winner and date are never stored there: they derive from GAME_LOG on game_type "C", so they cannot drift from the box scores. The constant holds only judgment and outside facts, which is rank, headline, championship MVP, location, context line, and the writeup. `CHAMPIONSHIP_EXPLAINER` is the intro copy including the ranking criteria. `ChampionshipsView` renders it.
+
+Done:
+
+- All 21 finals derive correctly. A verification harness lives in the session scratchpad and checks that ranks are unique 1 to 21 and that every MVP resolves to a real box score row.
+- Andrew's ranking, set by hand over three passes. 2026 first, then 2025, 2010, 2017, 2013, 2011.
+- Headlines on all 21, drafted from data and his notes. He has not reviewed them.
+- Championship MVP picked for all 21 by highest Game Score on the winning team. These are guesses. Andrew corrects them as we go, and he has confirmed none of them yet.
+- Writeups for 2005 through 2011, in his voice, from his notes.
+- Optional photo and video per game, both wired and both unused so far. Use `uploadPhoto()` for a URL.
+- Sorts by rank, last played, first played.
+
+Left to do:
+
+- Writeups for 2012 through 2026, fourteen of them. The established loop: go oldest first, show him the score, records, date, location, context, the MVP pick and the top box score lines, take his notes, write it in his voice, verify every checkable claim against game_log before it goes in. That verification has already caught several things, including a headline claiming Hayward's era ended in 2011 when they won two more titles after it.
+- Layout. Two passes done. The second removed all caps, cut the type scale from five sizes to three, and dropped the full width score banner. He still calls it messy. Nobody has seen it rendered: the Chrome extension is not connected, so everything so far has been verified through Node and by grepping the deployed bundle. A screenshot from him is the fastest way forward.
+
+Open questions, none blocking:
+
+- Should the cards collapse to rank, headline and score, expanding on tap? Probably the real fix for a 21 item ranked list, but it hides the writing behind a tap.
+- The 14 unwritten games say "No writeup yet", which makes most of the page look unfinished. Hide them, or leave them.
+- Venue strings are long and wrap on a phone. City only?
+- The card is `adminOnly`, which hides the tile but not the route. `/stats/championships` is reachable by anyone who types it. Fine for now, and it needs a real gate if that changes.
+
 ## Backlog: app features
 
 1. Add an "Explaining AI Score and Game Score" card at the top of analytics. AI Score is a season metric, Game Score is per game. Awards component covers the 2005 to 2023 pre voting era. Top 10 AI Score equals First plus Second Team. First Team is the top 5 via formula, then pick MVP from those 5.
