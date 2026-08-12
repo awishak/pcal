@@ -98,11 +98,11 @@ Franchise lines follow `FRANCHISE_MAP`: San Ramon feeds Pleasanton, Norcal feeds
 
 Peak ratings land where the history says they should: SAC 1894 in 2022 at 12-0, HAY 1867 in 2008 at the end of the 42 game win streak, PLE 1763 on the 2026 title.
 
-The card carries: a game by game chart with a season window (tap a year to zoom, tap a second to span, arrows to slide it, drag to read a game), current standings, all 21 champions ranked by the rating they won with, all 21 finals ranked as matchups by combined rating at tipoff, the best 20 semifinals the same way, the strongest and weakest 20 games ever played on a chip toggle, the biggest 12 climbs and falls inside one season on another chip toggle, all 21 runners-up on the rating they took into the final, the best 12 seasons that missed the playoffs, the best 12 seasons that did not end in a title, high and low per franchise, and the 20 biggest upsets. `scripts/elo.mjs` prints every one of those tables, so all of them can be checked outside React.
+The card carries, in order: the game by game chart, current standings, high and low per franchise, all 21 champions ranked by the rating they won with, all 21 finals ranked as matchups by combined rating at tipoff, the best 20 semifinals the same way, the 20 strongest games ever played, the biggest 12 climbs inside one season, the 20 strongest teams to lose a final on the rating they took into it, the best 12 seasons that missed the playoffs, and the 20 biggest upsets. `scripts/elo.mjs` prints those tables plus the ones the card no longer shows, so all of them can still be checked outside React.
 
-Two things about the strength lists. Every one of the 20 strongest games ever played involves Sacramento, and 5 of them are finals, which is what a 20 season peak does to a list ranked on combined rating. The weakest 20 is almost entirely Modesto against Concord, bottoming out at 2566 for 2018 MOD 1235 against CON 1331. Debut games do not contaminate it: there are only 8 in league history and a debut sits at 3000 combined, which is mid-range.
+Every one of the 20 strongest games ever played involves Sacramento, and 5 of them are finals, which is what a 20 season peak does to a list ranked on combined rating. Debut games do not contaminate the list either way: there are only 8 in league history and a debut sits at 3000 combined, which is mid-range.
 
-In-season movement measures the first game of a season to the last, so the offseason carryover is out of it. Four seasons open on the 1500 placeholder because there was nothing to carry (2005 HAY, 2005 CON, 2008 MOD, 2014 CIS). They stay in the lists with the start rating shown in the row, so the placeholder is visible rather than hidden. Biggest climb ever is 2026 PLE at +213 on the title season, biggest fall is 2022 PLE at -253 going 1-9.
+In-season movement measures the first game of a season to the last, so the offseason carryover is out of it. Four seasons open on the 1500 placeholder because there was nothing to carry (2005 HAY, 2005 CON, 2008 MOD, 2014 CIS). They stay in the list with the start rating shown in the row, so the placeholder is visible rather than hidden. Biggest climb ever is 2026 PLE at +213 on the title season. (Biggest fall is 2022 PLE at -253 going 1-9, still printed by the script, no longer on the card.)
 
 Fixed 2026-08-11, same day: `eloGames` built team-games without copying `game_type` onto them, so the `type` field it returned was always undefined and games inside one date sorted alphabetically by team code. Semifinals and the final share a date, so in 17 of 21 seasons a semifinal was rated after the final, and a beaten finalist could bank a win after the loss that ended its year. `TYPE_RANK` now orders R before P before C inside a date and all 21 seasons end on the final. Ratings moved a few points, 2006 HAY and 2017 SAC traded 8th and 9th among champions, and 2026 SAC came off an inflated 1772 to 1770. Hindsight went 72.4% to 72.6% accuracy and log loss 0.5455 to 0.5459, both noise.
 
@@ -112,7 +112,23 @@ The upsets panel sorts on the winner's win probability at tipoff, not on rating 
 
 Six champions were underdogs at tipoff by rating alone: 2010 PLE at 25%, 2016 PLE and 2019 SJO at 33%, 2026 PLE at 39%, 2011 SJO at 41%, 2012 HAY at 45%.
 
-Not done: the card has never been looked at in a browser. The Chrome extension was not connected, so the layout is unverified.
+### Revised 2026-08-12 on Andrew's pass over the live card
+
+Removed: the season window (year picker, slide arrows, span logic), the weakest 20 games, the biggest falls, and "Best teams that did not win it." The two chip toggles went with them, so those cards are single lists now.
+
+The chart lines are lightly smoothed. This was not cosmetic polish, it was necessary: across the full 21 seasons a team's own games land about 1.3px apart at 340px wide, while one result can move the line 6px vertically, so the raw plot was a near-vertical sawtooth. Catmull-Rom corner rounding does nothing at that aspect ratio, so the values themselves get one pass of a weighted 3 point average at 1/8 on each side. That drops average jaggedness from 6.24px to 4.78px and shifts a plotted point an average of 4.1 rating points (worst 18.8), inside a single game's move. Endpoints are left exact. `NEIGHBOR` in `EloView` is the knob; the measurement script is disposable, rerun it before changing the value. The caption says the lines are smoothed and every number on the page is exact, which is true: only the SVG path is affected.
+
+X axis labels moved to every odd calendar year, 11 of them, rather than every Nth season. Season parity would put labels on even years from 2021 on, since 2020 was cancelled. Tightest label gap is 15.4px against roughly 12px needed, so they clear at phone width.
+
+"Runners-up" is now "Strongest teams to not win the final." Andrew's call: anything keyed to champions or beaten finalists shows all 21, one per season, never a top 20. That also settles the 2006 PLE against 2008 CON cut, where both rounded to 1442 and a fraction of a rating point decided which one fell off.
+
+New card, "Every season, every team," sitting under Best championship matchups. All 118 team-seasons as one dot each, season-end rating against year. Champions filled, beaten finalists as open rings, everyone else small at 0.3 opacity. Tapping a franchise chip switches the emphasis to that franchise's whole history instead. Verified: 118 dots, 21 Champ, 21 Finals, 42 Semis, 34 Missed, nothing unmatched against TEAM_SEASONS, and exactly one champion and one finalist in every year.
+
+The rings are open (`fill="none"`) and drawn after the filled dots on purpose. Seven seasons put the champion and the team it beat within 4px of each other at render size, 2026 SAC and PLE within 1.4px, so a white-filled ring would erase the champion underneath. Open rings let the near ties read as near ties. Do not "fix" this by filling them.
+
+Copy rewritten to name Elo rather than say "it": the intro now explains what Elo is, who Arpad Elo was, and what happens on a win, a loss, and an offseason, in that order. The method card is "How Elo is calculated."
+
+Still not done: the card has never been looked at in a browser. The Chrome extension was not connected on either pass, so the layout, and the smoothed chart in particular, is unverified by eye.
 
 ## In flight: Championship Games card
 
