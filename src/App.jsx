@@ -19003,7 +19003,12 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
 // and SJK are both yellows that disappear at 1px, so they darken here (and
 // differently from each other, since they overlap in 2016). Everyone else
 // keeps their brand color.
-const ELO_CHART_COLORS = { ...TEAM_COLORS, PLE: "#a16207", SJK: "#78350f" };
+//
+// PLE is hue 43, eight degrees toward yellow from where it was, and lands at
+// 3.25:1 against white. Three to one is the floor for a graphic this thin, and
+// the brand yellow itself is 1.92:1, so this is about as yellow as a 1px line
+// on white can carry before it starts to disappear.
+const ELO_CHART_COLORS = { ...TEAM_COLORS, PLE: "#b8860b", SJK: "#78350f" };
 
 function EloView() {
   const elo = useMemo(() => buildElo(GAME_LOG), [GAME_LOG.length]);
@@ -19026,6 +19031,7 @@ function EloView() {
   // Which franchise the season scatter picks out. Null means the default,
   // where the champion and the beaten finalist of each year carry the shape.
   const [dotFocus, setDotFocus] = useState(null);
+  const [dotHover, setDotHover] = useState(null);
 
   // Every game the log can rate, which is what the chart plots against. One
   // point per game played, not one per season, so a team's collapse inside a
@@ -19262,6 +19268,15 @@ function EloView() {
   // Focused franchise wins over the default, so picking Modesto shows every
   // Modesto season rather than only the two it reached a final in.
   const dotBig = d => dotFocus ? d.team === dotFocus : (d.finish === "Champ" || d.finish === "Finals");
+  const FINISH_WORDS = {
+    Champ: "champion", Finals: "lost the final",
+    Semis: "lost in the semis", Missed: "missed the playoffs",
+  };
+  // Hit targets in draw order, so the dot a reader can actually see is the one
+  // that answers a tap when several land on top of each other in a column.
+  const dotHits = useMemo(
+    () => [...dots].sort((a, b) => (dotBig(a) ? 1 : 0) - (dotBig(b) ? 1 : 0)),
+    [dots, dotFocus]);
 
   const r0 = n => Math.round(n);
   // A team can be focused and then zoomed away from. Dropping the focus for
@@ -19504,41 +19519,17 @@ function EloView() {
         </div>
       </div>
 
-      {/* Finals ranked as matchups. Two strong teams meeting is its own thing,
-          separate from how good the winner turned out to be. */}
+      {/* Every team-season at once. The ranked lists on this page compare
+          champions to champions and finalists to finalists, which hides how far
+          ahead of their own field any of them actually were. This puts all six
+          teams of a year in one column so that gap is the thing you see. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
-        <div className="text-[13px] font-black text-gray-900 mb-0.5">Best championship matchups</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
-          All 21 finals, ranked by the two teams' ratings added together at tipoff. The
-          last column is the chance the eventual champion had going in.
-        </div>
-        <div className="space-y-1.5">
-          {matchups.map((f, i) => (
-            <div key={f.year} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
-              <span className="text-[11px] text-gray-400 w-7">{f.year}</span>
-              <span className="text-[13px] text-gray-900 flex-1 min-w-0 truncate">
-                <span className="font-bold" style={{ color: ELO_CHART_COLORS[f.champ] }}>{TEAM_NAMES[f.champ] || f.champ}</span>
-                <span className="text-gray-400"> vs </span>
-                <span className="font-bold" style={{ color: ELO_CHART_COLORS[f.loser] }}>{TEAM_NAMES[f.loser] || f.loser}</span>
-              </span>
-              <span className="text-[13px] font-bold text-gray-900 w-11 text-right">{r0(f.combined)}</span>
-              <span className="text-[11px] font-bold text-gray-400 w-8 text-right">{Math.round(f.champOdds * 100)}%</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Every team-season at once. The lists above rank champions against
-          champions and finalists against finalists, which hides how far ahead
-          of the field any of them actually were. This puts all six teams of
-          each year on the same column so that gap is the thing you see. */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-4">
-        <div className="text-[13px] font-black text-gray-900 mb-0.5">Every season, every team</div>
+        <div className="text-[13px] font-black text-gray-900 mb-0.5">Each year's champions and runners-up</div>
         <div className="text-[11px] text-gray-500 mb-3">
           One dot per team per year, at the rating that team ended the season on. The
-          filled dots are champions and the rings are the teams that lost to them. Tap a
-          franchise below to follow that one instead.
+          filled dots are champions and the rings are the teams that lost to them, with
+          the rest of the league behind. Touch any dot to read it, and tap a franchise
+          below to follow that one instead.
         </div>
 
         <svg viewBox={`0 0 ${W} ${DH}`} className="w-full h-auto block" role="img"
@@ -19585,7 +19576,37 @@ function EloView() {
                 fill={ring ? "none" : color} stroke={color} strokeWidth={ring ? 1.75 : 1} />
             );
           })}
+
+          {dotHover && (
+            <circle cx={dx(dotHover.yi)} cy={dy(dotHover.elo)} r="6.5" fill="none"
+              stroke={ELO_CHART_COLORS[dotHover.team] || "#6b7280"} strokeWidth="1.25" />
+          )}
+
+          {/* Transparent hit targets, wide enough to catch a fingertip on a
+              dot drawn at 2px. */}
+          {dotHits.map(d => (
+            <circle key={"hit" + d.year + d.team} cx={dx(d.yi)} cy={dy(d.elo)} r="6"
+              fill="transparent" style={{ cursor: "pointer" }}
+              onMouseEnter={() => setDotHover(d)}
+              onMouseLeave={() => setDotHover(null)}
+              onTouchStart={() => setDotHover(d)} />
+          ))}
         </svg>
+
+        {/* Fixed height, so reading a dot does not shift the chips below. */}
+        <div className="text-[11px] mt-1 h-4 truncate">
+          {dotHover && (
+            <>
+              <span className="text-gray-400">{dotHover.year}</span>{" "}
+              <span className="font-bold" style={{ color: ELO_CHART_COLORS[dotHover.team] || "#6b7280" }}>
+                {TEAM_NAMES[dotHover.team] || dotHover.team}
+              </span>{" "}
+              <span className="font-bold text-gray-900">{dotHover.w}-{dotHover.l}</span>
+              <span className="text-gray-400">, {FINISH_WORDS[dotHover.finish] || "no finish recorded"}, </span>
+              <span className="font-bold text-gray-900">{r0(dotHover.elo)}</span>
+            </>
+          )}
+        </div>
 
         <div className="flex flex-wrap gap-1.5 mt-2.5">
           {legend.map(({ team }) => {
@@ -19605,6 +19626,31 @@ function EloView() {
             chip again to go back to champions and finalists.
           </div>
         )}
+      </div>
+
+      {/* Finals ranked as matchups. Two strong teams meeting is its own thing,
+          separate from how good the winner turned out to be. */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="text-[13px] font-black text-gray-900 mb-0.5">Best championship matchups</div>
+        <div className="text-[11px] text-gray-500 mb-2.5">
+          All 21 finals, ranked by the two teams' ratings added together at tipoff. The
+          last column is the chance the eventual champion had going in.
+        </div>
+        <div className="space-y-1.5">
+          {matchups.map((f, i) => (
+            <div key={f.year} className="flex items-center gap-2.5">
+              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[11px] text-gray-400 w-7">{f.year}</span>
+              <span className="text-[13px] text-gray-900 flex-1 min-w-0 truncate">
+                <span className="font-bold" style={{ color: ELO_CHART_COLORS[f.champ] }}>{TEAM_NAMES[f.champ] || f.champ}</span>
+                <span className="text-gray-400"> vs </span>
+                <span className="font-bold" style={{ color: ELO_CHART_COLORS[f.loser] }}>{TEAM_NAMES[f.loser] || f.loser}</span>
+              </span>
+              <span className="text-[13px] font-bold text-gray-900 w-11 text-right">{r0(f.combined)}</span>
+              <span className="text-[11px] font-bold text-gray-400 w-8 text-right">{Math.round(f.champOdds * 100)}%</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Semifinals get their own list. Only 42 have ever been played, so a
