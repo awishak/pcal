@@ -180,6 +180,38 @@ function report(gameLog) {
     console.log(`  ${String(i + 1).padStart(2)}  ${f.year} ${f.loser.padEnd(4)} ${r0(f.loserPre)}  lost ${f.loserPts}-${f.champPts} to ${f.champ}  (left at ${r0(f.loserPost)})`);
   });
 
+  const semis = games.filter(g => g.type === "P").map(g => ({ ...g, combined: g.aPre + g.bPre }));
+  console.log(`\nBest semifinals, combined rating at tipoff (${semis.length} played)\n`);
+  [...semis].sort((a, b) => b.combined - a.combined).slice(0, 20).forEach((g, i) => {
+    console.log(`  ${String(i + 1).padStart(2)}  ${g.year}  ${g.a.padEnd(4)} ${r0(g.aPre)} vs ${g.b.padEnd(4)} ${r0(g.bPre)}   combined ${r0(g.combined)}   ${g.aPts}-${g.bPts}`);
+  });
+
+  // Rating at tipoff says nothing about who won, which is the point: these are
+  // the games that were worth the most and the least walking in.
+  const byStrength = games.map(g => ({ ...g, combined: g.aPre + g.bPre }));
+  const label = g => (g.type === "C" ? " final" : g.type === "P" ? " semi" : "");
+  const strengthRow = (g, i) =>
+    `  ${String(i + 1).padStart(2)}  ${g.year} ${g.date.padStart(5)}  ${g.a.padEnd(4)} ${r0(g.aPre)} vs ${g.b.padEnd(4)} ${r0(g.bPre)}   combined ${r0(g.combined)}   ${g.aPts}-${g.bPts}${label(g)}`;
+
+  console.log("\nStrongest 20 games ever played, combined rating at tipoff\n");
+  [...byStrength].sort((a, b) => b.combined - a.combined).slice(0, 20).forEach((g, i) => console.log(strengthRow(g, i)));
+
+  console.log("\nWeakest 20 games ever played, combined rating at tipoff\n");
+  [...byStrength].sort((a, b) => a.combined - b.combined).slice(0, 20).forEach((g, i) => console.log(strengthRow(g, i)));
+
+  // First game of a season to its last, so the offseason carryover is out of
+  // it. A debut season opens on 1500 because there is nothing to carry, which
+  // the start column makes visible.
+  const moves = seasons.map(r => ({ ...r, delta: r.elo - r.startElo }));
+  const moveRow = (r, i) =>
+    `  ${String(i + 1).padStart(2)}  ${r.year} ${r.team.padEnd(4)} ${r0(r.startElo)} to ${r0(r.elo)}   ${r.delta >= 0 ? "+" : ""}${r0(r.delta)}   (${r.w}-${r.l}, ${r.g} g)`;
+
+  console.log("\nBiggest climbs inside one season\n");
+  [...moves].sort((a, b) => b.delta - a.delta).slice(0, 12).forEach((r, i) => console.log(moveRow(r, i)));
+
+  console.log("\nBiggest falls inside one season\n");
+  [...moves].sort((a, b) => a.delta - b.delta).slice(0, 12).forEach((r, i) => console.log(moveRow(r, i)));
+
   console.log("\nSeason count per franchise\n");
   for (const [team, rows] of Object.entries(teams)) {
     console.log(`  ${team.padEnd(4)} ${String(rows.length).padStart(2)} seasons, ${rows[0].year} to ${rows[rows.length - 1].year}`);

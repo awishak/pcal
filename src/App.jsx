@@ -19027,6 +19027,8 @@ function EloView() {
   // to it, and the arrows slide the window without changing its width.
   const [span, setSpan] = useState(null);
   const [hover, setHover] = useState(null);
+  const [rankSide, setRankSide] = useState("strong");
+  const [moveDir, setMoveDir] = useState("up");
   const window0 = span ? span[0] : years[0];
   const window1 = span ? span[1] : years[years.length - 1];
 
@@ -19191,6 +19193,35 @@ function EloView() {
     () => elo.seasons.filter(r => finishOf(r) && finishOf(r) !== "Champ")
       .sort((a, b) => b.elo - a.elo).slice(0, 12),
     [elo, finishes]);
+
+  // Every game carries what the two teams were worth walking in, which is a
+  // different question from who won. Playoff games sit in here alongside the
+  // regular season, so the strongest list is part finals by construction.
+  const ranked = useMemo(() => {
+    const withCombined = elo.games.map(g => ({ ...g, combined: g.aPre + g.bPre }));
+    return {
+      strong: [...withCombined].sort((a, b) => b.combined - a.combined).slice(0, 20),
+      weak: [...withCombined].sort((a, b) => a.combined - b.combined).slice(0, 20),
+    };
+  }, [elo]);
+
+  const semis = useMemo(
+    () => elo.games.filter(g => g.type === "P")
+      .map(g => ({ ...g, combined: g.aPre + g.bPre }))
+      .sort((a, b) => b.combined - a.combined)
+      .slice(0, 20),
+    [elo]);
+
+  // Movement inside one season, first game to last. `startElo` is the rating
+  // the team opened on after the offseason regression, so this measures the
+  // season itself and not the carryover.
+  const moves = useMemo(() => {
+    const all = elo.seasons.map(r => ({ ...r, delta: r.elo - r.startElo }));
+    return {
+      up: [...all].sort((a, b) => b.delta - a.delta).slice(0, 12),
+      down: [...all].sort((a, b) => a.delta - b.delta).slice(0, 12),
+    };
+  }, [elo]);
 
   const finals = useMemo(() => eloFinals(elo.games), [elo]);
 
@@ -19455,6 +19486,106 @@ function EloView() {
               </span>
               <span className="text-[13px] font-bold text-gray-900 w-11 text-right">{r0(f.combined)}</span>
               <span className="text-[11px] font-bold text-gray-400 w-8 text-right">{Math.round(f.champOdds * 100)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Semifinals get their own list. Only 42 have ever been played, so a
+          top 20 is close to half of them. */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="text-[13px] font-black text-gray-900 mb-0.5">Best semifinals</div>
+        <div className="text-[11px] text-gray-500 mb-2.5">
+          Ranked by combined rating at tipoff. The league has played 42 semifinals, so
+          this is close to half of them.
+        </div>
+        <div className="space-y-1.5">
+          {semis.map((g, i) => (
+            <div key={g.i} className="flex items-center gap-2.5">
+              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[11px] text-gray-400 w-7">{g.year}</span>
+              <span className="text-[13px] text-gray-900 flex-1 min-w-0 truncate">
+                <span className="font-bold" style={{ color: ELO_CHART_COLORS[g.a] }}>{TEAM_NAMES[g.a] || g.a}</span>
+                <span className="font-bold"> {g.aPts}-{g.bPts} </span>
+                <span className="font-bold" style={{ color: ELO_CHART_COLORS[g.b] }}>{TEAM_NAMES[g.b] || g.b}</span>
+              </span>
+              <span className="text-[13px] font-bold text-gray-900 w-11 text-right">{r0(g.combined)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Strongest and weakest games ever played, on rating alone. */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="flex items-center justify-between gap-2 mb-0.5">
+          <div className="text-[13px] font-black text-gray-900">
+            {rankSide === "strong" ? "Strongest games ever played" : "Weakest games ever played"}
+          </div>
+          <div className="flex gap-1 flex-shrink-0">
+            {[["strong", "Strongest"], ["weak", "Weakest"]].map(([k, label]) => (
+              <button key={k} onClick={() => setRankSide(k)}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${rankSide === k ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="text-[11px] text-gray-500 mb-2.5">
+          The two teams' ratings added together at tipoff, playoffs included. Every one of
+          the 20 strongest involves Sacramento, which is what a 20 season peak does to a
+          list like this.
+        </div>
+        <div className="space-y-1.5">
+          {ranked[rankSide === "strong" ? "strong" : "weak"].map((g, i) => (
+            <div key={g.i} className="flex items-center gap-2.5">
+              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[11px] text-gray-400 w-7">{g.year}</span>
+              <span className="text-[13px] text-gray-900 flex-1 min-w-0 truncate">
+                <span className="font-bold" style={{ color: ELO_CHART_COLORS[g.a] }}>{TEAM_NAMES[g.a] || g.a}</span>
+                <span className="font-bold"> {g.aPts}-{g.bPts} </span>
+                <span className="font-bold" style={{ color: ELO_CHART_COLORS[g.b] }}>{TEAM_NAMES[g.b] || g.b}</span>
+                {g.type === "C" && <span className="text-[11px] font-bold text-yellow-700"> final</span>}
+                {g.type === "P" && <span className="text-[11px] font-bold text-gray-400"> semi</span>}
+              </span>
+              <span className="text-[13px] font-bold text-gray-900 w-11 text-right">{r0(g.combined)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Movement inside one season. */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="flex items-center justify-between gap-2 mb-0.5">
+          <div className="text-[13px] font-black text-gray-900">
+            {moveDir === "up" ? "Biggest climbs in one season" : "Biggest falls in one season"}
+          </div>
+          <div className="flex gap-1 flex-shrink-0">
+            {[["up", "Climbs"], ["down", "Falls"]].map(([k, label]) => (
+              <button key={k} onClick={() => setMoveDir(k)}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${moveDir === k ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="text-[11px] text-gray-500 mb-2.5">
+          First game of the season to last, so the offseason carryover is not in it. A team
+          playing its first season opens on 1500 because there is nothing to carry, which
+          the start number in each row shows.
+        </div>
+        <div className="space-y-1.5">
+          {moves[moveDir === "up" ? "up" : "down"].map((row, i) => (
+            <div key={row.year + row.team} className="flex items-center gap-2.5">
+              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[row.team] }} />
+              <span className="text-[13px] font-bold text-gray-900 flex-1 min-w-0 truncate">
+                {row.year} {TEAM_NAMES[row.team] || row.team}
+              </span>
+              <span className="text-[11px] text-gray-400">{row.w}-{row.l}</span>
+              <span className="text-[11px] text-gray-400 w-20 text-right">{r0(row.startElo)} to {r0(row.elo)}</span>
+              <span className={`text-[13px] font-bold w-11 text-right ${row.delta >= 0 ? "text-gray-900" : "text-gray-500"}`}>
+                {row.delta >= 0 ? "+" : ""}{r0(row.delta)}
+              </span>
             </div>
           ))}
         </div>
