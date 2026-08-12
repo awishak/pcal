@@ -74,6 +74,42 @@ Nothing user-facing is wrong at the team level, since displayed records read fro
 
 Related, found 2026-08-10 while building the Championship Games card: the 2010 final box score adds up to San Ramon 44, San Jose 36, but the official final score was 42-39. Andrew confirmed the official score from memory. Same class of error as the 2024 and 2025 games above, and it needs the same fix, the player level box score. For now `CHAMPIONSHIP_META[2010].score` overrides the number in the card header and the card says plainly that the box score below it disagrees. That override is display only and must never be used on a game where the correction would flip the winner.
 
+### Found 2026-08-11 by the Elo run: the full scale of the game_log to TEAM_SEASONS gap
+
+`node scripts/elo.mjs` now reconciles every derived season record against the baked `TEAM_SEASONS` and prints the disagreements. 92 of 118 season records reproduce exactly. The other 26 fall into two piles.
+
+**13 games are missing from game_log entirely.** Neither side has a box score, so nothing derives them and Elo skips them. By year: 2005 (1), 2009 (3), 2010 (2), 2012 (1), 2016 (4), 2019 (1), 2021 (1). Separately, 13 team-games have one side logged and not the other, 7 of them in 2005 under a team code of SAC, which did not exist in 2005 and is probably a mislabel of one of the four teams that did.
+
+**Three seasons have the right number of games with a result recorded backwards.** These are the same class as the 2024 pair above and each one needs a player level box score to fix.
+
+- 2011, SAC is 4-7 in the log against 5-6 baked and CON is 2-8 against 1-9. The only CON win over SAC in the log is 6/18/2011, CON 46-45. A one point game, so this is the likely flip and the likeliest kind of scorekeeping slip.
+- 2022, HAY is 4-6 against 3-7 baked and CON is 2-9 against 3-8. HAY beat CON twice in the log, 6/26 by 20 and 7/31 by 14. Neither margin looks like a slip, so this one probably is not a wrong score. A HAY forfeit to CON would move the win with no box score being wrong, same shape as the 2025 theory.
+- 2025, the HAY and MOD swap already documented above.
+
+Everything user facing still reads records from `TEAM_SEASONS`, so none of this is visible outside player stats and the Elo card, which says plainly that it inherits the gaps.
+
+## Built 2026-08-11: Elo ratings
+
+Live at `/stats/elo`, a tile in the Awards and History group. Engine in `src/elo.js`, shared by the card and by `scripts/elo.mjs` so the site and the terminal cannot drift.
+
+Settings, all picked by grid search over the 617 rateable games (`node scripts/elo.mjs --tune`): start 1500, K 28, margin of victory on, offseason carryover 0.85. Log loss 0.5455 and 72.4% of games called right in hindsight, against 0.6931 for a coin flip. Margin of victory is worth having, 0.5455 with against 0.5643 without. Normalizing margins by era scoring was tested and made it worse, so the switch is in `buildElo` as `normalizeMargin` and left off. The K and carryover surface is flat from 24 to 32 and 0.80 to 0.95, so nothing hangs on the exact numbers.
+
+Franchise lines follow `FRANCHISE_MAP`: San Ramon feeds Pleasanton, Norcal feeds Concord. Andrew chose to run the combined 2018 MCS team on the Modesto line. The two confirmed 2024 corrections are applied as `ELO_SCORE_FIXES` at the team total level, for Elo only, since without them Elo hands two wins to the wrong teams.
+
+Peak ratings land where the history says they should: SAC 1894 in 2022 at 12-0, HAY 1867 in 2008 at the end of the 42 game win streak, PLE 1763 on the 2026 title.
+
+The card carries: a game by game chart with a season window (tap a year to zoom, tap a second to span, arrows to slide it, drag to read a game), current standings, all 21 champions ranked by the rating they won with, all 21 finals ranked as matchups by combined rating at tipoff, all 21 runners-up on the rating they took into the final, the best 12 seasons that missed the playoffs, the best 12 seasons that did not end in a title, high and low per franchise, and the 20 biggest upsets. `scripts/elo.mjs` prints every one of those tables, so all of them can be checked outside React.
+
+Fixed 2026-08-11, same day: `eloGames` built team-games without copying `game_type` onto them, so the `type` field it returned was always undefined and games inside one date sorted alphabetically by team code. Semifinals and the final share a date, so in 17 of 21 seasons a semifinal was rated after the final, and a beaten finalist could bank a win after the loss that ended its year. `TYPE_RANK` now orders R before P before C inside a date and all 21 seasons end on the final. Ratings moved a few points, 2006 HAY and 2017 SAC traded 8th and 9th among champions, and 2026 SAC came off an inflated 1772 to 1770. Hindsight went 72.4% to 72.6% accuracy and log loss 0.5455 to 0.5459, both noise.
+
+The upsets panel sorts on the winner's win probability at tipoff, not on rating shift. Shift is margin weighted, so sorting on it ranked a blowout by a mild underdog above a one point shock. Shift is the tiebreak. Top of the list is 2009 6/21, SAC 57-44 over HAY at a 7% chance.
+
+`eloFinals` in `src/elo.js` is what the finals tables read. It takes the winner off the box score rather than the baked `TEAM_SEASONS`, which is safe because the two known box score problems in finals, 2010 and 2024, miss on the score without touching who won.
+
+Six champions were underdogs at tipoff by rating alone: 2010 PLE at 25%, 2016 PLE and 2019 SJO at 33%, 2026 PLE at 39%, 2011 SJO at 41%, 2012 HAY at 45%.
+
+Not done: the card has never been looked at in a browser. The Chrome extension was not connected, so the layout is unverified.
+
 ## In flight: Championship Games card
 
 Paused 2026-08-10, deployed and live at `/stats/championships`. Built, ranked, and readable, but the writeups are a third done and Andrew is not happy with the layout yet.
