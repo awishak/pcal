@@ -170,6 +170,30 @@ export function eloTeamGames(games, team) {
   return out;
 }
 
+// How much of a franchise's life has been spent above `mark`, counted in games
+// rather than calendar time. Two separate questions, and they do not have to
+// agree: a team can pile up more total games above a mark by crossing back and
+// forth for a decade than a team that went up once and stayed for three years.
+// The rating measured is the one a team walked off the floor with, so a game
+// counts when the team finished that night above the mark.
+export function eloAbove(games, team, mark) {
+  const gs = eloTeamGames(games, team);
+  let count = 0, longest = 0, run = 0, runStart = 0, fromIdx = -1, toIdx = -1;
+  gs.forEach((g, i) => {
+    if (g.post > mark) {
+      count++;
+      run++;
+      if (run === 1) runStart = i;
+      if (run > longest) { longest = run; fromIdx = runStart; toIdx = i; }
+    } else run = 0;
+  });
+  return {
+    team, games: count, played: gs.length, longest, fromIdx, toIdx,
+    from: fromIdx >= 0 ? gs[fromIdx] : null,
+    to: toIdx >= 0 ? gs[toIdx] : null,
+  };
+}
+
 // Walk every game in order and return the full rating history.
 //
 //   games      each game with both teams' rating before and after

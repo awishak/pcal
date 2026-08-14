@@ -21,7 +21,7 @@ import AwardsSection from "./AwardsSection.jsx";
 import { PLAYER_MERGE } from "./playerNames.js";
 // App keeps its own TEAM_COLORS (see below); only the contrast helper is shared.
 import { textOnTeam } from "./teamColors.js";
-import { buildElo, eloHindsight, eloFinals, eloTeam, eloTeamGames, ELO_START, ELO_K, ELO_CARRYOVER } from "./elo.js";
+import { buildElo, eloHindsight, eloFinals, eloTeam, eloTeamGames, eloAbove, ELO_START, ELO_K, ELO_CARRYOVER } from "./elo.js";
 // Season data is derived from GAME_LOG once it loads, by rebuildDerived().
 // These start empty and are populated when installGameLog() runs on mount.
 let DATA = [];
@@ -19009,6 +19009,93 @@ function TeamsHubView({ goToPlayer, onOpenFranchise, onOpenTeam, onBackToTeams, 
 // on white can carry before it starts to disappear.
 const ELO_CHART_COLORS = { ...TEAM_COLORS, PLE: "#b8860b", SJK: "#78350f" };
 
+// Set solid on white as a team name, a 1px line and a word are not the same
+// job. Pleasanton and Pacific both need another step down before bold 13px
+// text clears 4.5:1, which is the readable floor for type.
+const ELO_TEXT_COLORS = { ...ELO_CHART_COLORS, PLE: "#8a6508", PDF: "#0f766e" };
+
+// A franchise's whole rating history at thumbnail size, so a run above a mark
+// reads as a shape and not only as a count. The full line is drawn faint, the
+// part of the run being talked about is drawn solid on top, and a single dot
+// marks the rating the callout above is about.
+//
+// Every point is one of that team's own games, so the x axis is its career and
+// not the league's calendar. Two teams' sparks are the same width and cover a
+// different number of games, which is the right trade: the shape of one run is
+// the subject, not a race between two.
+function EloSpark({ points, team, mark, dot, highlight }) {
+  const W = 240, H = 44, P = 5;
+  if (!points || points.length < 2) return null;
+  const vals = points.map(p => p.post);
+  const lo = Math.min(...vals, mark ?? Infinity);
+  const hi = Math.max(...vals, mark ?? -Infinity);
+  const pad = (hi - lo) * 0.14 || 10;
+  const x = i => P + (W - 2 * P) * (i / (points.length - 1));
+  const y = v => P + (H - 2 * P) * (1 - (v - (lo - pad)) / ((hi + pad) - (lo - pad)));
+  const color = ELO_CHART_COLORS[team] || "#6b7280";
+  const d = pts => pts.map(([px, py], i) => `${i ? "L" : "M"} ${px.toFixed(1)} ${py.toFixed(1)}`).join(" ");
+  const all = points.map((p, i) => [x(i), y(p.post)]);
+
+  // `highlight` is a [start, end] game range to draw solid. Without one, every
+  // stretch above the mark is drawn solid instead. Each run reaches back one
+  // point so the solid segment joins the faint line rather than floating.
+  let solid = [];
+  if (highlight) {
+    const [s, e] = highlight;
+    solid = [all.slice(Math.max(0, s - 1), e + 1)];
+  } else if (mark != null) {
+    let cur = null;
+    points.forEach((p, i) => {
+      if (p.post > mark) {
+        if (!cur) { cur = i > 0 ? [all[i - 1]] : []; solid.push(cur); }
+        cur.push(all[i]);
+      } else if (cur) { cur.push(all[i]); cur = null; }
+    });
+  }
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-11" preserveAspectRatio="none" aria-hidden="true">
+      {mark != null && (
+        <line x1={P} x2={W - P} y1={y(mark)} y2={y(mark)}
+          stroke="#d1d5db" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+      )}
+      <path d={d(all)} fill="none" stroke={color} strokeWidth="1" opacity="0.28"
+        strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {solid.filter(r => r.length > 1).map((run, i) => (
+        <path key={i} d={d(run)} fill="none" stroke={color} strokeWidth="2"
+          strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      ))}
+      {dot != null && points[dot] && (
+        <circle cx={x(dot)} cy={y(points[dot].post)} r="3" fill={color} stroke="#fff" strokeWidth="1.5" />
+      )}
+    </svg>
+  );
+}
+
+// One franchise, told as two block numbers over the shape of its history.
+// `figures` is a pair of { value, label, sub } so each card can lead with the
+// two numbers that matter for that team rather than a fixed template.
+function EloFranchiseCard({ team, points, mark, dot, highlight, title, figures }) {
+  const color = ELO_TEXT_COLORS[team] || "#111827";
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 mt-2 p-4 text-center">
+      <div className="text-[13px] font-black mb-2" style={{ color }}>{title}</div>
+      <div className="flex items-start justify-center gap-4">
+        {figures.map((f, i) => (
+          <div key={i} className="flex-1 max-w-[46%]">
+            <div className="text-3xl font-black leading-none" style={{ color }}>{f.value}</div>
+            <div className="text-[13px] font-bold text-gray-900 mt-1">{f.label}</div>
+            {f.sub && <div className="text-[13px] text-gray-500">{f.sub}</div>}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2">
+        <EloSpark points={points} team={team} mark={mark} dot={dot} highlight={highlight} />
+      </div>
+    </div>
+  );
+}
+
 function EloView() {
   const elo = useMemo(() => buildElo(GAME_LOG), [GAME_LOG.length]);
   const [focus, setFocus] = useState(null);
@@ -19284,6 +19371,117 @@ function EloView() {
   const focusOn = focus && active.some(c => c.team === focus) ? focus : null;
   const focusRows = focusOn ? (elo.teams[focusOn] || []) : null;
 
+  // The numbers the intro tells its story with. Every one of them is computed
+  // off the same game log the rest of the page runs on, rather than written
+  // into the copy, so a correction to a box score moves the story instead of
+  // leaving it stranded.
+  //
+  // ELITE is the line the story draws at. It is not a rule of the system, just
+  // a mark high enough that almost nobody has ever been above it. The count of
+  // who has is computed rather than written down, so it keeps up.
+  const ELITE = 1700;
+  const story = useMemo(() => {
+    const franchises = Object.keys(elo.teams);
+    const line = {};
+    for (const t of franchises) line[t] = eloTeamGames(elo.games, t);
+
+    const above = franchises.map(t => eloAbove(elo.games, t, ELITE)).filter(r => r.games > 0);
+    const byCount = [...above].sort((a, b) => b.games - a.games);
+    const byRun = [...above].sort((a, b) => b.longest - a.longest);
+
+    const peaks = [...elo.peaks.entries()].sort((a, b) => b[1].high - a[1].high);
+    // A one-season franchise has not been tested long enough to have a floor
+    // worth comparing, so the floor list only counts teams that came back.
+    const floors = [...elo.peaks.entries()]
+      .filter(([t]) => (elo.teams[t] || []).length > 1)
+      .sort((a, b) => b[1].low - a[1].low);
+    const floorTeam = floors.length ? floors[0][0] : null;
+
+    const argAt = (team, pick) => {
+      const gs = line[team] || [];
+      let best = -1;
+      gs.forEach((g, i) => { if (best < 0 || pick(g.post, gs[best].post)) best = i; });
+      return best;
+    };
+
+    // Where each franchise finished every season, ranked against the teams
+    // that actually played that year. A franchise that sat out a season is not
+    // ranked last for that season, because a team that did not play did not
+    // finish behind anyone.
+    const rank = {};
+    const byYear = {};
+    for (const row of elo.seasons) (byYear[row.year] = byYear[row.year] || []).push(row);
+    for (const year of Object.keys(byYear)) {
+      [...byYear[year]].sort((a, b) => b.elo - a.elo).forEach((row, i) => {
+        rank[row.team] = rank[row.team] || {};
+        rank[row.team][i + 1] = (rank[row.team][i + 1] || 0) + 1;
+      });
+    }
+
+    // Everything one franchise's paragraph needs, in one place.
+    const profile = team => {
+      const p = elo.peaks.get(team);
+      const rows = elo.teams[team] || [];
+      if (!p || !rows.length) return null;
+      return {
+        team, peak: p.high, peakAt: p.highAt, low: p.low, lowAt: p.lowAt,
+        peakIdx: argAt(team, (a, b) => a > b),
+        lowIdx: argAt(team, (a, b) => a < b),
+        elite: eloAbove(elo.games, team, ELITE),
+        avg: eloAbove(elo.games, team, ELO_START),
+        rank: rank[team] || {},
+        seasons: rows.length,
+        first: rows[0].year, last: rows[rows.length - 1].year,
+        now: rows[rows.length - 1].elo,
+        w: rows.reduce((s, r) => s + r.w, 0),
+        l: rows.reduce((s, r) => s + r.l, 0),
+      };
+    };
+
+    // How many league games each franchise finished holding the top rating in
+    // the league. Ranked only against franchises active that season, so a
+    // folded team does not sit in the standings forever.
+    const activeIn = {};
+    for (const g of elo.games) (activeIn[g.year] = activeIn[g.year] || new Set()).add(g.a).add(g.b);
+    const topHeld = {};
+    const live = new Map();
+    for (const g of elo.games) {
+      if (!live.has(g.a)) live.set(g.a, g.aPre);
+      if (!live.has(g.b)) live.set(g.b, g.bPre);
+      live.set(g.a, g.aPost);
+      live.set(g.b, g.bPost);
+      let best = null, bestElo = -Infinity;
+      for (const t of activeIn[g.year]) {
+        const v = live.get(t);
+        if (v != null && v > bestElo) { bestElo = v; best = t; }
+      }
+      if (best) topHeld[best] = (topHeld[best] || 0) + 1;
+    }
+
+    return {
+      line,
+      profile,
+      topHeld,
+      // The season row a franchise opened a given year with, for talking about
+      // a single season's swing.
+      seasonOf: (team, year) => (elo.teams[team] || []).find(r => r.year === year),
+      peakTop: peaks[0], peakNext: peaks[1],
+      peakIdx: t => argAt(t, (a, b) => a > b),
+      count: byCount[0], countNext: byCount[1],
+      run: byRun[0], runNext: byRun[1],
+      eliteCount: above.length,
+      floor: floors[0],
+      floorTeam,
+    };
+  }, [elo]);
+
+  // The franchises the write-up walks through by name.
+  const sjo = story.profile("SJO"), hay = story.profile("HAY"), sac = story.profile("SAC");
+  const ple = story.profile("PLE"), con = story.profile("CON"), mod = story.profile("MOD");
+  const sjoTop = story.topHeld.SJO || 0;
+  const pleFall = story.seasonOf("PLE", 2022);
+  const modLow = mod ? story.seasonOf("MOD", mod.lowAt.year) : null;
+
   // The game ledger runs off the same selection the chart chips set, so the
   // two panels can never be showing different teams.
   const logTeam = focus;
@@ -19311,29 +19509,250 @@ function EloView() {
       <div>
         <h2 className="text-base font-black text-gray-900">Elo Ratings</h2>
         <p className="text-[13px] text-gray-600 leading-relaxed mt-1.5">
-          Elo is a way to measure how good a team is right now, using nothing but who
-          that team has beaten and who has beaten that team. Arpad Elo, a physics
-          professor and a strong chess player, built the system in the 1950s to rank
-          chess players. Chess has used a version of the system ever since, and so has
-          most of the sports world.
+          Elo is a measure that allows comparison between a team at different points in
+          time, or two teams at any point. A 10-2 season in a thin year and a 10-2 season
+          in a loaded year look identical in the standings. The rating separates them,
+          because the only input to a rating is results against other rated teams.
         </p>
         <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
-          Here is how the number moves. Every franchise starts at {ELO_START}. If a team
-          wins, that team takes rating points away from the team that lost. If a team
-          loses, that team hands rating points over. How many points change hands depends
-          on who was playing: beating a team you were supposed to beat is worth almost
-          nothing, and beating a team nobody thought you could beat is worth a lot. The
-          margin counts too, so a 20 point win moves the number more than a 2 point win
-          does. Every offseason each team gives back part of the gap between its rating
-          and {ELO_START}, because rosters turn over and last summer is not this summer.
+          For example: did the Hayward dynasty of the late 2000s or the current
+          Sacramento dynasty have a higher peak? Those two rosters never shared a floor.
+          Elo Ratings can give us an idea of the respective quality of these two teams
+          from different eras, allowing a comparison.
+        </p>
+
+        {/* The numbers the argument turns on, at a size nobody skims past, each
+            one with the shape behind it. All computed off the game log rather
+            than written into the copy. */}
+        {story.peakTop && story.peakNext && (
+          <div className="bg-white rounded-2xl border border-gray-100 mt-3">
+            <div className="p-4 text-center">
+              <div className="text-[13px] text-gray-500 mb-2">The two highest ratings any team has ever held</div>
+              <div className="flex items-start justify-center gap-4">
+                {[story.peakTop, story.peakNext].map(([team, p]) => (
+                  <div key={team} className="flex-1 min-w-0 max-w-[46%]">
+                    <div className="text-3xl font-black leading-none" style={{ color: ELO_TEXT_COLORS[team] }}>{r0(p.high)}</div>
+                    <div className="text-[13px] font-bold mt-1" style={{ color: ELO_TEXT_COLORS[team] }}>{TEAM_NAMES[team] || team}</div>
+                    <div className="text-[13px] text-gray-500">{championshipDate(p.highAt.date, p.highAt.year)}</div>
+                    <div className="mt-1.5">
+                      <EloSpark points={story.line[team]} team={team} dot={story.peakIdx(team)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="text-[13px] text-gray-500 mt-2 text-left">
+                {/* Gap taken off the rounded numbers, so the arithmetic agrees
+                    with the two figures the reader is looking at. */}
+                <span className="font-bold" style={{ color: ELO_TEXT_COLORS[story.peakTop[0]] }}>{TEAM_NAMES[story.peakTop[0]] || story.peakTop[0]}</span>
+                {" "}by {r0(story.peakTop[1].high) - r0(story.peakNext[1].high)}.
+                {story.peakTop[1].highAt.type === "C" && story.peakNext[1].highAt.type === "C"
+                  ? " Both peaks came out of a championship game, as did the peaks of the four highest rated franchises in league history. A title game is the last result of a season and comes against the best opponent left, so the win is worth the most, and no offseason regression has been applied yet."
+                  : ""}
+                {" "}{TEAM_NAMES[story.peakTop[0]] || story.peakTop[0]} beat{" "}
+                {TEAM_NAMES[story.peakTop[1].highAt.opp] || story.peakTop[1].highAt.opp}{" "}
+                {story.peakTop[1].highAt.pts}-{story.peakTop[1].highAt.oppPts} for the {story.peakTop[1].highAt.year} title,
+                {" "}{TEAM_NAMES[story.peakNext[0]] || story.peakNext[0]} beat{" "}
+                {TEAM_NAMES[story.peakNext[1].highAt.opp] || story.peakNext[1].highAt.opp}{" "}
+                {story.peakNext[1].highAt.pts}-{story.peakNext[1].highAt.oppPts} for the {story.peakNext[1].highAt.year} title.
+              </div>
+            </div>
+
+            {story.run && story.run.from && (
+              <div className="p-4 text-center border-t border-gray-100">
+                <div className="text-[13px] text-gray-500 mb-2">Longest unbroken run above {ELITE}</div>
+                <div className="text-3xl font-black leading-none" style={{ color: ELO_TEXT_COLORS[story.run.team] }}>{story.run.longest}</div>
+                <div className="text-[13px] font-bold mt-1">
+                  <span className="text-gray-900">games, </span>
+                  <span style={{ color: ELO_TEXT_COLORS[story.run.team] }}>{TEAM_NAMES[story.run.team] || story.run.team}</span>
+                </div>
+                <div className="text-[13px] text-gray-500">
+                  {championshipDate(story.run.from.date, story.run.from.year)} to {championshipDate(story.run.to.date, story.run.to.year)}
+                </div>
+                <div className="mt-1.5">
+                  <EloSpark points={story.line[story.run.team]} team={story.run.team} mark={ELITE}
+                    highlight={[story.run.fromIdx, story.run.toIdx]} />
+                </div>
+                {story.runNext && (
+                  <div className="text-[13px] text-gray-500 mt-1.5">
+                    <span className="font-bold" style={{ color: ELO_TEXT_COLORS[story.runNext.team] }}>{TEAM_NAMES[story.runNext.team] || story.runNext.team}</span>
+                    {" "}is next at {story.runNext.longest}.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {story.count && (
+              <div className="p-4 text-center border-t border-gray-100">
+                <div className="text-[13px] text-gray-500 mb-2">Most games played above {ELITE}, all told</div>
+                <div className="text-3xl font-black leading-none" style={{ color: ELO_TEXT_COLORS[story.count.team] }}>{story.count.games}</div>
+                <div className="text-[13px] font-bold mt-1">
+                  <span className="text-gray-900">of {story.count.played}, </span>
+                  <span style={{ color: ELO_TEXT_COLORS[story.count.team] }}>{TEAM_NAMES[story.count.team] || story.count.team}</span>
+                </div>
+                <div className="mt-1.5">
+                  <EloSpark points={story.line[story.count.team]} team={story.count.team} mark={ELITE} />
+                </div>
+                {story.countNext && (
+                  <div className="text-[13px] text-gray-500 mt-1.5">
+                    <span className="font-bold" style={{ color: ELO_TEXT_COLORS[story.countNext.team] }}>{TEAM_NAMES[story.countNext.team] || story.countNext.team}</span>
+                    {" "}is next at {story.countNext.games}. Only {story.eliteCount} franchises
+                    have ever been above {ELITE} at all.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <p className="text-[13px] text-gray-600 leading-relaxed mt-3">
+          So, Sacramento had a higher peak, just barely, and has played more games at a
+          higher rating, but Hayward has a longer unbroken streak above {ELITE}. One could
+          argue that Hayward had the best multi-year streak, and Sacramento has had the
+          most sustained dominance over a decade.
+        </p>
+
+        {sjo && (
+          <>
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-3">
+              Let's take a look at another franchise: the San Jose Dragon Slayers. Their
+              peak was not as high, {r0(sjo.peak)} against Sacramento's {r0(story.peakTop[1].high)} and
+              Hayward's {r0(story.peakNext[1].high)}. And on the two ways of measuring a stretch
+              at the top, San Jose is nowhere close either. {sjo.elite.games} games above{" "}
+              {ELITE} where Sacramento has {story.count.games}, and a longest run of{" "}
+              {sjo.elite.longest} where Hayward has {story.run.longest}.
+            </p>
+            <EloFranchiseCard
+              team="SJO" points={story.line.SJO} mark={ELO_START} dot={sjo.lowIdx}
+              title="San Jose, worst rating ever and games above average"
+              figures={[
+                { value: r0(sjo.low), label: "lowest ever", sub: championshipDate(sjo.lowAt.date, sjo.lowAt.year) },
+                { value: sjo.avg.games, label: `of ${sjo.avg.played} above ${ELO_START}`, sub: `longest run, ${sjo.avg.longest}` },
+              ]}
+            />
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
+              However, their floor is much higher than either of those dynastic
+              franchises. San Jose has never been rated below {r0(sjo.low)}, where Hayward
+              has been down to {r0(hay.low)} and Sacramento to {r0(sac.low)}. And they have
+              played {sjo.avg.games} games above {ELO_START}, well clear of Sacramento's{" "}
+              {sac.avg.games}, though two behind Hayward's {hay.avg.games}.
+            </p>
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
+              So San Jose was rarely the best team in the league. They have finished a
+              season on top {sjo.rank[1] || 0} time in {sjo.seasons}, and across every game
+              played since 2005 they held the league's top rating on {sjoTop} occasions.
+              But they were never at the bottom either, and they were almost always
+              second. {sjo.rank[2] || 0} second place finishes in {sjo.seasons} seasons,
+              which is more times than Sacramento has finished first ({sac.rank[1] || 0}).
+              The next most second place finishes belongs to Hayward, with {hay.rank[2] || 0}.
+              Sitting one rung below the best team in the league for two decades is its
+              own kind of achievement.
+            </p>
+          </>
+        )}
+
+        {ple && (
+          <>
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-3">
+              Pleasanton is the opposite story, a franchise defined by how far the number
+              has traveled. In 2022 they went {pleFall ? `${pleFall.w}-${pleFall.l}` : "1-9"} and
+              fell from {r0(pleFall ? pleFall.startElo : 1548)} to {r0(ple.low)}, the
+              steepest single-season collapse in league history, ending with a loss to
+              San Jose, {ple.lowAt.pts}-{ple.lowAt.oppPts}. Four years later
+              they beat Sacramento {ple.peakAt.pts}-{ple.peakAt.oppPts} in the final and
+              finished at {r0(ple.peak)}, the highest this franchise has ever been rated.
+            </p>
+            <EloFranchiseCard
+              team="PLE" points={story.line.PLE} dot={ple.peakIdx}
+              title="Pleasanton, from the floor to the ceiling in four years"
+              figures={[
+                { value: r0(ple.low), label: "low", sub: championshipDate(ple.lowAt.date, ple.lowAt.year) },
+                { value: r0(ple.peak), label: "high", sub: championshipDate(ple.peakAt.date, ple.peakAt.year) },
+              ]}
+            />
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
+              That swing is {r0(ple.peak - ple.low)} points in four years. The{" "}
+              {ple.elite.games} games Pleasanton has ever played above {ELITE} all came in
+              the last month of 2026. And here is the strange part: they won the
+              championship and still finished the season rated second, because Sacramento
+              closed the year at {r0(sac.now)} to Pleasanton's {r0(ple.now)}. In{" "}
+              {ple.seasons} seasons this franchise has never finished a year rated first
+              in the league.
+            </p>
+          </>
+        )}
+
+        {con && (
+          <>
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-3">
+              Concord ran the other direction for {con.seasons} seasons and then stopped.
+              From {con.first} to {con.last} they went {con.w}-{con.l}, and the best they
+              were ever rated was {r0(con.peak)}, after beating Pleasanton{" "}
+              {con.peakAt.pts}-{con.peakAt.oppPts} in the summer of {con.peakAt.year}. The
+              best this franchise ever got was {r0(con.peak - ELO_START)} points above the
+              number every team starts at.
+            </p>
+            <EloFranchiseCard
+              team="CON" points={story.line.CON} mark={ELO_START} dot={con.peakIdx}
+              title="Concord, seventeen seasons under the line"
+              figures={[
+                { value: r0(con.peak), label: "best ever", sub: championshipDate(con.peakAt.date, con.peakAt.year) },
+                { value: con.avg.games, label: `of ${con.avg.played} above ${ELO_START}`, sub: `${Math.round(100 * con.avg.games / con.avg.played)} percent` },
+              ]}
+            />
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
+              {con.avg.games} games out of {con.avg.played}. Concord spent {Math.round(100 - 100 * con.avg.games / con.avg.played)} percent
+              of a seventeen year run rated below an average PCAL team, never finished a
+              season higher than third, and folded after {con.last} at {r0(con.now)}. The
+              franchise is worth remembering anyway. Someone showed up every summer for
+              seventeen years.
+            </p>
+          </>
+        )}
+
+        {mod && (
+          <>
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-3">
+              Modesto holds the lowest number in the whole history of the league. In{" "}
+              {mod.lowAt.year}, on the way to a {modLow ? `${modLow.w}-${modLow.l}` : "winless"} season,
+              they lost to San Jose {mod.lowAt.pts}-{mod.lowAt.oppPts} and dropped to{" "}
+              {r0(mod.low)}. No franchise has ever been rated lower, before or since.
+            </p>
+            <EloFranchiseCard
+              team="MOD" points={story.line.MOD} mark={ELO_START} dot={mod.lowIdx}
+              title="Modesto, the lowest rating anyone has held"
+              figures={[
+                { value: r0(mod.low), label: "league record low", sub: championshipDate(mod.lowAt.date, mod.lowAt.year) },
+                { value: r0(mod.peak), label: "best ever", sub: championshipDate(mod.peakAt.date, mod.peakAt.year) },
+              ]}
+            />
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
+              Three years after the low, in {mod.peakAt.year}, Modesto climbed to{" "}
+              {r0(mod.peak)} and spent a few weeks as a genuinely competitive team. That
+              was the summit. Across {mod.seasons} seasons they have played{" "}
+              {mod.avg.games} games above {ELO_START} out of {mod.avg.played}, and they
+              finished 2026 at {r0(mod.now)}.
+            </p>
+          </>
+        )}
+
+        <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
+          How the number moves. Every franchise starts at {ELO_START}. The winner takes
+          rating points off the loser, and how many depends on who was playing. Beating a
+          team you were supposed to beat is worth almost nothing. Beating a team nobody
+          gave you a chance against is worth a lot. Margin counts too, so a 20 point win
+          moves the rating more than a 2 point win. Every offseason a team hands back part
+          of the gap between the rating and {ELO_START}, because rosters turn over and
+          last summer is not this summer. Every point one team gains is a point another
+          team lost, so the league always averages out to {ELO_START}.
         </p>
         <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
-          Every point a team gains is a point some other team lost, so the league always
-          averages {ELO_START}. Above {ELO_START} is better than a typical PCAL team,
-          below is worse, and the distance from {ELO_START} is the whole story. The
-          ratings on this page run through all {elo.games.length} games in the log, in
-          the order they were played, from the first Sunday of 2005 to the 2026 final.
-          Playoffs count. Exhibitions do not.
+          Everything below runs through all {elo.games.length} games in the log, in the
+          order played, from the first Sunday of 2005 to the 2026 final. Playoffs count,
+          exhibitions do not. Read on to find out which title team walked off the floor
+          the strongest, which final was the closest matchup this league has ever staged,
+          which team was the best one never to win a championship, which season was the
+          biggest climb, and, in the franchise logs, exactly what every game your team has
+          ever played did to that team's number.
         </p>
       </div>
 
@@ -19343,7 +19762,7 @@ function EloView() {
         <div className="text-[13px] font-black text-gray-900 mb-0.5">
           {years[0]} to {years[years.length - 1]}
         </div>
-        <div className="text-[11px] text-gray-500 mb-3">
+        <div className="text-[13px] text-gray-500 mb-3">
           {shown.length} games, one point each. Tap a team below to pull its line out of
           the pile, and drag across the chart to read a game. The lines are smoothed a
           little so the shape of a run is readable. Every number on this page is the
@@ -19414,7 +19833,7 @@ function EloView() {
 
         {/* The scrub readout. Fixed height so the chart does not jump when a
             finger lands on it. */}
-        <div className="text-[11px] text-gray-500 mt-1 h-4 truncate">
+        <div className="text-[13px] text-gray-500 mt-1 h-4 truncate">
           {hover && (() => {
             const g = hover.game;
             const win = g.aPts > g.bPts ? g.a : g.b;
@@ -19434,7 +19853,7 @@ function EloView() {
             const on = !focusOn || focusOn === team;
             return (
               <button key={team} onClick={() => setFocus(f => f === team ? null : team)}
-                className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold transition-colors ${on ? "bg-gray-100 text-gray-900" : "bg-gray-50 text-gray-400"}`}>
+                className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] font-bold transition-colors ${on ? "bg-gray-100 text-gray-900" : "bg-gray-50 text-gray-400"}`}>
                 <span className="w-2 h-2 rounded-sm flex-shrink-0"
                   style={{ backgroundColor: ELO_CHART_COLORS[team] || "#6b7280", opacity: on ? 1 : 0.4 }} />
                 {TEAM_NAMES[team] || team}
@@ -19448,7 +19867,7 @@ function EloView() {
           <div className="mt-3 pt-3 border-t border-gray-100">
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               {focusRows.map(row => (
-                <div key={row.year} className="text-[11px] text-gray-500">
+                <div key={row.year} className="text-[13px] text-gray-500">
                   <span className="font-bold text-gray-900">{row.year}</span>{" "}
                   {r0(row.elo)} <span className="text-gray-400">({row.w}-{row.l})</span>
                 </div>
@@ -19469,19 +19888,19 @@ function EloView() {
             const now = rows[rows.length - 1];
             return (
               <div key={c.team} className="flex items-center gap-2.5">
-                <span className="text-[11px] font-bold text-gray-400 w-3">{i + 1}</span>
+                <span className="text-[13px] font-bold text-gray-400 w-3">{i + 1}</span>
                 <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[c.team] }} />
                 <span className="text-[13px] font-bold text-gray-900 flex-1 min-w-0 truncate">{TEAM_NAMES[c.team] || c.team}</span>
-                <span className="text-[11px] text-gray-400">{now ? `${now.w}-${now.l}` : ""}</span>
+                <span className="text-[13px] text-gray-400">{now ? `${now.w}-${now.l}` : ""}</span>
                 <span className="text-[13px] font-bold text-gray-900 w-10 text-right">{r0(c.elo)}</span>
-                <span className={`text-[11px] font-bold w-11 text-right ${move > 0 ? "text-emerald-600" : move < 0 ? "text-red-500" : "text-gray-400"}`}>
+                <span className={`text-[13px] font-bold w-11 text-right ${move > 0 ? "text-emerald-600" : move < 0 ? "text-red-500" : "text-gray-400"}`}>
                   {move === null ? "" : (move > 0 ? "+" : "") + r0(move)}
                 </span>
               </div>
             );
           })}
         </div>
-        <div className="text-[11px] text-gray-500 mt-2.5">
+        <div className="text-[13px] text-gray-500 mt-2.5">
           The last column is the move since the end of the previous season.
         </div>
       </div>
@@ -19490,7 +19909,7 @@ function EloView() {
           end of the range does. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Every franchise's high and low points</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           The best and worst a franchise has ever been rated, measured at any point in a
           season and not only at the end of one. A rating only moves when you play, so
           every high and every low is the number a team walked off the floor with. The
@@ -19506,16 +19925,16 @@ function EloView() {
               {[["High", p.high, p.highAt], ["Low", p.low, p.lowAt]].map(([label, val, at]) => (
                 <div key={label} className="pl-4 py-0.5">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[11px] font-bold text-gray-500 w-7 flex-shrink-0">{label}</span>
-                    <span className={`text-[13px] font-bold w-9 flex-shrink-0 ${label === "High" ? "text-gray-900" : "text-gray-500"}`}>{r0(val)}</span>
-                    <span className="text-[11px] text-gray-900 flex-1 min-w-0">
+                    <span className="text-[13px] font-bold text-gray-500 w-9 flex-shrink-0">{label}</span>
+                    <span className={`text-[13px] font-bold w-11 flex-shrink-0 ${label === "High" ? "text-gray-900" : "text-gray-500"}`}>{r0(val)}</span>
+                    <span className="text-[13px] text-gray-900 flex-1 min-w-0">
                       {at.won ? "beat" : "lost to"} <span className="font-bold">{TEAM_NAMES[at.opp] || at.opp}</span> {at.pts}-{at.oppPts}
                     </span>
-                    <span className={`text-[11px] font-bold flex-shrink-0 ${at.move > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    <span className={`text-[13px] font-bold flex-shrink-0 ${at.move > 0 ? "text-emerald-600" : "text-red-500"}`}>
                       {at.move > 0 ? "+" : ""}{r0(at.move)}
                     </span>
                   </div>
-                  <div className="text-[11px] text-gray-400 pl-20 -mt-0.5">
+                  <div className="text-[13px] text-gray-400 pl-[88px] -mt-0.5">
                     {championshipDate(at.date, at.year)}
                     {at.type === "C" ? ", the final" : at.type === "P" ? ", a semifinal" : ""}
                     {" · "}{TEAM_NAMES[at.opp] || at.opp} came in at {r0(at.oppPre)}
@@ -19533,7 +19952,7 @@ function EloView() {
           same `focus` the chart chips set, so the two never disagree. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Franchise Elo logs</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           Every rated game a team has played, with what the opponent was worth at tipoff
           and what the result did to the rating. Beating a team rated above you pays more
           than beating one rated below you, and the margin counts too.
@@ -19542,7 +19961,7 @@ function EloView() {
         <div className="flex flex-wrap gap-1.5 mb-3">
           {legend.map(({ team }) => (
             <button key={team} onClick={() => setFocus(f => f === team ? null : team)}
-              className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold transition-colors ${logTeam === team ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+              className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] font-bold transition-colors ${logTeam === team ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
               <span className="w-2 h-2 rounded-sm flex-shrink-0"
                 style={{ backgroundColor: ELO_CHART_COLORS[team] || "#6b7280" }} />
               {TEAM_NAMES[team] || team}
@@ -19551,23 +19970,23 @@ function EloView() {
         </div>
 
         {!logTeam ? (
-          <div className="text-[11px] text-gray-400 py-2">Pick a team to see its ledger.</div>
+          <div className="text-[13px] text-gray-400 py-2">Pick a team to see its ledger.</div>
         ) : (
           <>
-            <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-1 px-1">
-              <span className="w-11 flex-shrink-0">Date</span>
+            <div className="flex items-center gap-2 text-[13px] text-gray-500 mb-1 px-1">
+              <span className="w-14 flex-shrink-0">Date</span>
               <span className="flex-1 min-w-0">Opponent</span>
-              <span className="w-14 text-right flex-shrink-0">Result</span>
-              <span className="w-9 text-right flex-shrink-0">Move</span>
-              <span className="w-10 text-right flex-shrink-0">Rating</span>
+              <span className="w-16 text-right flex-shrink-0">Result</span>
+              <span className="w-10 text-right flex-shrink-0">Move</span>
+              <span className="w-11 text-right flex-shrink-0">Rating</span>
             </div>
             <div className="max-h-96 overflow-y-auto -mx-1 px-1">
               {logSeasons.map(season => (
                 <div key={season.year}>
                   <div className="flex items-baseline gap-2 sticky top-0 bg-white py-1 border-b border-gray-100">
                     <span className="text-[13px] font-black text-gray-900">{season.year}</span>
-                    <span className="text-[11px] text-gray-500">{season.w}-{season.l}</span>
-                    <span className="text-[11px] text-gray-400 flex-1 text-right">
+                    <span className="text-[13px] text-gray-500">{season.w}-{season.l}</span>
+                    <span className="text-[13px] text-gray-400 flex-1 text-right">
                       {r0(season.open)} to {r0(season.close)}
                       <span className={`font-bold ${season.close - season.open > 0 ? "text-emerald-600" : "text-red-500"}`}>
                         {" "}({season.close - season.open > 0 ? "+" : ""}{r0(season.close - season.open)})
@@ -19576,32 +19995,33 @@ function EloView() {
                   </div>
                   {season.games.map((gm, i) => (
                     <div key={i} className="flex items-center gap-2 py-1 border-b border-gray-50">
-                      <span className="w-11 text-[11px] text-gray-500 flex-shrink-0">
+                      <span className="w-14 text-[13px] text-gray-500 flex-shrink-0">
                         {gm.date}{gm.type === "C" ? " F" : gm.type === "P" ? " S" : ""}
                       </span>
                       <span className="flex items-center gap-1.5 flex-1 min-w-0">
                         <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[gm.opp] || "#6b7280" }} />
-                        <span className="text-[11px] font-bold text-gray-900 truncate">{TEAM_NAMES[gm.opp] || gm.opp}</span>
-                        <span className="text-[11px] text-gray-400 flex-shrink-0">{r0(gm.oppPre)}</span>
+                        <span className="text-[13px] font-bold text-gray-900 truncate">{TEAM_NAMES[gm.opp] || gm.opp}</span>
+                        <span className="text-[13px] text-gray-400 flex-shrink-0">{r0(gm.oppPre)}</span>
                       </span>
-                      <span className="w-14 text-right text-[11px] flex-shrink-0">
+                      <span className="w-16 text-right text-[13px] flex-shrink-0">
                         <span className={`font-bold ${gm.won ? "text-emerald-600" : "text-red-500"}`}>{gm.won ? "W" : "L"}</span>
                         <span className="text-gray-500"> {gm.pts}-{gm.oppPts}</span>
                       </span>
-                      <span className={`w-9 text-right text-[11px] font-bold flex-shrink-0 ${gm.move > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      <span className={`w-10 text-right text-[13px] font-bold flex-shrink-0 ${gm.move > 0 ? "text-emerald-600" : "text-red-500"}`}>
                         {gm.move > 0 ? "+" : ""}{r0(gm.move)}
                       </span>
-                      <span className="w-10 text-right text-[11px] font-bold text-gray-900 flex-shrink-0">{r0(gm.post)}</span>
+                      <span className="w-11 text-right text-[13px] font-bold text-gray-900 flex-shrink-0">{r0(gm.post)}</span>
                     </div>
                   ))}
                 </div>
               ))}
             </div>
-            <div className="text-[11px] text-gray-500 mt-2">
+            <div className="text-[13px] text-gray-500 mt-2">
               F is the final, S a semifinal. The number next to an opponent is the rating
-              that opponent carried into the game, not the one it left with. A season that
-              opens above where the last one closed is the offseason regression, which
-              hands back 15 percent of a team's distance from {ELO_START} every year.
+              that opponent carried into the game, not the rating that opponent left with.
+              A season that opens above where the last one closed shows the offseason
+              regression: 15 percent of a team's distance from {ELO_START}, given back
+              once a year.
             </div>
           </>
         )}
@@ -19611,18 +20031,18 @@ function EloView() {
           which title team was the best one. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Every champion, ranked</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           The rating each team walked off the floor with on the night it won.
         </div>
         <div className="space-y-1.5">
           {champions.map((row, i) => (
             <div key={row.year + row.team} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[13px] font-bold text-gray-400 w-4">{i + 1}</span>
               <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[row.team] }} />
               <span className="text-[13px] font-bold text-gray-900 flex-1 min-w-0 truncate">
                 {row.year} {TEAM_NAMES[row.team] || row.team}
               </span>
-              <span className="text-[11px] text-gray-400">{row.w}-{row.l}</span>
+              <span className="text-[13px] text-gray-400">{row.w}-{row.l}</span>
               <span className="text-[13px] font-bold text-gray-900 w-10 text-right">{r0(row.elo)}</span>
             </div>
           ))}
@@ -19635,7 +20055,7 @@ function EloView() {
           teams of a year in one column so that gap is the thing you see. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Each year's champions and runners-up</div>
-        <div className="text-[11px] text-gray-500 mb-3">
+        <div className="text-[13px] text-gray-500 mb-3">
           One dot per team per year, at the rating that team ended the season on. The
           filled dots are champions and the rings are the teams that lost to them, with
           the rest of the league behind. Touch any dot to read it, and tap a franchise
@@ -19704,7 +20124,7 @@ function EloView() {
         </svg>
 
         {/* Fixed height, so reading a dot does not shift the chips below. */}
-        <div className="text-[11px] mt-1 h-4 truncate">
+        <div className="text-[13px] mt-1 h-4 truncate">
           {dotHover && (
             <>
               <span className="text-gray-400">{dotHover.year}</span>{" "}
@@ -19723,7 +20143,7 @@ function EloView() {
             const on = dotFocus === team;
             return (
               <button key={team} onClick={() => setDotFocus(f => f === team ? null : team)}
-                className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold transition-colors ${on ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+                className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] font-bold transition-colors ${on ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
                 <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[team] || "#6b7280" }} />
                 {TEAM_NAMES[team] || team}
               </button>
@@ -19731,7 +20151,7 @@ function EloView() {
           })}
         </div>
         {dotFocus && (
-          <div className="text-[11px] text-gray-500 mt-2.5">
+          <div className="text-[13px] text-gray-500 mt-2.5">
             Showing {TEAM_NAMES[dotFocus] || dotFocus} across every season played. Tap the
             chip again to go back to champions and finalists.
           </div>
@@ -19742,22 +20162,22 @@ function EloView() {
           separate from how good the winner turned out to be. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Best championship matchups</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           All 21 finals, ranked by the two teams' ratings added together at tipoff. The
           last column is the chance the eventual champion had going in.
         </div>
         <div className="space-y-1.5">
           {matchups.map((f, i) => (
             <div key={f.year} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
-              <span className="text-[11px] text-gray-400 w-7">{f.year}</span>
+              <span className="text-[13px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[13px] text-gray-400 w-7">{f.year}</span>
               <span className="text-[13px] text-gray-900 flex-1 min-w-0 truncate">
                 <span className="font-bold" style={{ color: ELO_CHART_COLORS[f.champ] }}>{TEAM_NAMES[f.champ] || f.champ}</span>
                 <span className="text-gray-400"> vs </span>
                 <span className="font-bold" style={{ color: ELO_CHART_COLORS[f.loser] }}>{TEAM_NAMES[f.loser] || f.loser}</span>
               </span>
               <span className="text-[13px] font-bold text-gray-900 w-11 text-right">{r0(f.combined)}</span>
-              <span className="text-[11px] font-bold text-gray-400 w-8 text-right">{Math.round(f.champOdds * 100)}%</span>
+              <span className="text-[13px] font-bold text-gray-400 w-8 text-right">{Math.round(f.champOdds * 100)}%</span>
             </div>
           ))}
         </div>
@@ -19767,15 +20187,15 @@ function EloView() {
           top 20 is close to half of them. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Best semifinals</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           Ranked by combined rating at tipoff. The league has played 42 semifinals, so
           this is close to half of them.
         </div>
         <div className="space-y-1.5">
           {semis.map((g, i) => (
             <div key={g.i} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
-              <span className="text-[11px] text-gray-400 w-7">{g.year}</span>
+              <span className="text-[13px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[13px] text-gray-400 w-7">{g.year}</span>
               <span className="text-[13px] text-gray-900 flex-1 min-w-0 truncate">
                 <span className="font-bold" style={{ color: ELO_CHART_COLORS[g.a] }}>{TEAM_NAMES[g.a] || g.a}</span>
                 <span className="font-bold"> {g.aPts}-{g.bPts} </span>
@@ -19790,7 +20210,7 @@ function EloView() {
       {/* Strongest games ever played, on rating alone. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Strongest games ever played</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           The two teams' ratings added together at tipoff, playoffs included. Every one of
           the 20 involves Sacramento, which is what a 20 season peak does to a list like
           this.
@@ -19798,14 +20218,14 @@ function EloView() {
         <div className="space-y-1.5">
           {strongest.map((g, i) => (
             <div key={g.i} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
-              <span className="text-[11px] text-gray-400 w-7">{g.year}</span>
+              <span className="text-[13px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[13px] text-gray-400 w-7">{g.year}</span>
               <span className="text-[13px] text-gray-900 flex-1 min-w-0 truncate">
                 <span className="font-bold" style={{ color: ELO_CHART_COLORS[g.a] }}>{TEAM_NAMES[g.a] || g.a}</span>
                 <span className="font-bold"> {g.aPts}-{g.bPts} </span>
                 <span className="font-bold" style={{ color: ELO_CHART_COLORS[g.b] }}>{TEAM_NAMES[g.b] || g.b}</span>
-                {g.type === "C" && <span className="text-[11px] font-bold text-yellow-700"> final</span>}
-                {g.type === "P" && <span className="text-[11px] font-bold text-gray-400"> semi</span>}
+                {g.type === "C" && <span className="text-[13px] font-bold text-yellow-700"> final</span>}
+                {g.type === "P" && <span className="text-[13px] font-bold text-gray-400"> semi</span>}
               </span>
               <span className="text-[13px] font-bold text-gray-900 w-11 text-right">{r0(g.combined)}</span>
             </div>
@@ -19816,7 +20236,7 @@ function EloView() {
       {/* Movement inside one season. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Biggest climbs in one season</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           First game of the season to last, which leaves the offseason carryover out. A team
           playing its first season opens on {ELO_START} because there is nothing to carry,
           which the start number in each row shows.
@@ -19824,13 +20244,13 @@ function EloView() {
         <div className="space-y-1.5">
           {climbs.map((row, i) => (
             <div key={row.year + row.team} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[13px] font-bold text-gray-400 w-4">{i + 1}</span>
               <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[row.team] }} />
               <span className="text-[13px] font-bold text-gray-900 flex-1 min-w-0 truncate">
                 {row.year} {TEAM_NAMES[row.team] || row.team}
               </span>
-              <span className="text-[11px] text-gray-400">{row.w}-{row.l}</span>
-              <span className="text-[11px] text-gray-400 w-20 text-right">{r0(row.startElo)} to {r0(row.elo)}</span>
+              <span className="text-[13px] text-gray-400">{row.w}-{row.l}</span>
+              <span className="text-[13px] text-gray-400 w-20 text-right">{r0(row.startElo)} to {r0(row.elo)}</span>
               <span className={`text-[13px] font-bold w-11 text-right ${row.delta >= 0 ? "text-gray-900" : "text-gray-500"}`}>
                 {row.delta >= 0 ? "+" : ""}{r0(row.delta)}
               </span>
@@ -19842,24 +20262,24 @@ function EloView() {
       {/* Beaten finalists measured before the loss rather than after it. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Strongest teams to not win the final</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           All 21 teams that reached a final and lost, ranked on the rating each one carried
           into the game rather than the lower one it walked out with.
         </div>
         <div className="space-y-1.5">
           {runnersUp.map((f, i) => (
             <div key={f.year} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[13px] font-bold text-gray-400 w-4">{i + 1}</span>
               <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[f.loser] }} />
               <span className="text-[13px] font-bold text-gray-900 flex-1 min-w-0 truncate">
                 {f.year} {TEAM_NAMES[f.loser] || f.loser}
               </span>
-              <span className="text-[11px] text-gray-400">{f.loserPts}-{f.champPts}</span>
+              <span className="text-[13px] text-gray-400">{f.loserPts}-{f.champPts}</span>
               <span className="text-[13px] font-bold text-gray-900 w-10 text-right">{r0(f.loserPre)}</span>
             </div>
           ))}
         </div>
-        <div className="text-[11px] text-gray-500 mt-2.5">
+        <div className="text-[13px] text-gray-500 mt-2.5">
           The score column is the final, written from the losing team's side.
         </div>
       </div>
@@ -19867,19 +20287,19 @@ function EloView() {
       {/* Fifth and sixth place teams that were better than that. */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Best teams that missed the playoffs</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           The top 4 make the playoffs, so every team here finished fifth or sixth. The
           rating is where the team ended the season.
         </div>
         <div className="space-y-1.5">
           {missed.map((row, i) => (
             <div key={row.year + row.team} className="flex items-center gap-2.5">
-              <span className="text-[11px] font-bold text-gray-400 w-4">{i + 1}</span>
+              <span className="text-[13px] font-bold text-gray-400 w-4">{i + 1}</span>
               <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[row.team] }} />
               <span className="text-[13px] font-bold text-gray-900 flex-1 min-w-0 truncate">
                 {row.year} {TEAM_NAMES[row.team] || row.team}
               </span>
-              <span className="text-[11px] text-gray-400">{row.w}-{row.l}</span>
+              <span className="text-[13px] text-gray-400">{row.w}-{row.l}</span>
               <span className="text-[13px] font-bold text-gray-900 w-10 text-right">{r0(row.elo)}</span>
             </div>
           ))}
@@ -19889,7 +20309,7 @@ function EloView() {
       {/* Biggest upsets */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <div className="text-[13px] font-black text-gray-900 mb-0.5">The {upsets.length} biggest upsets</div>
-        <div className="text-[11px] text-gray-500 mb-2.5">
+        <div className="text-[13px] text-gray-500 mb-2.5">
           Ranked by the chance the winner had at tipoff, on rating alone. The margin is
           left out, so a one point shock outranks a blowout by a milder underdog.
         </div>
@@ -19899,13 +20319,13 @@ function EloView() {
             const loser = g.aPts > g.bPts ? g.b : g.a;
             return (
               <div key={i} className="flex items-baseline gap-2">
-                <span className="text-[11px] text-gray-400 w-14 flex-shrink-0">{g.year} {g.date}</span>
+                <span className="text-[13px] text-gray-400 w-14 flex-shrink-0">{g.year} {g.date}</span>
                 <span className="text-[13px] text-gray-900 flex-1 min-w-0">
                   <span className="font-bold" style={{ color: ELO_CHART_COLORS[winner] }}>{TEAM_NAMES[winner] || winner}</span>
                   <span className="font-bold"> {Math.max(g.aPts, g.bPts)}-{Math.min(g.aPts, g.bPts)} </span>
                   <span className="text-gray-500">{TEAM_NAMES[loser] || loser}</span>
                 </span>
-                <span className="text-[11px] font-bold text-gray-400 flex-shrink-0">{Math.round(g.winProb * 100)}%</span>
+                <span className="text-[13px] font-bold text-gray-400 flex-shrink-0">{Math.round(g.winProb * 100)}%</span>
               </div>
             );
           })}
