@@ -19072,9 +19072,12 @@ function EloSpark({ points, team, mark, dot, highlight }) {
   );
 }
 
-// One franchise, told as two block numbers over the shape of its history.
-// `figures` is a pair of { value, label, sub } so each card can lead with the
-// two numbers that matter for that team rather than a fixed template.
+// One franchise, told as block numbers over the shape of its history.
+//
+// A number only earns this treatment when it is a league record. A team's own
+// worst rating is not a record, and setting it at 30px tells the reader it is
+// one. Everything short of a record belongs in the prose around the card.
+// `figures` takes one or two { value, label, sub }.
 function EloFranchiseCard({ team, points, mark, dot, highlight, title, figures }) {
   const color = ELO_TEXT_COLORS[team] || "#111827";
   return (
@@ -19082,7 +19085,7 @@ function EloFranchiseCard({ team, points, mark, dot, highlight, title, figures }
       <div className="text-[13px] font-black mb-2" style={{ color }}>{title}</div>
       <div className="flex items-start justify-center gap-4">
         {figures.map((f, i) => (
-          <div key={i} className="flex-1 max-w-[46%]">
+          <div key={i} className={figures.length > 1 ? "flex-1 max-w-[46%]" : "w-full"}>
             <div className="text-3xl font-black leading-none" style={{ color }}>{f.value}</div>
             <div className="text-[13px] font-bold text-gray-900 mt-1">{f.label}</div>
             {f.sub && <div className="text-[13px] text-gray-500">{f.sub}</div>}
@@ -19458,10 +19461,35 @@ function EloView() {
       if (best) topHeld[best] = (topHeld[best] || 0) + 1;
     }
 
+    // League records, worked out rather than written down, because a block
+    // number on this page is a claim that no franchise has ever done better.
+    // Each entry is the leader and the next best, so the copy can show the gap.
+    const leaders = (value) => {
+      const ranked = franchises
+        .map(t => ({ team: t, v: value(t) }))
+        .filter(r => Number.isFinite(r.v))
+        .sort((a, b) => b.v - a.v);
+      return { top: ranked[0], next: ranked[1] };
+    };
+    const seasonsOf = t => elo.teams[t] || [];
+    const records = {
+      second: leaders(t => (rank[t] || {})[2] || 0),
+      played: leaders(t => (line[t] || []).length),
+      // Seasons a franchise finished outside the top two, which is the number
+      // Concord's whole run comes down to.
+      noTopTwo: leaders(t => seasonsOf(t).length - ((rank[t] || {})[1] || 0) - ((rank[t] || {})[2] || 0)),
+      lowest: leaders(t => -(elo.peaks.get(t)?.low ?? Infinity)),
+    };
+    // Biggest single-season climb and fall in league history.
+    const swings = elo.seasons.map(r => ({ team: r.team, year: r.year, d: r.elo - r.startElo, from: r.startElo, to: r.elo }));
+    const fall = [...swings].sort((a, b) => a.d - b.d)[0];
+    const climb = [...swings].sort((a, b) => b.d - a.d)[0];
+
     return {
       line,
       profile,
       topHeld,
+      records, fall, climb,
       // The season row a franchise opened a given year with, for talking about
       // a single season's swing.
       seasonOf: (team, year) => (elo.teams[team] || []).find(r => r.year === year),
@@ -19621,14 +19649,6 @@ function EloView() {
               {ELITE} where Sacramento has {story.count.games}, and a longest run of{" "}
               {sjo.elite.longest} where Hayward has {story.run.longest}.
             </p>
-            <EloFranchiseCard
-              team="SJO" points={story.line.SJO} mark={ELO_START} dot={sjo.lowIdx}
-              title="San Jose, worst rating ever and games above average"
-              figures={[
-                { value: r0(sjo.low), label: "lowest ever", sub: championshipDate(sjo.lowAt.date, sjo.lowAt.year) },
-                { value: sjo.avg.games, label: `of ${sjo.avg.played} above ${ELO_START}`, sub: `longest run, ${sjo.avg.longest}` },
-              ]}
-            />
             <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
               However, their floor is much higher than either of those dynastic
               franchises. San Jose has never been rated below {r0(sjo.low)}, where Hayward
@@ -19641,11 +19661,24 @@ function EloView() {
               season on top {sjo.rank[1] || 0} time in {sjo.seasons}, and across every game
               played since 2005 they held the league's top rating on {sjoTop} occasions.
               But they were never at the bottom either, and they were almost always
-              second. {sjo.rank[2] || 0} second place finishes in {sjo.seasons} seasons,
-              which is more times than Sacramento has finished first ({sac.rank[1] || 0}).
-              The next most second place finishes belongs to Hayward, with {hay.rank[2] || 0}.
-              Sitting one rung below the best team in the league for two decades is its
-              own kind of achievement.
+              second.
+            </p>
+            <EloFranchiseCard
+              team="SJO" points={story.line.SJO} mark={ELO_START}
+              title="San Jose, two league records"
+              figures={[
+                { value: story.records.second.top.v, label: "second place finishes", sub: `most ever, next is ${story.records.second.next.v}` },
+                { value: story.records.played.top.v, label: "games played", sub: `most ever, next is ${story.records.played.next.v}` },
+              ]}
+            />
+            <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
+              Thirteen second place finishes in {sjo.seasons} seasons, where the next most
+              belongs to Hayward with {hay.rank[2] || 0}. That is also more times than
+              Sacramento has finished first, which is {sac.rank[1] || 0}. San Jose does not
+              hold the most top two finishes, though. Sacramento matches them at{" "}
+              {(sac.rank[1] || 0) + (sac.rank[2] || 0)} and got there in {sac.seasons} seasons
+              rather than {sjo.seasons}. Sitting one rung below the best team in the league
+              for two decades is its own kind of achievement.
             </p>
           </>
         )}
@@ -19663,14 +19696,15 @@ function EloView() {
             </p>
             <EloFranchiseCard
               team="PLE" points={story.line.PLE} dot={ple.peakIdx}
-              title="Pleasanton, from the floor to the ceiling in four years"
+              title="Pleasanton holds both ends of the same record"
               figures={[
-                { value: r0(ple.low), label: "low", sub: championshipDate(ple.lowAt.date, ple.lowAt.year) },
-                { value: r0(ple.peak), label: "high", sub: championshipDate(ple.peakAt.date, ple.peakAt.year) },
+                { value: r0(story.fall.d), label: "steepest fall in a season", sub: `${story.fall.team} ${story.fall.year}` },
+                { value: "+" + r0(story.climb.d), label: "biggest climb in a season", sub: `${story.climb.team} ${story.climb.year}` },
               ]}
             />
             <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
-              That swing is {r0(ple.peak - ple.low)} points in four years. The{" "}
+              Both of those swings belong to Pleasanton, four years apart, and no other
+              franchise has ever moved that far in either direction. The{" "}
               {ple.elite.games} games Pleasanton has ever played above {ELITE} all came in
               the last month of 2026. And here is the strange part: they won the
               championship and still finished the season rated second, because Sacramento
@@ -19692,19 +19726,19 @@ function EloView() {
               number every team starts at.
             </p>
             <EloFranchiseCard
-              team="CON" points={story.line.CON} mark={ELO_START} dot={con.peakIdx}
+              team="CON" points={story.line.CON} mark={ELO_START}
               title="Concord, seventeen seasons under the line"
               figures={[
-                { value: r0(con.peak), label: "best ever", sub: championshipDate(con.peakAt.date, con.peakAt.year) },
-                { value: con.avg.games, label: `of ${con.avg.played} above ${ELO_START}`, sub: `${Math.round(100 * con.avg.games / con.avg.played)} percent` },
+                { value: story.records.noTopTwo.top.v, label: "seasons without a top two finish", sub: `most ever, next is ${story.records.noTopTwo.next.v}` },
               ]}
             />
             <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
-              {con.avg.games} games out of {con.avg.played}. Concord spent {Math.round(100 - 100 * con.avg.games / con.avg.played)} percent
-              of a seventeen year run rated below an average PCAL team, never finished a
-              season higher than third, and folded after {con.last} at {r0(con.now)}. The
-              franchise is worth remembering anyway. Someone showed up every summer for
-              seventeen years.
+              Every season they played, all {con.seasons} of them, ended with Concord
+              third or lower. They cleared {ELO_START} in {con.avg.games} games out of{" "}
+              {con.avg.played}, which means {Math.round(100 - 100 * con.avg.games / con.avg.played)} percent
+              of a seventeen year run was spent rated below an average PCAL team. They
+              folded after {con.last} at {r0(con.now)}. The franchise is worth remembering
+              anyway. Someone showed up every summer for seventeen years.
             </p>
           </>
         )}
@@ -19721,8 +19755,7 @@ function EloView() {
               team="MOD" points={story.line.MOD} mark={ELO_START} dot={mod.lowIdx}
               title="Modesto, the lowest rating anyone has held"
               figures={[
-                { value: r0(mod.low), label: "league record low", sub: championshipDate(mod.lowAt.date, mod.lowAt.year) },
-                { value: r0(mod.peak), label: "best ever", sub: championshipDate(mod.peakAt.date, mod.peakAt.year) },
+                { value: r0(mod.low), label: "lowest rating in league history", sub: `${championshipDate(mod.lowAt.date, mod.lowAt.year)}, next lowest is ${r0(-story.records.lowest.next.v)}` },
               ]}
             />
             <p className="text-[13px] text-gray-600 leading-relaxed mt-2">
