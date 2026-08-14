@@ -21,7 +21,7 @@ import AwardsSection from "./AwardsSection.jsx";
 import { PLAYER_MERGE } from "./playerNames.js";
 // App keeps its own TEAM_COLORS (see below); only the contrast helper is shared.
 import { textOnTeam } from "./teamColors.js";
-import { buildElo, eloHindsight, eloFinals, eloTeam, ELO_START, ELO_K, ELO_CARRYOVER } from "./elo.js";
+import { buildElo, eloHindsight, eloFinals, eloTeam, eloTeamGames, ELO_START, ELO_K, ELO_CARRYOVER } from "./elo.js";
 // Season data is derived from GAME_LOG once it loads, by rebuildDerived().
 // These start empty and are populated when installGameLog() runs on mount.
 let DATA = [];
@@ -583,7 +583,6 @@ const CHAMPIONSHIP_META = {
     context: "Sacramento's eighth championship, fifth in a row", blurb: "" },
   2010: { rank: 3, headline: "The missed buzzer beater", location: "Livermore Community Center", mvp: "EJIGU KINDU",
     context: "Pleasanton's first championship, won under the San Ramon name",
-    score: [42, 39],
     blurb: [
       "One of the most thrilling finals we have had, and a game I do not think about much, because I was playing with bitterness instead of joy.",
       "San Ramon had taken down Hayward in the semifinal, the first playoff loss in Hayward's history, and still came into the final as underdogs. There were some ill feelings between San Ramon and a few of the other teams, San Jose included, in part because both rosters had players who wanted to win badly enough that it showed. The game itself was excellent. John Nakhla coached San Ramon well and had them playing hard on both ends, and this was the first season anyone had played zone defense in PCAL.",
@@ -19285,6 +19284,28 @@ function EloView() {
   const focusOn = focus && active.some(c => c.team === focus) ? focus : null;
   const focusRows = focusOn ? (elo.teams[focusOn] || []) : null;
 
+  // The game ledger runs off the same selection the chart chips set, so the
+  // two panels can never be showing different teams.
+  const logTeam = focus;
+  const logSeasons = useMemo(() => {
+    if (!logTeam) return [];
+    const out = [];
+    for (const gm of eloTeamGames(elo.games, logTeam)) {
+      let season = out[out.length - 1];
+      // `open` is the rating carried into the season's first game, which is
+      // already past the offseason regression, so it is not last season's
+      // closing number.
+      if (!season || season.year !== gm.year) {
+        season = { year: gm.year, w: 0, l: 0, open: gm.pre, close: gm.post, games: [] };
+        out.push(season);
+      }
+      season.games.push(gm);
+      season.close = gm.post;
+      if (gm.won) season.w++; else season.l++;
+    }
+    return out;
+  }, [elo, logTeam]);
+
   return (
     <div className="space-y-3">
       <div>
@@ -19471,30 +19492,119 @@ function EloView() {
         <div className="text-[13px] font-black text-gray-900 mb-0.5">Every franchise's high and low points</div>
         <div className="text-[11px] text-gray-500 mb-2.5">
           The best and worst a franchise has ever been rated, measured at any point in a
-          season and not only at the end of one.
+          season and not only at the end of one. A rating only moves when you play, so
+          every high and every low is the number a team walked off the floor with. The
+          game underneath each one is the game that put it there.
         </div>
-        <div className="flex items-center gap-2.5 mb-1.5">
-          <span className="w-2 h-2 flex-shrink-0" />
-          <span className="text-[11px] text-gray-500 flex-1">Franchise</span>
-          <span className="text-[11px] text-gray-500 w-16 text-right">High</span>
-          <span className="text-[11px] text-gray-500 w-16 text-right">Low</span>
-        </div>
-        <div className="space-y-1.5">
+        <div>
           {peakRows.map(([team, p]) => (
-            <div key={team} className="flex items-center gap-2.5">
-              <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[team] }} />
-              <span className="text-[13px] font-bold text-gray-900 flex-1 min-w-0 truncate">{TEAM_NAMES[team] || team}</span>
-              <span className="w-16 text-right">
-                <span className="text-[13px] font-bold text-gray-900">{r0(p.high)}</span>
-                <span className="text-[11px] text-gray-400"> {String(p.highAt.year).slice(2)}</span>
-              </span>
-              <span className="w-16 text-right">
-                <span className="text-[13px] font-bold text-gray-500">{r0(p.low)}</span>
-                <span className="text-[11px] text-gray-400"> {String(p.lowAt.year).slice(2)}</span>
-              </span>
+            <div key={team} className="py-2 border-t border-gray-100 first:border-t-0 first:pt-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[team] }} />
+                <span className="text-[13px] font-black text-gray-900">{TEAM_NAMES[team] || team}</span>
+              </div>
+              {[["High", p.high, p.highAt], ["Low", p.low, p.lowAt]].map(([label, val, at]) => (
+                <div key={label} className="pl-4 py-0.5">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[11px] font-bold text-gray-500 w-7 flex-shrink-0">{label}</span>
+                    <span className={`text-[13px] font-bold w-9 flex-shrink-0 ${label === "High" ? "text-gray-900" : "text-gray-500"}`}>{r0(val)}</span>
+                    <span className="text-[11px] text-gray-900 flex-1 min-w-0">
+                      {at.won ? "beat" : "lost to"} <span className="font-bold">{TEAM_NAMES[at.opp] || at.opp}</span> {at.pts}-{at.oppPts}
+                    </span>
+                    <span className={`text-[11px] font-bold flex-shrink-0 ${at.move > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {at.move > 0 ? "+" : ""}{r0(at.move)}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-gray-400 pl-20 -mt-0.5">
+                    {championshipDate(at.date, at.year)}
+                    {at.type === "C" ? ", the final" : at.type === "P" ? ", a semifinal" : ""}
+                    {" · "}{TEAM_NAMES[at.opp] || at.opp} came in at {r0(at.oppPre)}
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Every game one franchise has played. The chart above shows the shape;
+          this is the ledger behind it, one line per result, so a reader can see
+          exactly which night moved the number and by how much. Selection is the
+          same `focus` the chart chips set, so the two never disagree. */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="text-[13px] font-black text-gray-900 mb-0.5">Franchise Elo logs</div>
+        <div className="text-[11px] text-gray-500 mb-2.5">
+          Every rated game a team has played, with what the opponent was worth at tipoff
+          and what the result did to the rating. Beating a team rated above you pays more
+          than beating one rated below you, and the margin counts too.
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {legend.map(({ team }) => (
+            <button key={team} onClick={() => setFocus(f => f === team ? null : team)}
+              className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold transition-colors ${logTeam === team ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
+              <span className="w-2 h-2 rounded-sm flex-shrink-0"
+                style={{ backgroundColor: ELO_CHART_COLORS[team] || "#6b7280" }} />
+              {TEAM_NAMES[team] || team}
+            </button>
+          ))}
+        </div>
+
+        {!logTeam ? (
+          <div className="text-[11px] text-gray-400 py-2">Pick a team to see its ledger.</div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-1 px-1">
+              <span className="w-11 flex-shrink-0">Date</span>
+              <span className="flex-1 min-w-0">Opponent</span>
+              <span className="w-14 text-right flex-shrink-0">Result</span>
+              <span className="w-9 text-right flex-shrink-0">Move</span>
+              <span className="w-10 text-right flex-shrink-0">Rating</span>
+            </div>
+            <div className="max-h-96 overflow-y-auto -mx-1 px-1">
+              {logSeasons.map(season => (
+                <div key={season.year}>
+                  <div className="flex items-baseline gap-2 sticky top-0 bg-white py-1 border-b border-gray-100">
+                    <span className="text-[13px] font-black text-gray-900">{season.year}</span>
+                    <span className="text-[11px] text-gray-500">{season.w}-{season.l}</span>
+                    <span className="text-[11px] text-gray-400 flex-1 text-right">
+                      {r0(season.open)} to {r0(season.close)}
+                      <span className={`font-bold ${season.close - season.open > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                        {" "}({season.close - season.open > 0 ? "+" : ""}{r0(season.close - season.open)})
+                      </span>
+                    </span>
+                  </div>
+                  {season.games.map((gm, i) => (
+                    <div key={i} className="flex items-center gap-2 py-1 border-b border-gray-50">
+                      <span className="w-11 text-[11px] text-gray-500 flex-shrink-0">
+                        {gm.date}{gm.type === "C" ? " F" : gm.type === "P" ? " S" : ""}
+                      </span>
+                      <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: ELO_CHART_COLORS[gm.opp] || "#6b7280" }} />
+                        <span className="text-[11px] font-bold text-gray-900 truncate">{TEAM_NAMES[gm.opp] || gm.opp}</span>
+                        <span className="text-[11px] text-gray-400 flex-shrink-0">{r0(gm.oppPre)}</span>
+                      </span>
+                      <span className="w-14 text-right text-[11px] flex-shrink-0">
+                        <span className={`font-bold ${gm.won ? "text-emerald-600" : "text-red-500"}`}>{gm.won ? "W" : "L"}</span>
+                        <span className="text-gray-500"> {gm.pts}-{gm.oppPts}</span>
+                      </span>
+                      <span className={`w-9 text-right text-[11px] font-bold flex-shrink-0 ${gm.move > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                        {gm.move > 0 ? "+" : ""}{r0(gm.move)}
+                      </span>
+                      <span className="w-10 text-right text-[11px] font-bold text-gray-900 flex-shrink-0">{r0(gm.post)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-2">
+              F is the final, S a semifinal. The number next to an opponent is the rating
+              that opponent carried into the game, not the one it left with. A season that
+              opens above where the last one closed is the offseason regression, which
+              hands back 15 percent of a team's distance from {ELO_START} every year.
+            </div>
+          </>
+        )}
       </div>
 
       {/* Champions ranked. The first thing anyone asks a rating system is

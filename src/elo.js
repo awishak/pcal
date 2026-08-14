@@ -130,13 +130,54 @@ export const eloExpected = (mine, theirs) => 1 / (1 + Math.pow(10, (theirs - min
 export const eloMov = (margin, winnerEdge) =>
   Math.log(Math.abs(margin) + 1) * (2.2 / (0.001 * winnerEdge + 2.2));
 
+// A rated game read from one team's side, which is the only way a reader ever
+// wants it: my rating, my score, who I played and what they were worth walking
+// in, and what the result did to me. `side` is "a" or "b", matching the two
+// teams on a game row.
+export function eloSide(row, side) {
+  const home = side === "a";
+  const pts = home ? row.aPts : row.bPts;
+  const oppPts = home ? row.bPts : row.aPts;
+  const pre = home ? row.aPre : row.bPre;
+  const post = home ? row.aPost : row.bPost;
+  return {
+    year: row.year, date: row.date, week: row.week, type: row.type,
+    team: home ? row.a : row.b,
+    opp: home ? row.b : row.a,
+    oppPre: home ? row.bPre : row.aPre,
+    oppPost: home ? row.bPost : row.aPost,
+    pts, oppPts, pre, post,
+    won: pts > oppPts,
+    move: post - pre,
+    // Win probability the rating gave this team at tipoff.
+    odds: home ? row.expA : 1 - row.expA,
+    game: row,
+  };
+}
+
+// The context behind a high or a low. A peak is always the rating a team
+// walked off the floor with, so the game that set it is never ambiguous: it is
+// the game that just finished.
+const peakAt = (row, side) => eloSide(row, side);
+
+// Every game one franchise has played, in order, from its own side.
+export function eloTeamGames(games, team) {
+  const out = [];
+  for (const row of games) {
+    if (row.a === team) out.push(eloSide(row, "a"));
+    else if (row.b === team) out.push(eloSide(row, "b"));
+  }
+  return out;
+}
+
 // Walk every game in order and return the full rating history.
 //
 //   games      each game with both teams' rating before and after
 //   seasons    end-of-season rating per franchise per year
 //   teams      { [franchise]: [season rows in year order] }
 //   current    latest rating per franchise, sorted high to low
-//   peaks      best and worst rating each franchise ever held
+//   peaks      best and worst rating each franchise ever held, each carrying
+//              the game that set it
 export function buildElo(gameLog, opts = {}) {
   const K = opts.k ?? ELO_K;
   const carry = opts.carryover ?? ELO_CARRYOVER;
@@ -186,11 +227,11 @@ export function buildElo(gameLog, opts = {}) {
     lastYear.set(team, year);
   };
 
-  const touchPeak = (team, year, date, elo) => {
+  const touchPeak = (team, elo, row, side) => {
     const p = peak.get(team);
-    if (!p) { peak.set(team, { high: elo, highAt: { year, date }, low: elo, lowAt: { year, date } }); return; }
-    if (elo > p.high) { p.high = elo; p.highAt = { year, date }; }
-    if (elo < p.low) { p.low = elo; p.lowAt = { year, date }; }
+    if (!p) { peak.set(team, { high: elo, highAt: peakAt(row, side), low: elo, lowAt: peakAt(row, side) }); return; }
+    if (elo > p.high) { p.high = elo; p.highAt = peakAt(row, side); }
+    if (elo < p.low) { p.low = elo; p.lowAt = peakAt(row, side); }
   };
 
   for (const g of games) {
@@ -210,12 +251,13 @@ export function buildElo(gameLog, opts = {}) {
     const aPost = aPre + shift, bPost = bPre - shift;
     rating.set(g.a, aPost);
     rating.set(g.b, bPost);
-    touchPeak(g.a, g.year, g.date, aPost);
-    touchPeak(g.b, g.year, g.date, bPost);
 
     // `i` is the game's position in league history, which is the x axis the
     // game-by-game chart plots against.
-    rated.push({ ...g, i: rated.length, aPre, bPre, aPost, bPost, shift: Math.abs(shift), expA: eloExpected(aPre, bPre) });
+    const row = { ...g, i: rated.length, aPre, bPre, aPost, bPost, shift: Math.abs(shift), expA: eloExpected(aPre, bPre) };
+    rated.push(row);
+    touchPeak(g.a, aPost, row, "a");
+    touchPeak(g.b, bPost, row, "b");
 
     for (const [team, pts, opPts, post] of [[g.a, g.aPts, g.bPts, aPost], [g.b, g.bPts, g.aPts, bPost]]) {
       const key = g.year + "|" + team;

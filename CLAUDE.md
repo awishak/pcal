@@ -62,6 +62,7 @@ GAME_LOG row is an array. Index map:
 - PPG computation must key on team, year, week, date, and opponent to avoid doubleheader collisions.
 - PLAYER_PHOTOS[name] is module level. The photo index must be built case and whitespace insensitive to resolve key mismatches.
 - Supabase range pagination needs `.order("id", {ascending:true})` as a tiebreaker to stay stable.
+- **Free point rule, 2005 through 2010.** Getting fouled was worth an automatic point, awarded at the line before any free throw was shot. That point lives in `pts` and appears nowhere in the shooting columns, so for those six seasons `pts` is legitimately higher than `2*(fgm-tpm) + 3*tpm + ftm`. Roughly 40 percent of rows per season are affected. Do not "fix" them. 2011 onward reconciles exactly. Note that `scripts/boxscore.mjs` derives pts from the pasted 2P/3P/FT columns, so it is wrong for 2005 to 2010 and those corrections have to be written by hand.
 
 ## Architecture
 
