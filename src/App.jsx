@@ -496,6 +496,58 @@ const TEAM_FULL_NAMES = {
   PLE: "Pleasanton Eagles", PDF: "Pacific Desert Fathers", MOD: "Modesto Lions",
 };
 
+// The people who run the league, rendered by AboutView at /about. Names,
+// roles and grouping are set by hand here. Nothing about a person derives
+// from game_log except the headshot and the career link, and both are
+// resolved at render time and skipped for anyone with no player row, so a
+// non-player card is simply initials, a name, and a role.
+//
+// `name` is the canonical "LASTNAME FIRSTNAME" so thNorm resolves the photo
+// and the player row. The displayed name comes from formatName. Use `display`
+// only when the canonical form does not exist yet, which today is Jennifer,
+// whose last name is still to come.
+//
+// Marios Tawdros is both the Pleasanton rep and on the media team. He appears
+// once in each group on purpose, because both are real jobs he holds.
+const LEAGUE_PEOPLE = [
+  {
+    title: "Commissioner",
+    people: [
+      { name: "ISHAK ANDREW", role: "Commissioner" },
+    ],
+  },
+  {
+    title: "Team representatives",
+    blurb: "One rep for each of the six teams. They handle rosters, communication, and whatever else the week needs.",
+    people: [
+      { name: "ABDELSHAID MOSES", team: "SAC", role: "Team rep" },
+      { name: "HANNA GEORGE", team: "PDF", role: "Team rep" },
+      { name: "ELSAKR DANIEL", team: "MOD", role: "Team rep" },
+      { name: "ABDELMALAK SIMON", team: "SJO", role: "Team rep" },
+      { name: "ABDALLA MARK", team: "HAY", role: "Team rep" },
+      { name: "TAWDROS MARIOS", team: "PLE", role: "Team rep" },
+    ],
+  },
+  {
+    title: "Officials",
+    people: [
+      { name: "CORONADO VICTOR", role: "Official coordinator" },
+    ],
+  },
+  {
+    title: "Media and photography",
+    blurb: "Everything you see from game day, on the app and on Instagram.",
+    people: [
+      { name: "TAWDROS MARIOS", role: "Media" },
+      { name: "SHARKAWY ANDREW", role: "Media" },
+      { name: "AGIB SMYRNA", role: "Media and photography" },
+      { display: "Jennifer", name: "JENNIFER", role: "Photography" },
+      { name: "HANNA NATALY", role: "Photography" },
+      { name: "GENDY YOUANA", role: "Photography" },
+    ],
+  },
+];
+
 // First-name nickname to canonical mapping. Applied when looking up player history
 // so registrations using nicknames find their game-log entry.
 const FIRST_NAME_NICKNAMES = {
@@ -2077,13 +2129,15 @@ function WatchPage({ streams = [], isAdmin = false, setStreams, onOpenGame }) {
 // awards and awardsvoters are deliberately absent from NAV_ITEMS. The ballot
 // is an unlisted link sent to the 30 eligible voters; the voter list is
 // public but has no reason to occupy a nav slot.
-const SECTION_SEG = { home: "", stats: "stats", schedule: "schedule", live: "games", teams: "teams", register: "register", watch: "live", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults" };
+// "about" is the Who We Are page. Like the ballot it has no nav slot: it is
+// reached from the home page card and the Stats and History list.
+const SECTION_SEG = { home: "", stats: "stats", schedule: "schedule", live: "games", teams: "teams", register: "register", watch: "live", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults", about: "about" };
 // SEG_SECTION is inbound only, so an extra key here is an entry point rather
 // than a second address: stateToPath still builds the canonical path from
 // SECTION_SEG, and the history effect rewrites the bar to /awardsresults.
 // "awardresults" is the spelling people actually type.
-const SEG_SECTION = { stats: "stats", schedule: "schedule", games: "live", teams: "teams", register: "register", live: "watch", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults", awardresults: "awardsresults" };
-const SECTION_DEFAULT_TAB = { home: "home", stats: "stats_home", schedule: "schedule", live: "live", teams: "teams", register: "register", watch: "watch", awards: "awards_ballot", awardsvoters: "awards_voters", awardsresults: "awards_results" };
+const SEG_SECTION = { stats: "stats", schedule: "schedule", games: "live", teams: "teams", register: "register", live: "watch", awards: "awards", awardsvoters: "awardsvoters", awardsresults: "awardsresults", awardresults: "awardsresults", about: "about", whoweare: "about" };
+const SECTION_DEFAULT_TAB = { home: "home", stats: "stats_home", schedule: "schedule", live: "live", teams: "teams", register: "register", watch: "watch", awards: "awards_ballot", awardsvoters: "awards_voters", awardsresults: "awards_results", about: "about" };
 
 function playerSlug(name) {
   return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -2383,6 +2437,7 @@ function AppInner() {
     playoffRecap2025: "visible",
     livestreams: "visible",
     photos: "visible",
+    about: "visible",
   });
   const [scheduleWarning, setScheduleWarning] = useState({
     bannerEnabled: true,
@@ -3455,6 +3510,8 @@ function AppInner() {
   const goBack = () => {
     if (section === "stats") setTab("stats_home");
     else if (section === "home") setTab("home");
+    // About has no home of its own, so its back arrow returns to the home tab.
+    else if (section === "about") switchSection("home");
   };
 
   return (
@@ -3566,7 +3623,7 @@ function AppInner() {
             </button>
             <button
               onClick={() => setTab("stat_explainers")}
-              className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-indigo-50 to-white p-3.5 mb-5 hover:border-indigo-300 active:scale-[0.99] transition-all">
+              className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-indigo-50 to-white p-3.5 mb-2.5 hover:border-indigo-300 active:scale-[0.99] transition-all">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
                   <span className="text-sm font-black text-indigo-700">AI</span>
@@ -3577,6 +3634,22 @@ function AppInner() {
                     AI Score is a season-level companion to Game Score. It powers awards for 2005 through 2023 and factors in efficiency, team success, durability, and share of team output.
                   </div>
                   <div className="text-[10px] text-indigo-600 font-bold mt-1.5">Read full explainer →</div>
+                </div>
+              </div>
+            </button>
+            <button
+              onClick={() => switchSection("about")}
+              className="w-full text-left rounded-2xl border border-gray-200 bg-gradient-to-br from-emerald-50 to-white p-3.5 mb-5 hover:border-emerald-300 active:scale-[0.99] transition-all">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-emerald-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87M13 7a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 10-2.83-4" /></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-black text-gray-900 mb-0.5">Who We Are</div>
+                  <div className="text-[13px] text-gray-600 leading-snug">
+                    The commissioner, the six team reps, the official coordinator, and the media and photography team.
+                  </div>
+                  <div className="text-[13px] text-emerald-700 font-bold mt-1.5">Meet the team →</div>
                 </div>
               </div>
             </button>
@@ -3690,6 +3763,12 @@ function AppInner() {
         {tab === "awards_results" && <AwardsSection view="results" />}
         {tab === "rules" && (
           <RulesView />
+        )}
+        {tab === "about" && (
+          <AboutView
+            goToPlayer={goToPlayer}
+            playerLinksEnabled={!hideCareerLinks && (!isPlayerLookupDisabled || isAdminView)}
+          />
         )}
         {/* Unlisted, not gated. The tile is adminOnly so nothing in the app
             links here, but /stats/scouting works for anyone who has the URL.
@@ -4977,6 +5056,103 @@ function OtherGameMiniCard({ game, liveState, scores, onTap }) {
   );
 }
 
+// ============================================================
+// WHO WE ARE (/about)
+// A roster of the people who run the league, built from LEAGUE_PEOPLE. The
+// only thing this page reads out of the data layer is, per person, their
+// headshot and whether they have a player row. Both lookups are by normalized
+// name, so a person who has never played, or whose name is not in game_log,
+// renders as an initials avatar on a plain card and nothing breaks.
+// ============================================================
+
+// First player row matching this name, or null. Same first-match behavior as
+// resolvePlayerSlug, so two players sharing a name resolve to the same one
+// the rest of the app resolves to.
+function aboutPlayerRow(name) {
+  const key = thNorm(name);
+  return DATA.find(r => thNorm(r.player) === key) || null;
+}
+
+function AboutPersonCard({ person, goToPlayer, playerLinksEnabled }) {
+  const display = person.display || formatName(person.name);
+  const row = playerLinksEnabled ? aboutPlayerRow(person.name) : null;
+  const photo = avatarUrl(person.name);
+  const team = person.team;
+
+  const body = (
+    <div className="flex items-center gap-3">
+      <ThAvatar name={person.name} size={48} photoUrl={photo} />
+      <div className="flex-1 min-w-0">
+        <div className="text-[15px] font-black text-gray-900 leading-tight">{display}</div>
+        <div className="text-[13px] text-gray-600 leading-snug mt-0.5">{person.role}</div>
+        {team && (
+          <span className="inline-block mt-1.5 text-[13px] font-bold px-2 py-0.5 rounded"
+            style={{ background: TEAM_COLORS[team] || "#334155", color: textOnTeam(team) }}>
+            {TEAM_FULL_NAMES[team] || TEAM_NAMES[team] || team}
+          </span>
+        )}
+      </div>
+      {row && (
+        <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      )}
+    </div>
+  );
+
+  if (!row) {
+    return <div className="rounded-2xl border border-gray-100 bg-white p-3.5">{body}</div>;
+  }
+  return (
+    <button onClick={() => goToPlayer(row.player)}
+      className="w-full text-left rounded-2xl border border-gray-100 bg-white p-3.5 hover:border-gray-300 active:scale-[0.99] transition">
+      {body}
+    </button>
+  );
+}
+
+function AboutView({ goToPlayer, playerLinksEnabled }) {
+  // Any card that resolved to a player row is tappable, so only mention it
+  // when at least one of them did.
+  const anyLinked = playerLinksEnabled && LEAGUE_PEOPLE.some(g => g.people.some(p => aboutPlayerRow(p.name)));
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-black text-gray-900">Who we are</h2>
+        <p className="text-[13px] text-gray-600 leading-relaxed mt-1.5">
+          PCAL is run by volunteers. A commissioner, one representative for each of the six teams,
+          an official coordinator, and the media team that covers the season.
+        </p>
+      </div>
+
+      {LEAGUE_PEOPLE.map(group => (
+        <div key={group.title}>
+          <p className="text-[13px] font-black text-gray-900 uppercase tracking-wide mb-1.5">{group.title}</p>
+          {group.blurb && (
+            <p className="text-[13px] text-gray-600 leading-relaxed mb-2.5">{group.blurb}</p>
+          )}
+          <div className="space-y-2">
+            {group.people.map((p, i) => (
+              <AboutPersonCard
+                key={(p.name || p.display) + "-" + i}
+                person={p}
+                goToPlayer={goToPlayer}
+                playerLinksEnabled={playerLinksEnabled}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {anyLinked && (
+        <p className="text-[13px] text-gray-500 leading-relaxed">
+          Tap a name to open that person's career page. Anyone who has never played in PCAL has no page to open.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RulesView() {
   // Rules content preserved exactly as provided. Each section is a top-level
   // group (1, 2). Each group has subsections (1.0, 1.1, etc.) which contain
@@ -6197,6 +6373,19 @@ function HomeView({ commissionerMessages, stickyLinks, quickLinks, livestreamUrl
             <p className="text-sm text-gray-500">Livestream links coming soon — check back during game days.</p>
           )}
         </div>
+      )}
+
+      {/* Who we are */}
+      {isVisible("about") && (
+        <button onClick={() => switchSection("about")}
+          className="w-full text-left rounded-2xl bg-white border border-gray-200 p-4 hover:border-gray-300 active:scale-[0.99] transition">
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1">Who We Are</p>
+          <p className="text-[15px] font-black text-gray-900 leading-tight">The people who run PCAL</p>
+          <p className="text-[13px] text-gray-600 leading-snug mt-1">
+            The commissioner, the six team reps, the official coordinator, and the media and photography team.
+          </p>
+          <span className="inline-block mt-2 text-[13px] font-bold text-blue-600">Meet the team →</span>
+        </button>
       )}
 
       {/* What's live on the app */}
@@ -14407,6 +14596,7 @@ function HomeAdminPanel({ commissionerMessages, setCommissionerMessages, stickyL
             { key: "photos", label: "Photo Cards" },
             { key: "livestreams", label: "Livestreams" },
             { key: "whatsLive", label: "What's Live on the App" },
+            { key: "about", label: "Who We Are" },
           ].map(card => {
             const state = homeCardVisibility[card.key] || "visible";
             return (
