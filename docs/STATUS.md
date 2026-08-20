@@ -2,7 +2,7 @@
 
 Volatile working state. Update this as work moves. Durable rules live in `CLAUDE.md`.
 
-## Similarity Scores tab (built 2026-08-20, not yet deployed)
+## Similarity Scores tab (built and deployed 2026-08-20)
 
 Replaced the NBA Comps tab under AI Analysis. The old tab held two hand-written blocks, 50 PCAL-to-NBA player comparisons and 15 "PCAL Player Twins" pairs, both pure prose with no computation behind them. Both are gone. They are recoverable from git history at 977e2da if any of that writing is wanted again.
 
