@@ -2,6 +2,21 @@
 
 Volatile working state. Update this as work moves. Durable rules live in `CLAUDE.md`.
 
+## Similarity Scores tab (built 2026-08-20, not yet deployed)
+
+Replaced the NBA Comps tab under AI Analysis. The old tab held two hand-written blocks, 50 PCAL-to-NBA player comparisons and 15 "PCAL Player Twins" pairs, both pure prose with no computation behind them. Both are gone. They are recoverable from git history at 977e2da if any of that writing is wanted again.
+
+The new tab computes Pro-Football-Reference similarity scores (the Doug Drinen method Basketball-Reference runs on Win Shares). Engine is `src/similarity.js`, pure functions, no React. `scripts/similarity.mjs` runs the same engine in Node off the live game_log the way `scripts/elo.mjs` does, so the numbers can be checked outside the browser.
+
+Decisions Andrew made:
+
+- Season value is AI Score, not Game Score. Game Score was tried first and made Ishak incomparable (best match 46.5, since a 21-season accumulation dwarfs everything). AI Score is a per-season rating, so shape drives the answer and Shehata comes out as a real comp.
+- A player-year sums AI Score across teams when someone played for two clubs in a year, matching the career-total convention elsewhere in the app.
+- Ceiling of 15 best seasons by default, with 5 and 10 selectable in the UI. The standard weight ladder (1, 0.95, 0.90 ...) reaches zero at season 21, which with 21-season careers on the books would silently discard a year. Any of the three ceilings keeps every weight positive.
+- Pool is 3+ seasons and a career value above zero, the same gate PFR uses. That is 156 of 335 players.
+- Both tables per player, through-year-n and full careers. With a 15 ceiling the two are identical for long careers and only diverge when the comparison player has more seasons than the target. Shacker is the case that earns it: through year 6 his top comps are all-timers, over full careers they are not.
+- No positional filter. PCAL records no positions, so everyone is compared against everyone.
+
 ## Phase 3 (complete, not yet deployed)
 
 Done 2026-06-06. Season DATA now derives entirely from GAME_LOG in the browser via `buildSeasonData` in App.jsx, and the old baked RAW array is deleted. game_log is the single source of truth. The full derive pipeline (DATA, AI Score, awards, leaders) moved from module-load time into `rebuildDerived()`, called from `installGameLog` after the log loads.

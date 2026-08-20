@@ -22,6 +22,7 @@ import { PLAYER_MERGE } from "./playerNames.js";
 // App keeps its own TEAM_COLORS (see below); only the contrast helper is shared.
 import { textOnTeam } from "./teamColors.js";
 import { buildElo, eloHindsight, eloFinals, eloTeam, eloTeamGames, eloAbove, ELO_START, ELO_K, ELO_CARRYOVER } from "./elo.js";
+import { buildCareers, eligiblePool, similarityTables, CEILINGS, DEFAULT_CEILING, MIN_SEASONS } from "./similarity.js";
 // Season data is derived from GAME_LOG once it loads, by rebuildDerived().
 // These start empty and are populated when installGameLog() runs on mount.
 let DATA = [];
@@ -3391,7 +3392,7 @@ function AppInner() {
       { key: "stat_explainers", label: "Explaining AI Score and Game Score", desc: "How we measure player value" },
       { key: "awards", label: "Awards History", desc: "MVPs & All-PCAL teams" },
       { key: "potw_stats", label: "Player of the Week", desc: "All-time POTW wins & nominations" },
-      { key: "nbacomps", label: "NBA Comps", desc: "PCAL–NBA player comparisons" },
+      { key: "similarity", label: "Similarity Scores", desc: "The most similar careers in PCAL history" },
       { key: "crossera", label: "Cross-Era Comps", desc: "Modern stars vs. classic era matches" },
       { key: "bestage", label: "Every Age", desc: "Top two at every age, any stat" },
       { key: "hof", label: "Hall of Fame", desc: "All-time greatness index" },
@@ -3518,7 +3519,7 @@ function AppInner() {
       </div>
 
       {/* Content area */}
-      <div className={`${tab === "scouting" ? "max-w-6xl" : "max-w-lg"} mx-auto px-4 py-4`}>
+      <div className={`${tab === "scouting" || tab === "similarity" ? "max-w-6xl" : "max-w-lg"} mx-auto px-4 py-4`}>
 
         {announcement && (
           <div className="mb-3 rounded-2xl bg-amber-50 border border-amber-200 p-3">
@@ -4231,8 +4232,8 @@ function AppInner() {
         {tab === "peaks" && (
           <PeakPerformanceView data={DATA} teamSeasons={TEAM_SEASONS} years={YEARS} goToPlayer={goToPlayer} />
         )}
-        {tab === "nbacomps" && (
-          <NbaCompsView data={DATA} teamSeasons={TEAM_SEASONS} goToPlayer={goToPlayer} />
+        {tab === "similarity" && (
+          <SimilarityView data={DATA} goToPlayer={goToPlayer} />
         )}
         {tab === "gamestats" && (
           <GameStatsView sel={selectedGame} onSel={setSelectedGame} />
@@ -6993,319 +6994,194 @@ function AwardsTab({ awardsByYear, aiPicksByYear, years, goToPlayer }) {
   );
 }
 
-function NbaCompsView({ data, teamSeasons, goToPlayer }) {
-  const TEAM_DISPLAY = { HAY: "Hayward", SAC: "Sacramento", SJO: "San Jose", CON: "Concord", MOD: "Modesto", PDF: "Pacific", PLE: "Pleasanton", SRA: "San Ramon", CIS: "Christ in Sports", SJK: "Knights" };
+function SimilarityView({ data, goToPlayer }) {
+  const [ceiling, setCeiling] = useState(DEFAULT_CEILING);
+  const [search, setSearch] = useState("");
+  const [picked, setPicked] = useState(null);
 
-  const byPlayer = {};
-  data.forEach(r => {
-    const k = r.player.toUpperCase();
-    if (!byPlayer[k]) byPlayer[k] = { player: r.player, records: [] };
-    byPlayer[k].records.push(r);
-  });
+  const careers = useMemo(() => buildCareers(data), [data]);
+  const pool = useMemo(() => eligiblePool(careers, ceiling), [careers, ceiling]);
+  // careers come back sorted by career AI Score, so the default is whoever
+  // sits on top of that list.
+  const target = (picked && pool.some(c => c.player === picked)) ? picked : (pool[0] ? pool[0].player : null);
+  const tables = useMemo(
+    () => (target ? similarityTables(careers, target, ceiling) : null),
+    [careers, target, ceiling]);
 
-  const careers = Object.values(byPlayer).map(p => {
-    const rs = p.records;
-    const g = rs.reduce((s,r) => s + r.g, 0);
-    const champs = rs.filter(r => { const ts = teamSeasons[r.team + "-" + r.year]; return ts?.final === "Champ"; }).length;
-    return {
-      player: p.player, g, seasons: rs.length,
-      totalGmSc: rs.reduce((s,r) => s + r.gmSc, 0),
-      avgGmSc: (rs.reduce((s,r) => s + r.gmSc, 0) / g).toFixed(1),
-      ppg: (rs.reduce((s,r) => s + r.pts, 0) / g).toFixed(1),
-      rpg: (rs.reduce((s,r) => s + r.reb, 0) / g).toFixed(1),
-      apg: (rs.reduce((s,r) => s + r.ast, 0) / g).toFixed(1),
-      spg: (rs.reduce((s,r) => s + r.stl, 0) / g).toFixed(1),
-      bpg: (rs.reduce((s,r) => s + r.blk, 0) / g).toFixed(1),
-      mvps: rs.filter(r => r.award === "MVP").length,
-      allPcal: rs.filter(r => r.award === "All-PCAL" || r.award === "MVP").length,
-      champs,
-      teams: [...new Set(rs.map(r => r.team))].map(t => TEAM_DISPLAY[t] || t),
-      years: rs.map(r => r.year).sort((a,b) => a - b),
-    };
-  });
+  // Primary team is whichever one a player logged the most games with. Only
+  // used for the logo next to a name.
+  const primaryTeam = useMemo(() => {
+    const best = {};
+    for (const r of data) {
+      const cur = best[r.player];
+      if (!cur || r.g > cur.g) best[r.player] = { team: r.team, g: r.g };
+    }
+    const m = {};
+    for (const k in best) m[k] = best[k].team;
+    return m;
+  }, [data]);
 
-  careers.sort((a, b) => b.totalGmSc - a.totalGmSc);
-  const top50 = careers.slice(0, 50);
+  const matches = search.trim()
+    ? pool.filter(c => formatName(c.player).toLowerCase().includes(search.trim().toLowerCase())).slice(0, 12)
+    : [];
 
-  const COMPS = {
-    "ISHAK ANDREW": {
-      nba: "Tim Duncan",
-      desc: "The PCAL's all-time leader in points (3,054), rebounds (1,499), steals (337), and games (187) across 20 seasons. Six MVPs, 16 All-PCAL selections, and two championships. Ishak debuted with San Jose in 2005 and has never stopped producing -- even in year 20 he put up 15.0 PPG and 7.7 RPG. He carried SJO to the Finals eight times, finally broke through for titles in 2011 and 2015. Moved to Pacific in 2019 and kept dominating. Like Duncan, Ishak's defining trait is two decades of elite two-way production for essentially one franchise, paired with a quiet consistency that always commanded respect."
-    },
-    "MULUGETA YONI": {
-      nba: "Vince Carter",
-      desc: "Thirteen seasons across five teams -- San Ramon, Sacramento, Concord, Modesto, and Hayward. Mulugeta peaked with a brilliant 2008 MVP season (19.6 PPG) and a dominant 2009 follow-up (20.0 PPG, 18.5 GmSc/G), both in San Ramon. Seven All-PCAL selections over his career. After those peak years he bounced around as a respected veteran, collecting three championships -- with San Ramon in 2010, Sacramento in 2014, and San Ramon again in 2016. Like Carter, Mulugeta had a flashy peak, a remarkably long career, and adapted from franchise scorer to veteran contributor wherever he went."
-    },
-    "SHEHATA GEORGE": {
-      nba: "Magic Johnson",
-      desc: "The architect of the Hayward dynasty. Shehata's 2005-2009 run produced four MVPs, five straight titles (four undefeated seasons), and all-time PCAL records in assists per game (5.6 in 2006) and steals per game (5.6 in 2005). Eight All-PCAL selections total. His 270 career steals are #1 all-time. After Hayward's dynasty ended he returned with Pacific in 2021 as a veteran facilitator, adding two more Finals appearances. Seven championships in 14 seasons. Like Magic, he made everyone around him better while winning at a rate that may never be matched."
-    },
-    "KELADA ANTHONY": {
-      nba: "Kawhi Leonard",
-      desc: "Sacramento through and through -- 10 seasons, all in purple, five championships, eight Finals appearances. The highest career TS% (57.2%) of anyone in the top 10 in total Game Score. Six All-PCAL selections including the 2022 MVP, when he led the perfect 12-0 team with 19.6 PPG on .727 TS%. His 198 career steals rank #3 all-time. Like Kawhi, Kelada is the quiet superstar -- not flashy, rarely the loudest name, but always the most efficient player on the floor and always holding a trophy at the end."
-    },
-    "POULES ABANOB": {
-      nba: "Robert Horry",
-      desc: "Fifteen seasons. 162 games. Seven championships. Eleven Finals appearances -- more than any player in PCAL history. Zero MVPs. All Sacramento. Four All-PCAL selections. Poules worked his way from 2.2 PPG as a 2009 rookie to a peak of 18.6 PPG in 2015 and 17.7 in 2016, then gracefully settled back into a complementary role as titles kept stacking. His 1,511 career points rank #2 all-time. Like Horry, Poules collected rings by always being in the right place and always contributing just enough."
-    },
-    "AWAD BISHOY": {
-      nba: "Ben Wallace",
-      desc: "Sacramento's interior anchor for 11 seasons. His 9.5 PPG and 6.7 RPG don't scream superstar, but six All-PCAL selections including the 2017 MVP tell the real story. That 2017 campaign (12.9 PPG, 7.7 RPG on a 10-0 team) and his 2016 double-double season (12.6 PPG, 10.0 RPG) were peak Awad: not pretty, just dominant. Five championships. Like Ben Wallace, Awad was the defensive identity of a dynasty -- undersized stats, oversized impact."
-    },
-    "YOUSSEF ANDREW": {
-      nba: "Scottie Pippen",
-      desc: "The second-best player on one of the greatest teams ever. Youssef spent his prime as Shehata's co-star on the Hayward dynasty, winning his own MVP in 2007 with 20.8 PPG on the 12-0 squad. Three All-PCAL selections across 11 seasons, 14.8 career PPG, and seven championship rings. The one year he was the man (2007), he proved he could carry the show. Briefly played for Concord in 2022. Like Pippen, his legacy is inseparable from the dynasty he helped build."
-    },
-    "BADROOS ANDREW": {
-      nba: "Draymond Green",
-      desc: "Two MVPs (2012, 2018), 12 seasons, and 114 games for Sacramento -- built on defense, playmaking, and competitive fire. His 223 career steals rank #2 all-time and his 2.0 SPG defined Sacramento's defensive identity. Four All-PCAL selections total. The 2017 and 2018 back-to-back title runs were built on his grit. Five championships. Like Draymond, Badroos's stat line never matched his impact, and his impact never matched anyone else's."
-    },
-    "GAD MOUNIR": {
-      nba: "Amar'e Stoudemire",
-      desc: "A physical force who put up some of the most eye-popping per-game numbers in PCAL history. Gad's 2009 campaign (22.7 PPG, 11.4 RPG) remains one of the most dominant seasons ever. Six All-PCAL selections across 11 seasons with San Jose, the Knights, and Pacific. 14.9 career PPG and 6.8 RPG. Never won MVP despite multiple elite campaigns. His lone championship came in 2011 alongside Peter Abraham. Like Amar'e, Gad was unstoppable in the paint -- individual brilliance that didn't always translate to team success."
-    },
-    "HANNA GEORGE": {
-      nba: "Udonis Haslem",
-      desc: "Eighteen seasons and 149 games -- the longest career in PCAL history. One All-PCAL selection and five Second Team nods. Hanna carried Concord to their only Finals appearance in 2008 (14.5 PPG, 7.8 RPG, 2.4 SPG), then later played for Hayward, Christ in Sports, and Pacific. His 251 career steals rank #4 all-time. His 7.3 career PPG undersells a player who was the heart and soul of every locker room he entered for nearly two decades."
-    },
-    "ABDELMALAK SIMON": {
-      nba: "Luka Doncic",
-      desc: "Only seven seasons in, but Abdelmalak's trajectory is already historic. Back-to-back MVPs in 2024 and 2025 with stat lines that read like created players -- 17.7/7.3/2.9 and 19.2/9.1/5.1. Three All-PCAL selections total. His 2025 AI Score gap over #2 was the widest in PCAL history, and his 5.1 APG that year is #2 all-time. One championship in 2019 early in his career. Like Luka, Abdelmalak is a young, do-everything playmaker putting up generational numbers."
-    },
-    "MIKHAIL ALEX": {
-      nba: "Andre Iguodala",
-      desc: "Nine seasons of two-way excellence for Hayward, with 2.0 SPG and 5.3 RPG anchoring the defensive end. Four All-PCAL selections. His 2013 season (10.3 PPG, 5.6 RPG, 2.6 SPG) was the glue that held Hayward's last championship team together. Four titles total. 156 career steals. Like Iguodala, Mikhail was the championship-level role player whose impact showed up in wins, not box scores."
-    },
-    "AWAD MARK": {
-      nba: "Tyson Chandler",
-      desc: "Thirteen seasons and 116 games for Sacramento, all built on rebounding. Mark Awad's 5.1 RPG made him a consistent glass-cleaner on dynasty teams. One All-PCAL selection and six Second Team nods. Seven championships. Like Chandler, Awad was the no-glamor big whose presence in the lineup made everything else work."
-    },
-    "GIRGIS ZACK": {
-      nba: "Andre Miller",
-      desc: "Twenty seasons across San Jose, Concord, and Pacific -- tied with Ishak for the longest career in PCAL history. 163 games, 3.6 PPG, 5.0 RPG. One Second Team nod, one championship. No awards, no MVP votes, just 20 years of quiet rebounding and showing up. Like Andre Miller, Girgis was the quiet veteran who somehow kept getting minutes year after year."
-    },
-    "SHACKER MARK": {
-      nba: "Carmelo Anthony",
-      desc: "Five seasons, 48 games, and the single-season scoring record (276 points in 2021). Shacker averaged 18.4 career PPG -- the highest of anyone in the top 15 in total Game Score. Arrived in San Jose via the Knights in 2019 and immediately won a championship with the MVP award. Four All-PCAL selections. His 2021 (23.0 PPG) and 2023 (23.7 PPG scoring title) campaigns were pure offensive clinics. Like Melo, Shacker's game was built on pure bucket-getting."
-    },
-    "SHARKAWY MATHEW": {
-      nba: "Richard Jefferson",
-      desc: "Eighteen seasons across Sacramento, Modesto, and Pacific -- one of the longest and most traveled careers in PCAL history. Three Second Team nods, 135 games, 7.1 PPG. Started in Sacramento (2006-2007), spent his prime in Modesto (2008-2016), returned to Sacramento for the 2017 title, then settled in Pacific. One championship and two Finals appearances. Like Jefferson, a capable veteran who stuck around forever."
-    },
-    "MASDARY JOSH": {
-      nba: "Shane Battier",
-      desc: "Eleven seasons of reliable two-way play for San Jose. One All-PCAL selection, two Second Team nods. 6.9 PPG with 1.0 SPG across 110 games. Two championships (2015, 2019). Masdary was the connective tissue of San Jose's roster for over a decade -- never the star, always in the rotation. Like Battier, he was the smart role player who championship teams needed."
-    },
-    "ROUHANI DAVID": {
-      nba: "Michael Cooper",
-      desc: "Eight seasons, all with Hayward, all during the dynasty. Two All-PCAL selections, three Second Team nods. 10.5 PPG and 1.5 SPG across 73 games. Seven championships -- tied for the most in PCAL history. Rouhani was Hayward's third star behind Shehata and Youssef, the reliable scoring option who never had an off night. Like Cooper, he thrived as the third piece of a historically great team."
-    },
-    "ABDELMALAK ANDREW": {
-      nba: "Rudy Gobert",
-      desc: "Seven seasons with San Jose, averaging 5.8 RPG and 1.1 BPG -- the highest career blocks rate of anyone in the top 50. One All-PCAL selection and three Second Team nods. Simon's older brother and San Jose's defensive anchor in the paint. One championship (2019). Like Gobert, his value was in rim protection and rebounding, not scoring."
-    },
-    "ABDELSAYED JOE": {
-      nba: "Jamal Crawford",
-      desc: "Twelve seasons and 119 games for Sacramento, spanning 2005-2016 -- the original Sacramento lifer. Two Second Team nods, 8.3 PPG. One championship (2014) and three Finals appearances. Abdelsayed was there from the franchise's beginning, grinding through the lean years before Sacramento became a dynasty. Like Crawford, a long career built on scoring and loyalty."
-    },
-    "NASHED GEORGE": {
-      nba: "Robert Parish",
-      desc: "Seventeen seasons, mostly with Hayward (2005-2017), with stints at Modesto/CIS and Pacific. 6.0 RPG and 0.6 BPG across 118 games. Four Second Team nods. Seven championships -- tied for the PCAL record. Nashed was the quiet big man who pulled down boards and protected the rim for dynasty teams year after year. Like Parish, a towering presence who collected rings by doing the dirty work."
-    },
-    "SAWIRIS YOUSSEF": {
-      nba: "Trevor Ariza",
-      desc: "Eleven seasons with Hayward, spanning 2012-2023. One All-PCAL selection, two Second Team nods. 8.3 PPG across 92 games. Two championships. Sawiris joined Hayward during their late dynasty years and stayed through the rebuild, providing reliable scoring and shooting. Like Ariza, a consistent wing who could contribute on any roster."
-    },
-    "ABDELSHAID MOSES": {
-      nba: "Khris Middleton",
-      desc: "Eight seasons with Sacramento (2017-2025). Two All-PCAL selections, two Second Team nods. 9.2 PPG with 1.6 APG as a perimeter playmaker. Seven championships. Abdelshaid arrived at the start of Sacramento's five-peat and became their offensive facilitator from the wing. Like Middleton, a skilled scorer and passer on a dynasty who doesn't get the headlines but gets the rings."
-    },
-    "MICHAEL JIMMY": {
-      nba: "Chauncey Billups",
-      desc: "Twelve seasons split between San Ramon (2005-2007, 2016) and Concord (2008-2015), with a Pacific stint. Two Second Team nods. 7.6 PPG with 1.2 SPG across 95 games. One championship (2016 with San Ramon). A steady veteran guard who bounced between two franchises, providing backcourt stability wherever he went. Like Billups, a reliable floor general."
-    },
-    "MASOUD DAVID": {
-      nba: "Tobias Harris",
-      desc: "Eleven seasons with Hayward (2012-2023). Two Second Team nods. 7.6 PPG across 98 games. Two championships. Masoud was a volume scorer who wasn't always efficient but always filled a role -- someone had to take those shots. Like Harris, he was the solid-but-unspectacular starter on competitive rosters."
-    },
-    "TAWDROS Marios": {
-      nba: "Nikola Vucevic",
-      desc: "Only four seasons with Pleasanton (2022-2025), but what a four seasons. Three All-PCAL selections, 14.1 PPG and 7.4 RPG with 1.1 BPG -- one of the most dominant short careers in the league. No championships yet, but PLE's best player by a wide margin. Like Vucevic, a skilled big man carrying a small-market team on his back with scoring, rebounding, and interior defense."
-    },
-    "MALEK JOHN": {
-      nba: "Zydrunas Ilgauskas",
-      desc: "Nine seasons with Sacramento (2005-2014). Two Second Team nods. 5.8 PPG and 4.4 RPG across 78 games. One championship (2014). Malek was the original Sacramento big -- there from the franchise's founding through their first title. Like Ilgauskas, a loyal franchise center who stuck around through the lean years and finally got rewarded."
-    },
-    "MALEK CHRISTOPHER": {
-      nba: "P.J. Tucker",
-      desc: "Thirteen seasons with Hayward (2012-2025) -- the active franchise lifer. One Second Team nod. 3.3 PPG but 4.6 RPG across 102 games. Two championships. Malek's value was always in toughness, rebounding, and defense. Like Tucker, a no-stats player whose teams always seemed to win."
-    },
-    "BISSADA MATTHEW": {
-      nba: "Zach LaVine",
-      desc: "Ten seasons with Concord (2011-2022). Four Second Team nods. 8.9 PPG across 74 games but on a struggling franchise that made the Finals just once (2015). Concord's most consistent scorer during their lean years. Like LaVine, a capable offensive player on a team that could never quite put it together."
-    },
-    "SHEHATA Jacob": {
-      nba: "Devin Booker",
-      desc: "Just four seasons with Pacific (2022-2025), but already 20.5 career PPG -- the highest of anyone in the top 50. Two All-PCAL selections and one Second Team nod. Two Finals appearances, no championships yet. George's relative who scores at a historic rate in limited appearances. Like Booker, a pure scorer with a lethal offensive game whose team success hasn't caught up to his talent."
-    },
-    "ABDELMALEK ADAM": {
-      nba: "Domantas Sabonis",
-      desc: "Nine seasons split between Concord (2016-2022) and Modesto (2023-2025). Two Second Team nods. 4.5 PPG but a league-leading 8.4 RPG -- the highest career rebounding average in the top 50 by far. No championships, no Finals. Like Sabonis, a relentless rebounder whose double-double potential is there every night."
-    },
-    "MOUSSA TONY": {
-      nba: "Derek Fisher",
-      desc: "Sixteen seasons, mostly with San Jose (2006-2023) with a one-year Pacific stint. One Second Team nod. 4.9 PPG across 128 games. Two championships. Moussa is San Jose's all-time ironman alongside Ishak -- always on the roster, always in the rotation. Like Fisher, the steady veteran guard who showed up for 16 years of playoff basketball."
-    },
-    "SOLIMAN MIKE": {
-      nba: "Josh Smith",
-      desc: "Just four seasons (San Ramon 2005-2007, Concord 2012), but what a stat line: 9.8 PPG, 8.5 RPG, 2.4 SPG, and 1.5 BPG across 32 games. One All-PCAL selection and two Second Team nods. A rare five-category contributor who did everything. Like Josh Smith, an absurdly talented all-around player who could fill every column in the box score."
-    },
-    "FAHMY WASEEM": {
-      nba: "Jason Terry",
-      desc: "Ten seasons split between San Jose (2005-2014), the Knights, and Pacific. One All-PCAL selection. 6.8 PPG with 1.8 APG and 1.3 SPG across 72 games. One championship (2011). A playmaking guard who contributed across multiple categories. Like Terry, a veteran sparkplug off the bench who could run the offense when needed."
-    },
-    "NAKHLA JOHN": {
-      nba: "Boris Diaw",
-      desc: "Thirteen seasons across five teams -- San Ramon, Modesto, San Jose, Hayward, and Pacific. 3.3 PPG with 3.5 RPG and 1.2 APG across 103 games. Three championships. No All-PCAL nods but a remarkable ability to always land on competitive rosters. Like Diaw, a versatile role player who could pass, rebound, and fit into any system."
-    },
-    "HANNA JOE": {
-      nba: "Thabo Sefolosha",
-      desc: "Seventeen seasons across Concord (2005-2015), Hayward, Christ in Sports, and Pacific. 3.0 PPG across 148 games -- the third-most games in PCAL history. 104 career steals. Four Finals appearances, zero championships. George Hanna's longtime Concord teammate and fellow franchise lifer. Like Sefolosha, a defensive-minded role player with incredible longevity."
-    },
-    "GHOBRIAL PETER": {
-      nba: "Kendrick Perkins",
-      desc: "Sixteen seasons across Hayward (2006-2013, 2017-2018), Christ in Sports, and Pacific. 2.2 PPG but 0.5 BPG and 95 career steals across 117 games. Six championships -- all with Hayward. The dynasty's enforcer and defensive anchor who never needed to score. Like Perkins, a tough interior presence whose championship resume far outweighs his stat line."
-    },
-    "ALLICOCK WARREN": {
-      nba: "Gilbert Arenas",
-      desc: "Just four seasons with Concord (2006-2010), but a blazing 16.3 PPG with 2.1 SPG across 23 games. Two All-PCAL selections. No championships, no Finals -- Concord couldn't build a winning team around him. Like Agent Zero, Allicock was a score-first guard with electrifying talent who never had the supporting cast to win."
-    },
-    "SAWIRIS Rafael": {
-      nba: "Evan Fournier",
-      desc: "Seven seasons with Hayward (2019-2025) after a brief Modesto/CIS stint. 7.7 PPG across 64 games. No All-PCAL nods. One Finals appearance (2023). Sawiris was Hayward's leading scorer during their post-dynasty rebuilding years, providing volume scoring on teams that couldn't quite break through. Like Fournier, a steady scorer on mid-tier teams."
-    },
-    "SHAMMAS BASHAR": {
-      nba: "Monta Ellis",
-      desc: "Just three seasons with Modesto (2013-2015), but two All-PCAL selections and a Second Team nod. 17.3 PPG across 26 games -- he could fill it up. No championships, no Finals. Modesto never had enough around him. Like Monta Ellis, Shammas was a high-volume scorer with questionable efficiency on a team that couldn't support his talent."
-    },
-    "ISHAK EDDIE": {
-      nba: "Pau Gasol",
-      desc: "Andrew's older brother who played seven seasons across San Jose (2005-2011) and Pacific (2022-2023). Two All-PCAL selections. 11.4 PPG and 8.3 RPG in just 27 games -- small sample but elite per-game production. The 2005 Finals had both Ishak brothers and Eddie matched Andrew's impact. One championship (2011). Like Pau, the skilled big man in a famous brother duo."
-    },
-    "NAGUIB WASSIM": {
-      nba: "Bismack Biyombo",
-      desc: "Eleven seasons split between San Ramon (2005-2016) and Pleasanton (2022-2024). One Second Team nod. 2.8 PPG but 4.7 RPG across 89 games. Two championships (2010, 2016 with San Ramon). A rebounding specialist who anchored the interior for over a decade. Like Biyombo, his value was entirely in boards and defense."
-    },
-    "YOSEF ELIJAH": {
-      nba: "Patrick McCaw",
-      desc: "Seven seasons with Sacramento (2018-2025). 4.6 PPG across 69 games. No individual awards. Six championships. Let that sink in -- six rings in seven seasons. Yosef may have the best winning percentage of anyone in the league relative to his individual stats. Like McCaw, a player whose trophy case makes no sense if you only look at the box score."
-    },
-    "ZARIFA RAFIK": {
-      nba: "Lance Stephenson",
-      desc: "Four seasons with Hayward (2010, 2018-2021) spread across a decade. One All-PCAL selection. 15.6 PPG and 3.4 SPG across just 18 games -- one of the highest steal rates in PCAL history. A disruptive, high-energy wing who appeared, caused havoc, and disappeared. Like Stephenson, an unpredictable talent with game-changing defensive ability."
-    },
-    "SHARKAWY Andrew": {
-      nba: "Buddy Hield",
-      desc: "Five seasons with Concord (2021) and Modesto (2022-2025). One Second Team nod. 7.1 PPG with 1.3 SPG across 45 games. No championships. A scorer and defender for Modesto's recent squads. Like Hield, a capable shooter looking for the right situation."
-    },
-    "ABDELSHAID BISHOY": {
-      nba: "Danny Green",
-      desc: "Ten seasons split between Sacramento (2013-2023) and Modesto (2015-2016). 3.0 PPG and 1.2 APG across 93 games. Six championships, all with Sacramento. No individual awards, but a decade of quiet contribution on dynasty teams. Like Green, a low-usage player who keeps winning titles."
-    },
-    "FAHMY WALID": {
-      nba: "Bruce Bowen",
-      desc: "Six seasons split between San Jose (2005-2011) and the Knights. One Second Team nod. 7.5 PPG and 4.6 RPG across 43 games. One championship (2011) and four Finals appearances. Like Bowen, a gritty role player on Finals teams whose defense defined his value."
-    },
-    "SAKLA ANDREW": {
-      nba: "Brandon Jennings",
-      desc: "Just three seasons (Modesto 2008-2009, Sacramento 2010), but 17.7 PPG and 3.1 SPG across 15 games. One All-PCAL selection. His 2008 season (21.3 PPG, 3.6 SPG) was one of the most dominant in league history -- on a 2-8 team. Like Jennings, a player who burst onto the scene with ridiculous production but couldn't stick around long enough to build a legacy."
-    },
-    "SAWIRIS MARK": {
-      nba: "Iman Shumpert",
-      desc: "Nine seasons with Hayward (2014-2023). 6.0 PPG with 1.2 SPG across 56 games. No championships, two Finals appearances. A defensive-minded wing on Hayward's post-dynasty teams. Like Shumpert, a hustle player whose defensive contributions outweighed his scoring."
-    },
-    "WAHBA JOHN": {
-      nba: "Joakim Noah",
-      desc: "Seven seasons with San Jose (2010-2016). 2.2 PPG but 3.9 RPG and 0.6 BPG across 72 games. Two championships. Wahba was San Jose's defensive anchor -- low scoring but high impact in rebounding and shot-blocking. Like Noah, an energy big who affected the game without needing the ball."
-    },
+  // Clicking a name anywhere in the tables pivots onto that player rather than
+  // leaving for their profile, so you can walk a chain of comps. The tables
+  // rebuild underneath, and the second one sits well down the page, so send
+  // the view back to the top on the way.
+  const topRef = useRef(null);
+  const feature = (name) => {
+    setPicked(name);
+    setSearch("");
+    if (topRef.current) topRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // Season columns run best to worst, left to right, the way the worked
+  // example on Pro-Football-Reference lays two careers on top of each other.
+  // Only as many columns as the longest row actually needs.
+  const table = (title, note, rows) => {
+    const cols = Math.min(ceiling, Math.max(
+      tables.capped.length, ...rows.map(r => r.vec.length)));
+    const seasonCells = (vec, cls) => Array.from({ length: cols }, (_, i) => (
+      <td key={i} className={`py-1.5 px-2 text-right text-[13px] tabular-nums whitespace-nowrap ${cls}`}>
+        {vec[i] === undefined ? "" : vec[i].toFixed(1)}
+      </td>
+    ));
+    return (
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-4">
+        <h3 className="text-[15px] font-black text-gray-900">{title}</h3>
+        <p className="text-[13px] text-gray-500 mb-2">{note}</p>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="py-1.5 pr-2 text-left text-[13px] font-black text-gray-900 w-8">Rk</th>
+                <th className="py-1.5 pr-3 text-right text-[13px] font-black text-gray-900 w-14">Sim</th>
+                <th className="py-1.5 pr-3 text-left text-[13px] font-black text-gray-900 whitespace-nowrap">Player</th>
+                <th className="py-1.5 pr-3 text-right text-[13px] font-black text-gray-900 whitespace-nowrap">Sns</th>
+                {Array.from({ length: cols }, (_, i) => (
+                  <th key={i} className="py-1.5 px-2 text-right text-[13px] font-black text-gray-900 tabular-nums">{i + 1}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="bg-gray-50 border-b-2 border-gray-300">
+                <td className="py-1.5 pr-2"></td>
+                <td className="py-1.5 pr-3 text-right text-[13px] font-black text-gray-400 tabular-nums">100.0</td>
+                <td className="py-1.5 pr-3">
+                  <button onClick={() => goToPlayer(tables.target.player)} title="Open player profile"
+                    className="flex items-center gap-1.5 whitespace-nowrap hover:underline">
+                    <TeamLogo team={primaryTeam[tables.target.player]} size={16} />
+                    <span className="text-[13px] font-black text-gray-900">{formatName(tables.target.player)}</span>
+                  </button>
+                </td>
+                <td className="py-1.5 pr-3 text-right text-[13px] font-bold text-gray-900 tabular-nums">{tables.target.seasons}</td>
+                {seasonCells(tables.capped, "font-bold text-gray-900")}
+              </tr>
+              {rows.map((r, i) => (
+                <tr key={r.career.player} className="border-b border-gray-100">
+                  <td className="py-1.5 pr-2 text-[13px] text-gray-400 tabular-nums">{i + 1}</td>
+                  <td className="py-1.5 pr-3 text-right text-[15px] font-black text-gray-900 tabular-nums">{r.score.toFixed(1)}</td>
+                  <td className="py-1.5 pr-3">
+                    <button onClick={() => feature(r.career.player)} title="Compare this player"
+                      className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline">
+                      <TeamLogo team={primaryTeam[r.career.player]} size={16} />
+                      <span>{formatName(r.career.player)}</span>
+                    </button>
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-[13px] text-gray-500 tabular-nums">{r.career.seasons}</td>
+                  {seasonCells(r.vec, "text-gray-600")}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-gray-800 mb-2">NBA Comparisons</h2>
-        <p className="text-sm text-gray-600 mb-4">The top 50 career Game Score leaders and their closest NBA player equivalents, based on play style, career arc, and role.</p>
+    <div ref={topRef}>
+      <div className="mb-4">
+        <h2 className="text-xl font-black text-gray-900 mb-2">Similarity Scores</h2>
+        <p className="text-[13px] text-gray-600 leading-relaxed max-w-3xl">
+          The most similar careers in PCAL history, using the method Doug Drinen built for
+          Pro-Football-Reference. It does not look for players who played alike. It looks for careers
+          of the same quality and the same shape: how many seasons, how far the best year sits above
+          the worst, whether the peak was short and high or long and level. 100 is a perfect match.
+          The numbered columns are AI Score by season, best on the left. Click any name in the
+          tables to pivot onto that player and see who they look like.
+        </p>
       </div>
 
-      {top50.map((p, i) => {
-        const comp = COMPS[p.player.toUpperCase()];
-        if (!comp) return null;
-        return (
-          <div key={p.player} className={`mb-5 ${i > 0 ? "pt-5 border-t border-gray-100" : ""}`}>
-            <div className="flex items-baseline gap-2 mb-1">
-              <span className="text-sm font-bold text-gray-400">{i + 1}.</span>
-              <button onClick={() => goToPlayer(p.player)} className="text-base font-bold text-indigo-600 hover:text-indigo-800 hover:underline">{formatName(p.player)}</button>
-              <span className="text-xs text-gray-400">{p.teams.join(", ")} | {p.years[0]}-{p.years[p.years.length - 1]}</span>
-            </div>
-            <div className="flex flex-wrap gap-3 text-[11px] text-gray-400 mb-2">
-              <span>{p.ppg} PPG</span>
-              <span>{p.rpg} RPG</span>
-              <span>{p.apg} APG</span>
-              <span>{p.spg} SPG</span>
-              <span>{p.bpg} BPG</span>
-              <span>{p.seasons}S / {p.g}G</span>
-              {p.mvps > 0 && <span className="text-yellow-600 font-medium">{p.mvps}x MVP</span>}
-              {p.allPcal > 0 && <span className="text-blue-500 font-medium">{p.allPcal}x All-PCAL</span>}
-              {p.champs > 0 && <span className="text-green-600 font-medium">{p.champs}x Champ</span>}
-            </div>
-            <div className="bg-gray-50 rounded-lg border border-gray-200 px-4 py-3">
-              <div className="text-xs font-bold text-gray-500 mb-1">NBA Comp: <span className="text-gray-800 text-sm">{comp.nba}</span></div>
-              <p className="text-sm text-gray-700 leading-relaxed">{comp.desc}</p>
-            </div>
+      <div className="flex flex-wrap items-end gap-4 mb-4">
+        <div>
+          <p className="text-[13px] font-black text-gray-900 mb-1.5">Seasons counted</p>
+          <div className="flex gap-1.5">
+            {CEILINGS.map(c => (
+              <button key={c} onClick={() => setCeiling(c)}
+                className={`px-3 py-1.5 rounded-full text-[13px] font-semibold transition-all ${ceiling === c ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                Best {c}
+              </button>
+            ))}
           </div>
-        );
-      })}
+        </div>
+        <div className="min-w-[16rem]">
+          <p className="text-[13px] font-black text-gray-900 mb-1.5">Player</p>
+          <input type="text" placeholder="Search any player..." value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-[13px] bg-white focus:outline-none focus:border-gray-400" />
+        </div>
+      </div>
 
-      <div className="mt-10 pt-8 border-t-2 border-gray-200">
-        <h2 className="text-xl font-bold text-gray-800 mb-2">PCAL Player Twins</h2>
-        <p className="text-sm text-gray-600 mb-6">The most statistically similar player pairs in PCAL history, based on per-game averages, career length, efficiency, and role.</p>
+      {search.trim() && (
+        <div className="mb-4 grid grid-cols-2 gap-1.5 max-w-3xl">
+          {matches.length === 0 && <p className="text-[13px] text-gray-500">No player in the pool by that name.</p>}
+          {matches.map(c => (
+            <button key={c.player} onClick={() => feature(c.player)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-100 bg-white hover:bg-gray-50">
+              <TeamLogo team={primaryTeam[c.player]} size={18} />
+              <span className="text-[13px] font-bold text-gray-900 flex-1 text-left whitespace-nowrap">{formatName(c.player)}</span>
+              <span className="text-[13px] text-gray-500 tabular-nums whitespace-nowrap">{c.seasons}S · {c.careerAi.toFixed(1)} AI</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-        {[
-          { a: "KELADA ANTHONY", b: "YOUSSEF ANDREW", desc: "Both averaged around 13-15 PPG with ~5 RPG and 1.3 APG across 10-11 seasons. Both won exactly 1 MVP. Both were the steady co-stars of dynasties -- Youssef alongside Shehata in Hayward, Kelada as the anchor of Sacramento. Seven championships each. The same player on different dynasty teams, a generation apart." },
-          { a: "SHEHATA GEORGE", b: "ABDELMALAK Simon", desc: "The do-everything playmakers of their respective eras. Nearly identical APG (2.5 vs 2.6) and elite steal rates, both with strong rebounding for their position. Shehata ran the Hayward dynasty from 2005-2013; Abdelmalak is building his legacy with San Jose right now. If Abdelmalak wins a few championships, this comparison becomes all-time." },
-          { a: "SHACKER MARK", b: "SHAMMAS BASHAR", desc: "The two highest career PPG averages in the PCAL -- Shacker at 18.4 and Shammas at 17.3. Pure bucket-getters who lived and died by volume scoring. Shammas did it in 3 seasons for Modesto; Shacker in 5 for San Jose and the Knights. Neither was known for efficiency, but both put up numbers nobody else could touch." },
-          { a: "BADROOS ANDREW", b: "ROUHANI DAVID", desc: "Defensive-minded glue guys on dynasty teams. Badroos (8.6 PPG, 2.0 SPG, 5 titles with Sacramento) mirrors Rouhani (10.5 PPG, 1.5 SPG, 7 titles with Hayward). Both thrived as the third or fourth option who made winning plays instead of highlight reels." },
-          { a: "ABDELSAYED JOE", b: "MASOUD DAVID", desc: "The statistical twins: 8.3/3.2 vs 7.6/2.6 PPG/RPG across 12 and 11 seasons. Both were long-tenured scorers on competitive teams who never won individual awards but always filled a role. Sacramento and Hayward lifers, respectively. The same mid-tier starter on opposite sides of the rivalry." },
-          { a: "GAD MOUNIR", b: "TAWDROS Marios", desc: "Paint-dominant big men with nearly identical stat lines: Gad at 14.9/6.8 and Tawdros at 14.1/7.4. Both with elite block rates. Gad played 11 seasons across multiple teams; Tawdros is just 4 seasons in with Pleasanton. If Tawdros keeps this up, he'll be Gad's modern reincarnation." },
-          { a: "MASDARY JOSH", b: "MICHAEL JIMMY", desc: "Role players with eerily similar lines: 6.9/3.5/1.1 vs 7.6/3.7/1.1 across 11-12 seasons. Both accumulated over 100 career steals. Masdary spent his entire career with San Jose; Michael split time between Concord and San Ramon. The reliable seventh man on every roster." },
-          { a: "POULES ABANOB", b: "SAWIRIS YOUSSEF", desc: "Mid-range scorers (9.3 vs 8.3 PPG) across long careers (15 vs 11 seasons). Similar rebounding and assist rates. The difference? Poules won 7 championships with Sacramento's dynasty; Sawiris won 2 during Hayward's post-dynasty years. Same player, wildly different trophy cases." },
-          { a: "HANNA GEORGE", b: "MOUSSA TONY", desc: "The ironmen. Hanna played 18 seasons (mostly Concord), Moussa 16 (mostly San Jose). Both averaged under 8 PPG but accumulated massive career totals through sheer longevity. Between them, 34 seasons and 277 games of just showing up every single year." },
-          { a: "GIRGIS ZACK", b: "NASHED GEORGE", desc: "20-year and 17-year careers built entirely on rebounding and availability. Girgis at 5.0 RPG across 163 games, Nashed at 6.0 RPG across 118. Neither scored much. Both collected championships by being on great rosters and doing the dirty work nobody else wanted to do." },
-          { a: "MIKHAIL ALEX", b: "BADROOS ANDREW", desc: "Two-way role players who anchored championship defenses a decade apart. Mikhail's 2.0 SPG for Hayward mirrors Badroos's 2.0 SPG for Sacramento. Similar scoring (8.8 vs 8.6 PPG) across similar career lengths. The defensive identity player that every dynasty needs." },
-          { a: "ISHAK EDDIE", b: "SOLIMAN MIKE", desc: "Short but explosive careers with elite all-around stat lines. Eddie at 11.4/8.3/2.0/0.6 in 27 games, Soliman at 9.8/8.5/2.4/1.5 in 32 games. Both were five-category contributors who could do everything. Two of the most talented per-game players who just didn't play long enough." },
-          { a: "AWAD MARK", b: "MALEK JOHN", desc: "Rebounding specialists on Sacramento teams across different eras. Awad at 5.1 RPG over 13 seasons, Malek at 4.4 RPG over 9 seasons. Both with minimal scoring and maximum effort. The glass-cleaners who made championship contenders possible." },
-          { a: "SHEHATA Jacob", b: "ALLICOCK WARREN", desc: "High-volume scorers in short careers. Jacob at 20.5 PPG in 4 seasons for Pacific, Allicock at 16.3 PPG in 4 seasons for Concord. Both put up huge numbers on smaller teams but couldn't lead them to championships. The franchise-scorer-without-a-franchise." },
-          { a: "MULUGETA YONI", b: "YOUSSEF ANDREW", desc: "Scoring wings who peaked in the mid-to-high teens PPG. Mulugeta bounced across 5 teams over 13 seasons; Youssef stayed loyal to Hayward for 11. Similar rebounding and steal rates. Both won 1 MVP and 3+ championships. Two paths to the same destination." },
-        ].map((pair, i) => {
-          const pA = careers.find(p => p.player.toUpperCase() === pair.a.toUpperCase());
-          const pB = careers.find(p => p.player.toUpperCase() === pair.b.toUpperCase());
-          return (
-            <div key={i} className={`mb-5 ${i > 0 ? "pt-5 border-t border-gray-100" : ""}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <button onClick={() => goToPlayer(pair.a)} className="text-sm font-bold text-indigo-600 hover:text-indigo-800 hover:underline">{formatName(pair.a)}</button>
-                <span className="text-xs text-gray-400 font-medium">vs</span>
-                <button onClick={() => goToPlayer(pair.b)} className="text-sm font-bold text-indigo-600 hover:text-indigo-800 hover:underline">{formatName(pair.b)}</button>
-              </div>
-              {pA && pB && (
-                <div className="flex gap-4 mb-2 text-[11px] text-gray-400">
-                  <div><span className="font-medium text-gray-500">{formatName(pair.a)}:</span> {pA.ppg}/{pA.rpg}/{pA.apg} | {pA.seasons}S {pA.g}G</div>
-                  <div><span className="font-medium text-gray-500">{formatName(pair.b)}:</span> {pB?.ppg}/{pB?.rpg}/{pB?.apg} | {pB?.seasons}S {pB?.g}G</div>
-                </div>
-              )}
-              <p className="text-sm text-gray-700 leading-relaxed">{pair.desc}</p>
-            </div>
-          );
-        })}
+      {tables && (
+        <>
+          {table(
+            `Most Similar Through Year ${tables.target.seasons}`,
+            `Every other career cut back to its first ${tables.target.seasons} seasons.`,
+            tables.through)}
+          {table(
+            "Most Similar Careers",
+            "Every career at full length.",
+            tables.career)}
+        </>
+      )}
+
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 max-w-3xl">
+        <h3 className="text-[15px] font-black text-gray-900 mb-1">How it works</h3>
+        <p className="text-[13px] text-gray-600 leading-relaxed mb-2">
+          Each player&apos;s seasons are sorted best to worst by AI Score, then truncated to the best {ceiling}.
+          Career value weights the best season at 1, the second at 0.95, the third at 0.90 and so on down.
+          The penalty is the same weighted sum applied to the season-by-season gaps between two players.
+          The score is 100 times one minus twice the penalty over the two career values, so two identical
+          careers score 100 and the number falls as the shapes come apart.
+        </p>
+        <p className="text-[13px] text-gray-600 leading-relaxed mb-2">
+          The first table is the useful one for anyone still playing. It measures a career against
+          everybody else at the same stage rather than against finished careers, which is why a player
+          five years in can sit near an all-timer there and nowhere near them in the second table.
+        </p>
+        <p className="text-[13px] text-gray-500 leading-relaxed">
+          Pool is the {pool.length} players with at least {MIN_SEASONS} seasons and a career value above zero.
+          A season is a player&apos;s AI Score for that year, added together when they played for two teams.
+          PCAL records no positions, so everyone is compared against everyone rather than against a
+          positional group. AI Score is the league&apos;s season metric, so all of this is according to
+          PCAL AI Score.
+        </p>
       </div>
     </div>
   );
